@@ -1,0 +1,9 @@
+# 비밀 정보와 학생 데이터는 절대 올리지 않기
+.streamlit/secrets.toml
+data/
+client_secret*.json
+*service_account*.json
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
