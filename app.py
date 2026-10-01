@@ -15,6 +15,23 @@ from views import account, dashboard, emotion, home, intro, math_class, sudanote
 
 st.set_page_config(page_title=APP_TITLE, page_icon="📐", layout="wide")
 ui.inject_css()
+
+# 저장소 연결 확인: 실패하면 무엇을 고쳐야 하는지 보여 주고 멈춤
+try:
+    db.get_backend()
+except Exception as e:
+    ui.page_title("설정을 확인해 주세요", "앱이 데이터 저장소에 연결하지 못했어요.")
+    st.error(str(e))
+    st.markdown(
+        "**확인할 것**\n\n"
+        "1. Streamlit Cloud 앱의 **Settings → Secrets**에 `[app]`과 `[github]`이 들어 있나요?\n"
+        "2. `repo`는 `내아이디/저장소이름` 형식인가요?\n"
+        "3. 데이터 저장소가 **비공개(Private)** 인가요?\n"
+        "4. 토큰의 **Contents** 권한이 **Read and write**이고, 데이터 저장소가 선택되어 있나요?\n\n"
+        "고친 뒤 오른쪽 아래 **Manage app → ⋮ → Reboot app**을 누르세요."
+    )
+    st.stop()
+
 auth.ensure_teacher()
 
 
@@ -62,6 +79,9 @@ def login_page():
                     st.session_state["_login_fail"] = 0
                 st.error("학번 또는 비밀번호가 맞지 않아요. 잊어버렸다면 선생님께 초기화를 부탁하세요.")
         st.caption("선생님은 교사 아이디로 같은 곳에서 로그인합니다.")
+        if db.get_backend().is_local:
+            st.warning("지금은 시험 모드예요. 서버가 다시 시작되면 데이터가 사라집니다. "
+                       "(secrets 에 깃허브 저장소를 설정하면 계속 보관돼요)")
 
 
 # ------------------------------------------------- 학생 화면 실시간 확인 ---
@@ -130,7 +150,7 @@ def sidebar(user):
                 if st.button("모두 잠금 해제", width="stretch"):
                     rt.set_lock(locked, False)
                     st.rerun()
-            st.caption(f"저장소: {db.get_backend().label}")
+            st.caption(db.backend_status())
         if st.button("로그아웃", width="stretch"):
             if not is_t:
                 rt.leave(user["id"])
