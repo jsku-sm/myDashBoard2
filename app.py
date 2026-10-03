@@ -7,6 +7,7 @@ import time
 import streamlit as st
 
 import auth
+import login_bg
 import realtime as rt
 import storage as db
 import ui
@@ -37,6 +38,7 @@ auth.ensure_teacher()
 
 # ------------------------------------------------------------ 로그인 화면 ---
 def login_page():
+    st.markdown(login_bg.html(), unsafe_allow_html=True)
     left, right = st.columns([1.15, 1], gap="large")
     with left:
         st.markdown(
@@ -48,9 +50,8 @@ def login_page():
             "학번과 비밀번호로 들어오세요. 처음 들어오는 학생은 **비밀번호가 학번과 같아요.** "
             "들어오면 바로 새 비밀번호로 바꾸게 됩니다."
         )
-    with right:
-        st.write("")
-        with st.form("login", border=True):
+    with right, st.container(key="login_card"):
+        with st.form("login", border=False):
             st.markdown("### 로그인")
             uid = st.text_input("학번", placeholder="예: 10101")
             pw = st.text_input("비밀번호", type="password")
@@ -79,6 +80,8 @@ def login_page():
                     st.session_state["_login_fail"] = 0
                 st.error("학번 또는 비밀번호가 맞지 않아요. 잊어버렸다면 선생님께 초기화를 부탁하세요.")
         st.caption("선생님은 교사 아이디로 같은 곳에서 로그인합니다.")
+        st.caption("🌗 화면 밝기는 오른쪽 위 ⋮ 메뉴에서 고를 수 있어요. "
+                   "(System = 기기 설정 따라가기 · Light = 밝게 · Dark = 어둡게)")
         if db.get_backend().is_local:
             st.warning("지금은 시험 모드예요. 서버가 다시 시작되면 데이터가 사라집니다. "
                        "(secrets 에 깃허브 저장소를 설정하면 계속 보관돼요)")

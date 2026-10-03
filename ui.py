@@ -10,9 +10,24 @@ CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Jua&display=swap');
 @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css');
+/* 색 토큰: light-dark(밝은 모드, 어두운 모드) — 화면 모드를 바꾸면 즉시 따라 바뀜 */
 :root{
-  --paper:#FBFCFE; --grid:#E4ECF8; --ink:#1E2A4A; --muted:#66728A;
-  --hl:#FFE45C; --mint:#2BB39A; --coral:#F0645A; --sky:#5AA9E6;
+  --paper:light-dark(#FBFCFE, #0F1626);
+  --grid:light-dark(#E4ECF8, rgba(150,180,235,.09));
+  --ink:light-dark(#1E2A4A, #E6ECF7);
+  --muted:light-dark(#66728A, #9AA8C2);
+  --hl:#FFE45C;
+  --hl-mark:light-dark(#FFE45C, rgba(255,228,92,.38));
+  --mint:light-dark(#2BB39A, #4FD8BD); --coral:light-dark(#F0645A, #FF8A80); --sky:light-dark(#5AA9E6, #7CC2FF);
+  --card:light-dark(#FFFFFF, #17213A);
+  --line:light-dark(#D5DFEE, #2C3A5C);
+  --soft:light-dark(#EEF2FA, #22304D);
+  --side:light-dark(#F3F6FC, #121B2E);
+  --note-y-bg:light-dark(#FFFBE0, #2A2814); --note-y-bd:light-dark(#F2DE7A, #5E5420);
+  --note-m-bg:light-dark(#EAF8F4, #102E29); --note-m-bd:light-dark(#A9E2D5, #1F5C50);
+  --note-c-bg:light-dark(#FFF0EE, #36191C); --note-c-bd:light-dark(#F6B9B3, #6B3236);
+  --veil:light-dark(#1E2A4A, #060A14);
+  --formula:light-dark(#9BB0D3, #5F769E);
 }
 html, body, .stApp, .stApp p, .stApp li, .stApp label, .stApp input, .stApp textarea, .stApp button {
   font-family:'Pretendard', -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
@@ -26,32 +41,36 @@ html, body, .stApp, .stApp p, .stApp li, .stApp label, .stApp input, .stApp text
   color:var(--ink);
 }
 h1,h2,h3,h4{font-family:'Jua','Pretendard',sans-serif !important; font-weight:400 !important; color:var(--ink);}
-[data-testid="stSidebar"]{background:#F3F6FC; border-right:2px solid var(--grid);}
+[data-testid="stSidebar"]{background:var(--side); border-right:2px solid var(--grid);}
 [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2{font-size:1.5rem;}
 .block-container{max-width:1100px; padding-top:2.2rem;}
 
 /* 페이지 제목: 형광펜 밑줄 */
 .pg-title{font-family:'Jua',sans-serif; font-size:2.3rem; line-height:1.25; margin:0 0 .2rem 0; color:var(--ink);}
-.pg-title span{background:linear-gradient(transparent 58%, var(--hl) 58%); padding:0 .15em;}
+.pg-title span{background:linear-gradient(transparent 58%, var(--hl-mark) 58%); padding:0 .15em;}
 .pg-sub{color:var(--muted); margin:0 0 1.4rem 0; font-size:1.02rem;}
 
 /* 노트 카드 */
-.note{background:#fff; border:1.5px solid #D5DFEE; border-radius:14px; padding:1.1rem 1.3rem; margin:.4rem 0 1rem;}
-.note.yellow{background:#FFFBE0; border-color:#F2DE7A;}
-.note.mint{background:#EAF8F4; border-color:#A9E2D5;}
-.note.coral{background:#FFF0EE; border-color:#F6B9B3;}
+.note{background:var(--card); border:1.5px solid var(--line); color:var(--ink); border-radius:14px; padding:1.1rem 1.3rem; margin:.4rem 0 1rem;}
+.note.yellow{background:var(--note-y-bg); border-color:var(--note-y-bd);}
+.note.mint{background:var(--note-m-bg); border-color:var(--note-m-bd);}
+.note.coral{background:var(--note-c-bg); border-color:var(--note-c-bd);}
 .note h4{margin:0 0 .4rem 0;}
+/* 팝업 창(st.dialog)은 앱 바깥에 그려져서 반투명 색으로 두 모드 모두 대응 */
+[role="dialog"] h1,[role="dialog"] h2,[role="dialog"] h3,[role="dialog"] h4{color:inherit !important;}
+[role="dialog"] .note{color:inherit; background:rgba(127,140,170,.12); border-color:rgba(127,140,170,.35);}
+[role="dialog"] .note.coral{background:rgba(240,100,90,.14); border-color:rgba(240,100,90,.5);}
 .meta{color:var(--muted); font-size:.86rem;}
-.chip{display:inline-block; padding:.08rem .55rem; border-radius:99px; background:#EEF2FA; color:var(--ink); font-size:.82rem; margin-right:.3rem;}
+.chip{display:inline-block; padding:.08rem .55rem; border-radius:99px; background:var(--soft); color:var(--ink); font-size:.82rem; margin-right:.3rem;}
 
 /* 로그인 */
 .hero{font-family:'Jua',sans-serif; font-size:3rem; line-height:1.15; color:var(--ink); margin:1.2rem 0 .3rem;}
-.hero span{background:linear-gradient(transparent 60%, var(--hl) 60%);}
-.formula{font-family:'Jua',sans-serif; color:#9BB0D3; font-size:1.25rem; letter-spacing:.02em;}
+.hero span{background:linear-gradient(transparent 60%, var(--hl-mark) 60%);}
+.formula{font-family:'Jua',sans-serif; color:var(--formula); font-size:1.25rem; letter-spacing:.02em;}
 
 /* 감정 선택 버튼 */
 .st-key-emo_grid button{
-  min-height:118px; border-radius:22px; border:2px solid #D5DFEE; background:#fff;
+  min-height:118px; border-radius:22px; border:2px solid var(--line); background:var(--card);
   transition:transform .15s ease, box-shadow .15s ease, border-color .15s;
 }
 .st-key-emo_grid button p{font-size:2.6rem; line-height:1.25; white-space:normal; overflow:visible; text-overflow:clip;}
@@ -61,7 +80,7 @@ h1,h2,h3,h4{font-family:'Jua','Pretendard',sans-serif !important; font-weight:40
 .st-key-emo_grid button:focus-visible{outline:3px solid var(--sky);}
 
 /* 잠금 화면 */
-.lock-veil{position:fixed; inset:0; z-index:999990; background:var(--ink);
+.lock-veil{position:fixed; inset:0; z-index:999990; background:var(--veil);
   display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:2rem;}
 .lock-veil .lk-icon{font-size:6rem; color:#FFE45C; line-height:1; animation:lockpulse 1.8s ease-in-out infinite;}
 .lock-veil .msg{font-family:'Jua',sans-serif; color:#fff; font-size:2.4rem; margin-top:1rem; max-width:16em; word-break:keep-all; line-height:1.4;}
@@ -74,7 +93,7 @@ h1,h2,h3,h4{font-family:'Jua','Pretendard',sans-serif !important; font-weight:40
 .fw-burst{position:absolute; width:0; height:0;}
 .fw-burst i{position:absolute; display:block; left:0; top:0; width:9px; height:9px; border-radius:50%; background:var(--c);
   opacity:0; animation:fwfly 1.5s cubic-bezier(.15,.7,.3,1) both; animation-delay:var(--d);}
-.fw-msg{position:absolute; left:50%; top:42%; transform:translate(-50%,-50%); background:#fff; border:3px solid var(--ink);
+.fw-msg{position:absolute; left:50%; top:42%; transform:translate(-50%,-50%); background:var(--card); border:3px solid var(--ink);
   border-radius:20px; padding:1.1rem 2rem; text-align:center; box-shadow:8px 8px 0 var(--hl); animation:fwpop .6s .2s both;}
 .fw-msg b{font-family:'Jua',sans-serif; font-size:2.4rem; color:var(--ink); display:block;}
 .fw-msg small{color:var(--muted); font-size:1.05rem;}
