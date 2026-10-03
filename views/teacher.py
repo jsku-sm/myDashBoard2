@@ -1,4 +1,4 @@
-"""6. 교사전용: 관찰기록 / 상점·벌점 / 학생 명단 / 설정"""
+"""교사전용: 화면 잠금 / 관찰기록 / 상점·벌점 / 생기부 생성기 / 학생 명단 / 설정"""
 import io
 
 import pandas as pd
@@ -8,6 +8,7 @@ import auth
 import realtime as rt
 import storage as db
 import ui
+from views.record import tab_record
 from config import CLASSES, DEFAULT_UNITS, OBSERVATION_CATEGORIES, POINT_REASONS, SUBJECTS
 
 
@@ -265,14 +266,17 @@ def page(user):
     if user["role"] != "teacher":
         st.error("선생님만 볼 수 있는 화면이에요.")
         return
-    ui.page_title("교사전용", "화면 잠금, 관찰기록, 상점·벌점, 학생 명단, 설정")
-    t0, t1, t2, t3, t4 = st.tabs(["🔒 화면 잠금", "📒 관찰기록", "⭐ 상점·벌점", "👥 학생 명단", "⚙️ 설정"])
+    ui.page_title("교사전용", "화면 잠금, 관찰기록, 상점·벌점, 생기부 생성기, 학생 명단, 설정")
+    t0, t1, t2, t5, t3, t4 = st.tabs(["🔒 화면 잠금", "📒 관찰기록", "⭐ 상점·벌점", "📝 생기부 생성기",
+                                      "👥 학생 명단", "⚙️ 설정"])
     with t0:
         tab_lock()
     with t1:
         tab_observe()
     with t2:
         tab_points()
+    with t5:
+        tab_record()
     with t3:
         tab_roster()
     with t4:

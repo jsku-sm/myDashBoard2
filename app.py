@@ -126,10 +126,30 @@ def show_popups():
 
 
 # ------------------------------------------------------------ 사이드바 ---
-STUDENT_PAGES = ["🏠 홈", "👋 내 소개", "🔭 관심 분야", "📐 공통수학1", "📏 공통수학2",
-                 "📝 수다노트", "🧰 수업도구", "🔑 내 정보"]
-TEACHER_PAGES = ["📊 대시보드", "👋 내 소개", "🔭 관심 분야", "📐 공통수학1", "📏 공통수학2",
-                 "📝 수다노트", "🧰 수업도구", "🛡️ 교사전용", "🔑 내 정보"]
+# 메뉴 (id, 이름, 번호 붙임 여부, 보이는 사람). 번호는 보이는 메뉴 순서대로 자동으로 붙어요.
+MENU = [
+    ("home", "🏠 홈", False, "student"),
+    ("dashboard", "📊 대시보드", False, "teacher"),
+    ("intro", "👋 선생님 소개", True, "all"),
+    ("math1", "📐 공통수학1", True, "all"),
+    ("math2", "📏 공통수학2", True, "all"),
+    ("sudanote", "📝 수다노트", True, "all"),
+    ("tools", "🧰 수업도구", True, "all"),
+    ("teacher", "🛡️ 교사전용", True, "teacher"),
+    ("account", "🔑 내 정보", False, "all"),
+]
+
+
+def menu_for(role):
+    items, n = {}, 0
+    for mid, label, numbered, who in MENU:
+        if who not in ("all", role):
+            continue
+        if numbered:
+            n += 1
+            label = f"{n}. {label}"
+        items[mid] = label
+    return items
 
 
 def sidebar(user):
@@ -140,7 +160,10 @@ def sidebar(user):
             st.markdown(f"**{user['name']}** · 교사")
         else:
             st.markdown(f"**{user['name']}** ({user['class']} · {user['id']})")
-        page = st.radio("메뉴", TEACHER_PAGES if is_t else STUDENT_PAGES, key="nav",
+        items = menu_for(user["role"])
+        if st.session_state.get("nav") not in items:
+            st.session_state.pop("nav", None)
+        page = st.radio("메뉴", list(items), format_func=items.get, key="nav",
                         label_visibility="collapsed")
         st.divider()
         if is_t:
@@ -189,15 +212,14 @@ if user["role"] == "student" and not emotion.done_today(user):
 page = sidebar(user)
 
 ROUTES = {
-    "🏠 홈": lambda: home.page(user),
-    "📊 대시보드": lambda: dashboard.page(user),
-    "👋 내 소개": lambda: intro.intro_page(user),
-    "🔭 관심 분야": lambda: intro.interests_page(user),
-    "📐 공통수학1": lambda: math_class.page(user, "공통수학1"),
-    "📏 공통수학2": lambda: math_class.page(user, "공통수학2"),
-    "📝 수다노트": lambda: sudanote.page(user),
-    "🧰 수업도구": lambda: tools.page(user),
-    "🛡️ 교사전용": lambda: teacher.page(user),
-    "🔑 내 정보": lambda: account.page(user),
+    "home": lambda: home.page(user),
+    "dashboard": lambda: dashboard.page(user),
+    "intro": lambda: intro.intro_page(user),
+    "math1": lambda: math_class.page(user, "공통수학1"),
+    "math2": lambda: math_class.page(user, "공통수학2"),
+    "sudanote": lambda: sudanote.page(user),
+    "tools": lambda: tools.page(user),
+    "teacher": lambda: teacher.page(user),
+    "account": lambda: account.page(user),
 }
 ROUTES[page]()

@@ -34,6 +34,9 @@ SCHEMAS: dict[str, list[str]] = {
                   "title", "content", "answer", "answered_at"],
     "observations": ["id", "created_at", "class", "student_id", "name", "category", "content"],
     "points": ["id", "created_at", "class", "student_id", "name", "kind", "score", "reason"],
+    "records": ["id", "updated_at", "period", "subject", "class", "student_id", "name", "text", "sources"],
+    "sudanotes": ["id", "created_at", "date", "time", "class", "student_id", "name", "subject",
+                  "q1", "q2", "q3", "q4", "q5"],
 }
 
 CACHE_TTL = {"users": 60, "settings": 60}
@@ -154,13 +157,15 @@ class SetupError(Exception):
 
 
 PARTITIONED = {"logins", "emotions"}  # 매일 쌓이는 표는 월별 파일로 나눠 저장
+BY_STUDENT = {"sudanotes"}  # 학생별 파일로 저장: data/sudanotes/<학번>.csv
 FLUSH_SEC = 8
 
 
 class GitHubBackend:
     """별도의 '비공개' 깃허브 저장소에 데이터를 저장합니다.
 
-    - 표 데이터: data/<표>.csv  (logins, emotions 는 data/<표>/<YYYY-MM>.csv)
+    - 표 데이터: data/<표>.csv  (logins, emotions 는 data/<표>/<YYYY-MM>.csv,
+      수다노트는 학생별 data/sudanotes/<학번>.csv)
     - 업로드 파일: files/<YYYY-MM>/<이름>
     읽기는 서버 메모리에서 바로 하고, 변경 사항은 8초마다 모아서 커밋 1개로 저장합니다.
     (학생 30명이 동시에 저장해도 커밋은 하나라서 빠르고 충돌이 없습니다)
@@ -259,6 +264,9 @@ class GitHubBackend:
 
     @staticmethod
     def _path(table, row):
+        if table in BY_STUDENT:
+            sid = "".join(ch for ch in (row.get("student_id") or "unknown") if ch.isalnum() or ch in "-_")
+            return f"data/{table}/{sid or 'unknown'}.csv"
         if table in PARTITIONED:
             month = (row.get("date") or row.get("created_at") or "")[:7] or "unknown"
             return f"data/{table}/{month}.csv"

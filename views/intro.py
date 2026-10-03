@@ -1,11 +1,9 @@
-"""1. 내 소개 (프로필) / 2. 관심 분야"""
+"""선생님 소개 (프로필)"""
 from html import escape
 from pathlib import Path
 
 import streamlit as st
 
-import storage as db
-import ui
 from profile_data import (ACTIVITIES, AWARD, FOCUS_AREAS, GLOBAL_TRAINING, LECTURE_SCHOOLS,
                           PROFILE, QUALIFICATIONS, SHARING_TOPICS, TRAINING_TEXT)
 
@@ -149,21 +147,3 @@ def intro_page(user):
     _html(f'<div class="pf-footer">© 2026 {escape(PROFILE["name"])} · 배우고, 나누고, 함께 성장합니다.</div>')
     if user["role"] == "teacher":
         st.caption("✏️ 이 화면의 내용은 코드 저장소의 `profile_data.py`에서, 사진은 `assets/profile.png`에서 바꿀 수 있어요.")
-
-
-def _editable(user, key, title, sub):
-    ui.page_title(title, sub)
-    text = db.get_setting(key)
-    with st.container(border=True):
-        st.markdown(text)
-    if user["role"] == "teacher":
-        with st.expander("✏️ 내용 고치기 (마크다운 사용 가능)"):
-            new = st.text_area("내용", value=text, height=260, key=f"edit_{key}")
-            if st.button("저장", type="primary", key=f"save_{key}"):
-                db.set_setting(key, new)
-                st.success("저장했어요.")
-                st.rerun()
-
-
-def interests_page(user):
-    _editable(user, "interests", "공부하는 분야 · 관심 있는 분야", "요즘 선생님이 파고들고 있는 것들이에요.")
