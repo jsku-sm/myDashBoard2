@@ -1,10 +1,11 @@
-"""5. 수업도구 + 교사 화면 잠금."""
+"""5. 수업도구 (화면 잠금은 교사전용 메뉴로 옮김)."""
+import html
+
 import streamlit as st
 
-import realtime as rt
 import storage as db
 import ui
-from config import CLASSES
+from config import DEFAULT_SETTINGS
 
 TOOLS = [
     ("tool_snorkl", "가. 스노클", "AI가 내 풀이 설명을 듣고 피드백해 줘요."),
@@ -15,38 +16,46 @@ TOOLS = [
 ]
 
 
-def lock_panel():
-    with st.container(border=True):
-        st.markdown("### 🔒 화면 잠금")
-        st.caption("잠그면 해당 학급 학생들의 이 앱 화면이 몇 초 안에 잠기고, 해제하면 원래대로 돌아와요. "
-                   "(학생이 따로 열어 둔 다른 사이트 탭까지 잠글 수는 없어요.)")
-        status = " ".join(f"{'🔒' if rt.is_locked(c) else '🔓'} {c}" for c in CLASSES)
-        st.markdown(status)
-        targets = st.multiselect("대상 학급", CLASSES, default=CLASSES, key="lock_targets")
-        msg = st.text_input("잠금 화면 문구", value=db.get_setting("lock_message"), key="lock_msg")
-        c1, c2 = st.columns(2)
-        if c1.button("🔒 잠금", type="primary", width="stretch", disabled=not targets):
-            if msg != db.get_setting("lock_message"):
-                db.set_setting("lock_message", msg)
-            rt.set_lock(targets, True)
-            st.rerun()
-        if c2.button("🔓 잠금 해제", width="stretch", disabled=not targets):
-            rt.set_lock(targets, False)
-            st.rerun()
+def app_table(links):
+    """마. 앱 (by 구쌤): 번호와 학습 주제만 표로 보여 주고, 주제를 누르면 새 탭에서 열림."""
+    rows = "".join(
+        f'<tr><td class="num">{i:02}</td><td class="topic">'
+        f'<a href="{html.escape(url, quote=True)}" target="_blank" rel="noopener noreferrer">'
+        f'{html.escape(name)}</a></td></tr>'
+        for i, (name, url) in enumerate(links, start=1)
+    )
+    st.markdown(
+        "<style>"
+        ".app-table-wrap{overflow-x:auto;border:1.5px solid #D5DFEE;border-radius:12px;background:#fff;}"
+        ".app-table{width:100%;border-collapse:collapse;color:var(--ink);font-size:1rem;margin:0;}"
+        ".app-table th,.app-table td{padding:.85rem 1.2rem;border-bottom:1px solid #E9EEF6;text-align:left;}"
+        ".app-table th{background:#EEF2FA;color:#526070;font-size:.84rem;font-weight:700;}"
+        ".app-table tr:last-child td{border-bottom:0;}"
+        ".app-table .num{width:5rem;color:#8391A8;font-variant-numeric:tabular-nums;}"
+        ".app-table .topic a{color:var(--ink);font-weight:650;text-decoration:none;}"
+        ".app-table .topic a:hover{text-decoration:underline;text-decoration-color:var(--hl);text-decoration-thickness:3px;}"
+        "</style>"
+        f'<div class="app-table-wrap"><table class="app-table"><thead><tr><th>번호</th><th>학습 주제</th></tr></thead>'
+        f"<tbody>{rows}</tbody></table></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def page(user):
     is_t = user["role"] == "teacher"
     ui.page_title("수업도구", "수업에서 함께 쓰는 도구 모음")
-    if is_t:
-        lock_panel()
 
     for key, title, desc in TOOLS:
-        links = ui.parse_links(db.get_setting(key))
+        raw = db.get_setting(key)
+        if key == "tool_apps" and not raw.strip():
+            raw = DEFAULT_SETTINGS["tool_apps"]
+        links = ui.parse_links(raw)
         st.markdown(f"#### {title}")
         st.caption(desc)
         if not links:
             st.caption("선생님이 링크를 준비 중이에요.")
+        elif key == "tool_apps":
+            app_table(links)
         else:
             cols = st.columns(min(len(links), 3))
             for i, (name, url) in enumerate(links):

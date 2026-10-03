@@ -15,6 +15,27 @@ def _label(u):
     return f"{u['id']} {u['name']}"
 
 
+# ----------------------------------------------------------- 화면 잠금 ---
+def tab_lock():
+    st.caption("잠그면 해당 학급 학생들의 이 앱 화면이 몇 초 안에 잠기고, 해제하면 원래대로 돌아와요. "
+               "(학생이 따로 열어 둔 다른 사이트 탭까지 잠글 수는 없어요.)")
+    cols = st.columns(len(CLASSES))
+    for col, c in zip(cols, CLASSES):
+        col.markdown(f"{'🔒' if rt.is_locked(c) else '🔓'} **{c}**")
+    targets = st.multiselect("대상 학급", CLASSES, default=CLASSES, key="lock_targets",
+                             placeholder="학급을 고르세요")
+    msg = st.text_input("잠금 화면 문구", value=db.get_setting("lock_message"), key="lock_msg")
+    c1, c2 = st.columns(2)
+    if c1.button("🔒 잠금", type="primary", width="stretch", disabled=not targets):
+        if msg != db.get_setting("lock_message"):
+            db.set_setting("lock_message", msg)
+        rt.set_lock(targets, True)
+        st.rerun()
+    if c2.button("🔓 잠금 해제", width="stretch", disabled=not targets):
+        rt.set_lock(targets, False)
+        st.rerun()
+
+
 # ----------------------------------------------------------- 관찰기록 ---
 def tab_observe():
     c1, c2 = st.columns(2)
@@ -244,8 +265,10 @@ def page(user):
     if user["role"] != "teacher":
         st.error("선생님만 볼 수 있는 화면이에요.")
         return
-    ui.page_title("교사전용", "관찰기록, 상점·벌점, 학생 명단, 설정")
-    t1, t2, t3, t4 = st.tabs(["📒 관찰기록", "⭐ 상점·벌점", "👥 학생 명단", "⚙️ 설정"])
+    ui.page_title("교사전용", "화면 잠금, 관찰기록, 상점·벌점, 학생 명단, 설정")
+    t0, t1, t2, t3, t4 = st.tabs(["🔒 화면 잠금", "📒 관찰기록", "⭐ 상점·벌점", "👥 학생 명단", "⚙️ 설정"])
+    with t0:
+        tab_lock()
     with t1:
         tab_observe()
     with t2:
