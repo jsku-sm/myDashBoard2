@@ -68,7 +68,13 @@ DEFAULT_SETTINGS = {
     "tool_desmos": "데스모스 그래핑 계산기|https://www.desmos.com/calculator\n데스모스 기하|https://www.desmos.com/geometry",
     "tool_activity": "데스모스 액티비티 (학생 입장)|https://student.desmos.com",
     "tool_quiz": "",
-    "tool_apps": "",
+    "tool_apps": (
+        "픽토그램|https://jsku-sm.github.io/pictogram/\n"
+        "집합 개념 퀴즈|https://jsku-sm.github.io/math_setQuiz/\n"
+        "좌표평면|https://js-math.streamlit.app/?embed=true\n"
+        "집합의 연산 · 벤다이어그램|https://jsku-sm.github.io/math_quiz/\n"
+        "직선의 방정식 · 퀴즈|https://jsku-sm.github.io/line_mathQuiz/"
+    ),
     "feedback_messages": (
         "{name}님, 오늘 생각을 끝까지 정리해 낸 것 자체가 멋진 일이에요! 👏\n"
         "{name}님의 풀이 흔적이 잘 전해졌어요. 틀린 부분이 있어도 그게 다음 배움의 출발점이에요.\n"

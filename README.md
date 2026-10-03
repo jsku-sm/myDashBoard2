@@ -18,7 +18,9 @@ Streamlit으로 만든 수업용 웹앱입니다.
 .streamlit/secrets.toml.example  비밀 설정 예시
 views/                           메뉴별 화면
 .gitignore
+assets/profile.png               '내 소개' 프로필 사진
 app.py  auth.py  config.py  realtime.py  storage.py  ui.py
+profile_data.py                  '내 소개' 화면의 글 내용
 requirements.txt  students_template.csv  README.md
 ```
 
@@ -146,9 +148,11 @@ files/2026-10/...             업로드한 파일 원본
 | 학습지·평가계획 올리기 | 공통수학1·2 탭 |
 | 학생 결과물 확인·한마디 | 공통수학 → 학급 게시판 |
 | 질문 답변 | 공통수학 → 질문 게시판 |
-| 화면 잠금/해제 | 수업도구 맨 위 (학급 선택 가능) |
+| 화면 잠금/해제 | 교사전용 → 🔒 화면 잠금 (학급 선택 가능). 잠금 중이면 사이드바에 '모두 잠금 해제' 버튼이 생김 |
 | 관찰기록·상벌점·명단·설정 | 교사전용 |
-| 소개 문구·도구 링크·수다노트 링크 | 각 화면의 ✏️/⚙️ 펼치기 |
+| 관심 분야 문구·도구 링크·수다노트 링크 | 각 화면의 ✏️/⚙️ 펼치기 |
+| '내 소개' 내용·사진 | 코드 저장소의 `profile_data.py`, `assets/profile.png`를 깃허브에서 고치기 |
+| 마. 앱 (by 구쌤) 목록 | 수업도구 → ⚙️ 링크 고치기 (`학습 주제|주소` 한 줄씩) |
 
 ## 알아 둘 점
 
