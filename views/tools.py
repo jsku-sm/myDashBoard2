@@ -26,12 +26,12 @@ def app_table(links):
     )
     st.markdown(
         "<style>"
-        ".app-table-wrap{overflow-x:auto;border:1.5px solid #D5DFEE;border-radius:12px;background:#fff;}"
+        ".app-table-wrap{overflow-x:auto;border:1.5px solid var(--line);border-radius:12px;background:var(--card);}"
         ".app-table{width:100%;border-collapse:collapse;color:var(--ink);font-size:1rem;margin:0;}"
-        ".app-table th,.app-table td{padding:.85rem 1.2rem;border-bottom:1px solid #E9EEF6;text-align:left;}"
-        ".app-table th{background:#EEF2FA;color:#526070;font-size:.84rem;font-weight:700;}"
+        ".app-table th,.app-table td{padding:.85rem 1.2rem;border-bottom:1px solid var(--line);text-align:left;}"
+        ".app-table th{background:var(--soft);color:var(--muted);font-size:.84rem;font-weight:700;}"
         ".app-table tr:last-child td{border-bottom:0;}"
-        ".app-table .num{width:5rem;color:#8391A8;font-variant-numeric:tabular-nums;}"
+        ".app-table .num{width:5rem;color:var(--muted);font-variant-numeric:tabular-nums;}"
         ".app-table .topic a{color:var(--ink);font-weight:650;text-decoration:none;}"
         ".app-table .topic a:hover{text-decoration:underline;text-decoration-color:var(--hl);text-decoration-thickness:3px;}"
         "</style>"

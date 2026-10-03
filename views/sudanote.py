@@ -23,7 +23,7 @@ def _qa_html(note):
 CSS = """<style>
 .sn-q{font-weight:700;color:var(--ink);margin:.9rem 0 .25rem;}
 .sn-q:first-child{margin-top:0;}
-.sn-a{background:#F6F8FC;border-left:3px solid var(--hl);border-radius:0 8px 8px 0;padding:.55rem .8rem;line-height:1.7;}
+.sn-a{background:var(--soft);color:var(--ink);border-left:3px solid var(--hl);border-radius:0 8px 8px 0;padding:.55rem .8rem;line-height:1.7;}
 .st-key-sn_form [data-testid="stTextArea"] label p{font-weight:700;color:var(--ink);font-size:1rem;}
 </style>"""
 

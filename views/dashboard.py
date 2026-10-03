@@ -29,7 +29,7 @@ def _emotion_chart(counts: dict):
         color=alt.Color("색:N", scale=None),
         tooltip=["감정", "학생 수"],
     )
-    text = bars.mark_text(align="left", dx=6, fontSize=13).encode(text="학생 수:Q", color=alt.value("#1E2A4A"))
+    text = bars.mark_text(align="left", dx=6, fontSize=13).encode(text="학생 수:Q", color=alt.value("#8A96AD"))
     return (bars + text).properties(height=300)
 
 
