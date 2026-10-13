@@ -67,18 +67,10 @@ ai_enabled = false
 
 
 def storage_notice(settings, teacher):
-    if settings.mode == "demo":
-        st.warning("소노클은 현재 체험 모드입니다. 수업·답안은 임시 저장되며 앱 재시작 시 사라집니다. 실제 학생 자료는 입력하지 마세요.")
-    elif settings.mode == "local":
+    if settings.mode == "local":
         st.warning("소노클은 서버의 로컬 파일에 저장됩니다. Streamlit Cloud의 영구 보관용으로 사용하지 마세요.")
-    elif teacher:
+    elif settings.mode == "github" and teacher:
         st.caption("저장 위치 · 비공개 GitHub의 소노클 전용 암호화 파일")
-    if teacher:
-        with st.expander("⚙️ 소노클 연결 상태·설정 안내"):
-            st.write("AI 피드백 · " + ("설정됨 (실제 API 연결 여부는 호출 시 확인)" if settings.ai_enabled and settings.api_key else "꺼짐 — 답안·녹음 제출과 교사 피드백은 사용 가능"))
-            st.write("데스모스 · " + ("API 키 설정됨" if settings.desmos_api_key else "기본 계산기 보기 — API 연동 저장은 별도 설정 필요"))
-            st.caption("이 화면에는 API 키나 토큰 값을 표시하지 않습니다.")
-            settings_help()
 
 
 def _student_course(store, manager, course, settings, user):
@@ -157,7 +149,7 @@ def teacher_view(store, manager, settings, requested):
             return
         st.session_state.pop("selected_course", None)
         st.session_state.pop("selected_activity", None)
-    st.caption("수업 만들기 → 활동·모범답안 등록 → 학생 답안 확인·피드백")
+    st.caption("수행평가 만들기 → 활동·모범답안 등록 → 학생 답안 확인·피드백")
     if settings.mode == "github":
         current, archived = st.tabs(["현재 진행 중", "보관됨"])
         with current:

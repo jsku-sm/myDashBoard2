@@ -35,16 +35,16 @@ def formatted_date(value: str) -> str:
 
 def create_form(manager: CourseManager):
     with st.form("create_course"):
-        title = st.text_input("수업 이름", max_chars=120)
+        title = st.text_input("수행평가 이름", max_chars=120)
         st.caption("‘데스모스’ 또는 ‘Desmos’가 포함된 이름은 그래프 작업 화면으로 바로 연결됩니다.")
-        color = st.color_picker("수업 이름 앞에 표시할 색상", value=COLORS[0])
+        color = st.color_picker("수행평가 이름 앞에 표시할 색상", value=COLORS[0])
         selected_classes = st.multiselect("참여할 수 있는 대상", CLASSES, default=[CLASSES[0]])
-        submitted = st.form_submit_button("수업 만들기", type="primary")
+        submitted = st.form_submit_button("수행평가 만들기", type="primary")
     if submitted:
         try:
             manager.create(title, color, selected_classes)
             st.session_state.pop("show_create_form", None)
-            st.success("수업을 만들었습니다.")
+            st.success("수행평가를 만들었습니다.")
             st.rerun()
         except AppError as error:
             st.error(str(error))
@@ -122,16 +122,12 @@ def archive_confirmation(manager: CourseManager):
 
 def active_courses(manager: CourseManager):
     courses = manager.list_courses()
-    title, create = st.columns([5, 1])
-    title.subheader("내 수업")
-    if create.button("＋ 수업 만들기", type="primary", use_container_width=True):
+    if st.button("＋ 수행평가 만들기", type="primary", key="create_assessment"):
         st.session_state.show_create_form = not st.session_state.get("show_create_form", False)
     if st.session_state.get("show_create_form"):
         create_form(manager)
 
-    if not courses:
-        st.info("첫 수업을 만들어보세요. 수업 이름을 ‘데스모스’로 정하면 그래프 탐구를 바로 시작할 수 있습니다.")
-    else:
+    if courses:
         name_header, updated_header, _ = st.columns([4.6, 2.1, 2.1])
         name_header.caption("수업 이름 · 참여 학급")
         updated_header.caption("마지막 업데이트")
