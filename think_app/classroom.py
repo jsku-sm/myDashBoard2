@@ -17,6 +17,7 @@ from .uploads import owned_uploads, upload_kind, UploadedFiles
 from .reference_images import owned_reference_images
 from .question_files import owned_question_files
 from .curriculum import validate_selection, criteria_text
+from .grading import valid_score, validated_grading, reviewed_feedback
 
 STATUSES = ["배포 전", "진행 중", "보기만 가능", "숨김"]
 GRADES = ["탁월", "성취", "발전 중", "성장 중"]
@@ -44,6 +45,13 @@ def _duration(value, allow_zero=True):
 
 
 def grade(attempt):
+    if "assessment_result" in attempt:
+        result = attempt.get("assessment_result")
+        result = result if isinstance(result, dict) else {}
+        score = result.get("score")
+        if valid_score(score):
+            return "탁월" if score >= 90 else "성취" if score >= 75 else "발전 중" if score >= 50 else "성장 중"
+        return "교사 확인 필요" if result.get("feedback") or attempt.get("grading_error") else "평가 대기"
     feedback = attempt.get("feedback") or {}
     if feedback.get("needs_teacher_review") or feedback.get("correctness") == "uncertain":
         return "교사 확인 필요"
@@ -55,6 +63,16 @@ def grade(attempt):
     if feedback.get("correctness") == "correct" and score >= 3:
         return "성취"
     return "발전 중" if score >= 2 else "성장 중"
+
+
+def _score_comment(attempt):
+    result = attempt.get("assessment_result")
+    feedback = result.get("feedback") if isinstance(result, dict) else None
+    if isinstance(feedback, dict) and "teacher_comment" in feedback:
+        return feedback["teacher_comment"]
+    if "grading_previous_comment" in attempt:
+        return attempt["grading_previous_comment"]
+    return attempt.get("teacher_comment", "")
 
 
 class Classroom:
@@ -262,9 +280,58 @@ class Classroom:
                 raise AppError("활동을 찾을 수 없습니다.")
             if not task.get("timer_started_at"):
                 raise AppError("평가를 시작한 뒤 종료하세요.")
-            instant = _timer_now().isoformat(timespec="seconds")
-            task.update(timer_deadline=instant, timer_ended_at=instant)
+            if task.get("timer_ended_at"):
+                return
+            instant = _timer_now()
+            deadline = _timer_instant(task.get("timer_deadline"))
+            remaining = max(0, (deadline - instant).total_seconds()) if deadline else 0
+            timestamp = instant.isoformat(timespec="seconds")
+            task.update(timer_deadline=timestamp, timer_ended_at=timestamp,
+                        timer_remaining_seconds_at_end=remaining)
         self.store.transaction(change)
+
+    @staticmethod
+    def timer_resume_minutes(task):
+        """Suggest the saved time at explicit end, or the original duration."""
+        seconds = task.get("timer_remaining_seconds_at_end", 0) if task.get("timer_ended_at") else 0
+        if (isinstance(seconds, (int, float)) and not isinstance(seconds, bool) and
+                math.isfinite(seconds) and seconds >= 1):
+            minutes = math.ceil(seconds / 60)
+        else:
+            minutes = task.get("duration_minutes", 0)
+        return _duration(minutes, allow_zero=False)
+
+    def resume_timer(self, aid, remaining_minutes=None):
+        """Reopen an ended or expired assessment without resetting its history."""
+        if remaining_minutes is not None:
+            _duration(remaining_minutes, allow_zero=False)
+
+        def change(state):
+            task = state.get("course_activities", {}).get(aid)
+            if not task:
+                raise AppError("활동을 찾을 수 없습니다.")
+            if task.get("course_id") not in state.get("courses", {}):
+                raise AppError("수업을 찾을 수 없습니다.")
+            if not self.is_distributed(task) or task.get("status") == "배포 전":
+                raise AppError("학생에게 배포한 활동만 평가를 재개할 수 있습니다.")
+            phase = self.timer_state(task)["phase"]
+            if phase == "running":
+                return task
+            if not task.get("timer_ended_at") and phase != "expired":
+                raise AppError("종료되었거나 풀이 시간이 끝난 평가만 재개할 수 있습니다.")
+            minutes = self.timer_resume_minutes(task) if remaining_minutes is None else remaining_minutes
+            instant = _timer_now()
+            timestamp = instant.isoformat(timespec="seconds")
+            today = instant.astimezone(KST).date().isoformat()
+            deadline = instant + timedelta(minutes=minutes)
+            deadline_day = deadline.astimezone(KST).date().isoformat()
+            task.update(timer_deadline=deadline.isoformat(timespec="seconds"),
+                        timer_ended_at=None, timer_resumed_at=timestamp, status="진행 중",
+                        start=min(task["start"], today),
+                        end=max(task["end"], deadline_day) if task.get("end") else None)
+            return task
+
+        return self.store.transaction(change)
 
     def attempts(self, aid):
         return sorted([a for a in self.store.read().get("course_attempts", {}).values() if a["activity_id"] == aid],
@@ -300,6 +367,14 @@ class Classroom:
         return (Classroom.is_distributed(task) and task.get("status") in ("진행 중", "보기만 가능") and
                 Classroom.activity_within_dates(task) and
                 Classroom.timer_state(task)["phase"] in ("unlimited", "running"))
+
+    @staticmethod
+    def student_unavailable_notice(task):
+        """Distinguish the teacher ending an assessment from its date limits."""
+        if (Classroom.is_distributed(task) and task.get("status") in ("진행 중", "보기만 가능") and
+                task.get("timer_ended_at")):
+            return "선생님이 평가를 종료했습니다."
+        return "수행평가 기간이 아닙니다."
 
     def submit(self, aid, student_id, name, class_id, text, images, consent, request_id, preview=False,
                transcript="", audio=None, graph=None, quiz_answer=None, upload_ids=None):
@@ -440,7 +515,156 @@ class Classroom:
             feedback = ai.feedback(attempt["activity_snapshot"], attempt, images, documents=documents)
         else:
             feedback = ai.feedback(attempt["activity_snapshot"], attempt, images)
-        self.store.transaction(lambda s: s["course_attempts"][attempt_id].update(feedback=feedback, error=""))
+        self.store.transaction(lambda s: s["course_attempts"][attempt_id].update(feedback=feedback, feedback_at=now(), error=""))
+
+    @staticmethod
+    def _grading_attempt(state, attempt_id):
+        attempt = state.get("course_attempts", {}).get(attempt_id)
+        if not isinstance(attempt, dict):
+            raise AppError("채점할 학생 답안을 찾을 수 없습니다.")
+        task = attempt.get("activity_snapshot")
+        if (not isinstance(task, dict) or task.get("id") != attempt.get("activity_id") or
+                task.get("course_id") != attempt.get("course_id") or
+                attempt.get("course_id") not in state.get("courses", {})):
+            raise AppError("제출 당시의 수업과 평가 정보를 확인할 수 없습니다.")
+        return attempt
+
+    @staticmethod
+    def _grading_input(attempt):
+        fields = ("id", "activity_id", "course_id", "student_id", "name", "class_id", "preview",
+                  "text", "images", "transcript", "audio", "graph", "quiz_answer", "mode", "reflection",
+                  "documents", "upload_ids", "activity_snapshot")
+        return {field: copy.deepcopy(attempt.get(field)) for field in fields}
+
+    def grade_attempt(self, attempt_id, ai, publish=False):
+        """Teacher-initiated grading; student optional feedback consent is separate."""
+        if type(publish) is not bool:
+            raise AppError("점수 공개 방법을 확인하세요.")
+        if not ai.available:
+            raise AppError("AI 연결을 설정한 뒤 자동 채점하세요. 교사가 점수를 직접 입력할 수도 있습니다.")
+        token = uuid.uuid4().hex
+
+        def begin(state):
+            attempt = self._grading_attempt(state, attempt_id)
+            previous_comment = _score_comment(attempt)
+            # Unpublish before the remote call, including retries and failures.
+            attempt["assessment_result"] = dict(score=None, max_score=100, feedback=None, status="review")
+            attempt.update(grading_token=token, grading_started_at=now(), grading_error="",
+                           grading_previous_comment=previous_comment)
+            return attempt, previous_comment
+
+        attempt, previous_comment = self.store.transaction(begin)
+        original = self._grading_input(attempt)
+        try:
+            task = copy.deepcopy(attempt["activity_snapshot"])
+            images = []
+            for ref in attempt.get("images", []):
+                raw = self.store.get_blob(ref)
+                if not isinstance(raw, bytes) or not raw or len(raw) > 600_000:
+                    raise AppError("저장된 학생 답안 이미지를 확인할 수 없습니다.")
+                images.append(raw)
+            documents = [(document["filename"], raw)
+                         for document, raw in student_pdf_attachments(self.store, attempt)]
+            state = self.store.read()
+            questions = owned_question_files(state, task.get("question_files", []), attempt["course_id"])
+            references = owned_reference_images(state, task.get("expected_images", []), attempt["course_id"])
+            question_files, expected_images = [], []
+            for question in questions:
+                raw = self.store.get_blob(question["blob_ref"])
+                if (not isinstance(raw, bytes) or len(raw) != question["bytes"] or
+                        hashlib.sha256(raw).hexdigest() != question["sha256"]):
+                    raise AppError("저장된 문제 파일을 확인할 수 없습니다.")
+                question_files.append((question, raw))
+            for reference in references:
+                raw = self.store.get_blob(reference["blob_ref"])
+                if (not isinstance(raw, bytes) or len(raw) != reference["bytes"] or
+                        hashlib.sha256(raw).hexdigest() != reference["sha256"]):
+                    raise AppError("저장된 모범답안 이미지를 확인할 수 없습니다.")
+                expected_images.append(raw)
+            raw_result = ai.grade(copy.deepcopy(task), copy.deepcopy(attempt), images, documents=documents,
+                                  question_files=question_files, expected_images=expected_images)
+            score, feedback = validated_grading(raw_result, task["criteria"])
+            if isinstance(previous_comment, str):
+                feedback["teacher_comment"] = previous_comment
+            if attempt.get("audio") and not attempt.get("transcript"):
+                score = None
+                feedback["needs_teacher_review"] = True
+            timestamp = now()
+            result = dict(score=score, max_score=100, feedback=feedback,
+                          status="published" if publish and score is not None else "review", graded_at=timestamp)
+            if result["status"] == "published":
+                result["published_at"] = timestamp
+
+            def finish(state):
+                current = self._grading_attempt(state, attempt_id)
+                if current.get("grading_token") != token or self._grading_input(current) != original:
+                    raise AppError("채점 중 답안 또는 교사 평가가 변경되었습니다. 현재 내용을 확인한 뒤 다시 채점하세요.")
+                current["assessment_result"] = result
+                current["grading_error"] = ""
+                current.pop("grading_token", None)
+                current.pop("grading_previous_comment", None)
+                return result
+
+            return self.store.transaction(finish)
+        except Exception as exc:
+            message = str(exc) if isinstance(exc, AppError) else "자동 채점에 실패했습니다. 다시 시도하거나 교사가 직접 검토하세요."
+
+            def failed(state):
+                current = state.get("course_attempts", {}).get(attempt_id)
+                if isinstance(current, dict) and current.get("grading_token") == token:
+                    current["grading_error"] = message
+                    current.pop("grading_token", None)
+
+            self.store.transaction(failed)
+            if isinstance(exc, AppError):
+                raise
+            raise AppError(message) from None
+
+    def publish_score(self, attempt_id):
+        """Only a durable, definite score can become student-visible."""
+        def change(state):
+            attempt = self._grading_attempt(state, attempt_id)
+            result = attempt.get("assessment_result")
+            if (not isinstance(result, dict) or not valid_score(result.get("score")) or
+                    result.get("max_score") != 100 or result.get("status") not in ("review", "published")):
+                raise AppError("점수를 확인하거나 직접 입력한 뒤 공개하세요.")
+            feedback = result.get("feedback") or {}
+            if not result.get("reviewed_at") and (feedback.get("needs_teacher_review") or
+                    feedback.get("correctness") == "uncertain" or
+                    any(item.get("level") == "uncertain" for item in feedback.get("criteria", []))):
+                raise AppError("불확실한 채점 결과는 교사가 점수를 확인한 뒤 공개하세요.")
+            if result["status"] != "published":
+                result.update(status="published", published_at=now())
+            attempt.pop("grading_token", None)
+            return result
+        return self.store.transaction(change)
+
+    def review_score(self, attempt_id, score, comment="", publish=False):
+        if not valid_score(score):
+            raise AppError("점수는 0~100점으로 입력하세요.")
+        if not isinstance(comment, str) or len(comment) > 3000:
+            raise AppError("피드백은 3000자 이내로 입력하세요.")
+        if type(publish) is not bool:
+            raise AppError("점수 공개 방법을 확인하세요.")
+
+        def change(state):
+            attempt = self._grading_attempt(state, attempt_id)
+            previous = attempt.get("assessment_result")
+            previous = previous if isinstance(previous, dict) else {}
+            timestamp = now()
+            result = dict(score=score, max_score=100,
+                          feedback=reviewed_feedback(previous.get("feedback"), comment.strip()),
+                          status="published" if publish else "review", reviewed_at=timestamp)
+            if previous.get("graded_at"):
+                result["graded_at"] = previous["graded_at"]
+            if publish:
+                result["published_at"] = timestamp
+            attempt["assessment_result"] = result
+            attempt["grading_error"] = ""
+            attempt.pop("grading_token", None)
+            attempt.pop("grading_previous_comment", None)
+            return result
+        return self.store.transaction(change)
 
     def comment(self, attempt_id, comment):
         if len(comment) > 3000:
@@ -457,7 +681,11 @@ class Classroom:
                      시도=a["number"], 제출일시=a["created"], 평가=grade(a), 답안=a["text"],
                      모드=MODES.get(a.get("mode", "writing")), 퀴즈답=a.get("quiz_answer") or "",
                      음성전사=a.get("transcript", ""), 그래프수식=json.dumps((a.get("graph") or {}).get("expressions", []), ensure_ascii=False),
-                     AI피드백=json.dumps(a["feedback"], ensure_ascii=False), 교사피드백=a["teacher_comment"]) for a in attempts]
+                     AI피드백=json.dumps((a.get("assessment_result") or {}).get("feedback", a["feedback"]), ensure_ascii=False),
+                     교사피드백=_score_comment(a), 점수=(a.get("assessment_result") or {}).get("score"),
+                     만점=(a.get("assessment_result") or {}).get("max_score"),
+                     점수공개상태=(a.get("assessment_result") or {}).get("status", ""),
+                     점수공개일시=(a.get("assessment_result") or {}).get("published_at", "")) for a in attempts]
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("학생결과.csv", safe_csv(rows) if rows else "학급,학번,이름,활동,시도\n".encode("utf-8-sig"))

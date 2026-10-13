@@ -1,6 +1,13 @@
 """Create, distribute and submit through the actual teacher and student widgets."""
+import base64
+import copy
 from datetime import date, timedelta
+import io
+from types import SimpleNamespace
+import wave
 
+from PIL import Image
+from pypdf import PdfWriter
 import pytest
 from streamlit.testing.v1 import AppTest
 
@@ -95,6 +102,29 @@ def test_activity_detail_has_distribution_button(distribution_ui):
     assert room.student_activity_available(room.activity(aid))
 
 
+def test_student_submission_does_not_request_ai_feedback_with_saved_consent(distribution_ui, monkeypatch):
+    from think_app.config import Settings
+    room, cid, make_app = distribution_ui
+    def unexpected_ai_call(*args, **kwargs):
+        pytest.fail("The student editor must not send an answer or audio for AI analysis.")
+    ai = SimpleNamespace(settings=Settings(), available=True, feedback=unexpected_ai_call,
+                         transcribe=unexpected_ai_call)
+    monkeypatch.setattr(embedded, "AI", lambda settings: ai)
+    aid = create_task(room, cid)
+    room.distribute_activity(aid)
+    student = make_app("student")
+    prefix = f"student_{aid}_1-1_10101_0"
+    student.session_state[prefix + "_consent"] = True
+    student.text_area(key=prefix + "_text").set_value("4입니다.")
+    next(button for button in student.button if button.label == "답안 제출").click().run()
+    assert not student.exception and not student.error
+    assert not any("AI 피드백" in item.label for item in student.checkbox)
+    assert not any(item.label == "녹음한 말을 글로 바꾸기" for item in student.button)
+    attempt = room.attempts(aid)[0]
+    assert attempt["text"] == "4입니다." and attempt["consent"] is False
+    assert attempt["feedback"] is None
+
+
 def test_teacher_workbench_also_has_distribution_button(distribution_ui):
     room, cid, make_app = distribution_ui
     aid = create_task(room, cid)
@@ -105,6 +135,140 @@ def test_teacher_workbench_also_has_distribution_button(distribution_ui):
     teacher.button(key="distribute_activity_" + aid).click().run()
     assert not teacher.exception and not teacher.error
     assert room.student_activity_available(room.activity(aid))
+
+
+def test_teacher_end_button_shows_exact_student_notice_and_hides_editor(distribution_ui):
+    room, cid, make_app = distribution_ui
+    aid = create_task(room, cid, duration_minutes=15)
+    room.distribute_activity(aid)
+    student = make_app("student")
+    assert not student.exception and student.text_area
+    teacher = make_app("teacher")
+    teacher.button(key="timer_end_" + aid).click().run()
+    assert not teacher.exception and not teacher.error
+    assert room.activity(aid)["timer_ended_at"]
+    assert "선생님이 평가를 종료했습니다." in [item.value for item in teacher.warning]
+    student.run()
+    assert not student.exception and not student.error
+    assert "선생님이 평가를 종료했습니다." in [item.value for item in student.info]
+    assert "수행평가 기간이 아닙니다." not in [item.value for item in student.info]
+    assert not student.text_area and not student.get("file_uploader") and not student.get("download_button")
+
+
+def test_teacher_can_resume_repeatedly_and_keep_submissions_and_current_answer(distribution_ui):
+    room, cid, make_app = distribution_ui
+    aid = create_task(room, cid, duration_minutes=15)
+    room.distribute_activity(aid)
+    student = make_app("student")
+    student.text_area(key=f"student_{aid}_1-1_10101_0_text").set_value("첫 답안")
+    next(button for button in student.button if button.label == "답안 제출").click().run()
+    assert not student.exception and not student.error
+    room.comment(room.attempts(aid)[0]["id"], "근거를 추가해 보세요.")
+    submitted = copy.deepcopy(room.attempts(aid))
+    text_key = f"student_{aid}_1-1_10101_1_text"
+    student.text_area(key=text_key).set_value("재개 후 이어서 쓸 두 번째 답안").run()
+    teacher = make_app("teacher")
+    for _ in range(2):
+        teacher.button(key="timer_end_" + aid).click().run()
+        assert not teacher.exception and not teacher.error
+        student.run()
+        assert not student.exception and not student.text_area
+        assert "선생님이 평가를 종료했습니다." in [item.value for item in student.info]
+        ended = room.activity(aid)
+        assert teacher.button(key="timer_resume_" + aid).label == "평가 재개"
+        teacher.number_input(key="timer_resume_minutes_" + aid + ended["timer_ended_at"]).set_value(5)
+        teacher.button(key="timer_resume_" + aid).click().run()
+        assert not teacher.exception and not teacher.error
+        assert room.timer_state(room.activity(aid))["phase"] == "running"
+        assert room.attempts(aid) == submitted
+        student.run()
+        assert not student.exception and not student.error
+        assert student.text_area(key=text_key).value == "재개 후 이어서 쓸 두 번째 답안"
+        assert not next(button for button in student.button if button.label == "답안 제출").disabled
+    next(button for button in student.button if button.label == "답안 제출").click().run()
+    assert not student.exception and not student.error
+    assert len(room.attempts(aid)) == 2 and room.attempts(aid)[0] == submitted[0]
+    assert room.attempts(aid)[1]["text"] == "재개 후 이어서 쓸 두 번째 답안"
+    assert not any(item.label == "나의 답안" for item in student.text_area)
+
+
+def test_resume_button_reopens_an_assessment_after_its_end_date(distribution_ui):
+    room, cid, make_app = distribution_ui
+    aid = create_task(room, cid, duration_minutes=15)
+    room.distribute_activity(aid)
+    room.end_timer(aid)
+    yesterday = (date.fromisoformat(now()[:10]) - timedelta(days=1)).isoformat()
+    room.store.transaction(lambda state: state["course_activities"][aid].update(start=yesterday, end=yesterday))
+    teacher = make_app("teacher")
+    assert not teacher.button(key="timer_resume_" + aid).disabled
+    assert any("오늘을 포함" in item.value for item in teacher.caption)
+    teacher.button(key="timer_resume_" + aid).click().run()
+    assert not teacher.exception and not teacher.error
+    assert room.activity(aid)["end"] == now()[:10]
+    student = make_app("student")
+    assert not student.exception and any(item.label == "나의 답안" for item in student.text_area)
+
+
+def test_resume_restores_unsubmitted_drawing_pdf_audio_and_transcript(distribution_ui, monkeypatch):
+    room, cid, make_app = distribution_ui
+    aid = create_task(room, cid, duration_minutes=15)
+    room.distribute_activity(aid)
+    image = io.BytesIO()
+    Image.new("RGB", (20, 15), "black").save(image, "PNG")
+    drawing = {"image": "data:image/png;base64," + base64.b64encode(image.getvalue()).decode(),
+               "hasInk": True, "revision": 1}
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    pdf = io.BytesIO()
+    writer.write(pdf)
+    raw_pdf = pdf.getvalue()
+    recording = io.BytesIO()
+    with wave.open(recording, "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(16000)
+        audio.writeframes(b"\x00\x00" * 1600)
+    raw_audio = recording.getvalue()
+    current = {"drawing": drawing, "uploads": [SimpleNamespace(name="풀이.pdf", getvalue=lambda: raw_pdf)],
+               "audio": SimpleNamespace(getvalue=lambda: raw_audio)}
+    restored_images = []
+    def board(**kwargs):
+        restored_images.append(kwargs.get("initial_image"))
+        return current["drawing"] or kwargs.get("default")
+    original_uploader = classroom_ui.st.file_uploader
+    def uploader(label, **kwargs):
+        if label == "답안 이미지·PDF 첨부 · 최대 2개":
+            return current["uploads"]
+        return original_uploader(label, **kwargs)
+    monkeypatch.setattr(classroom_ui, "board", board)
+    monkeypatch.setattr(classroom_ui.st, "file_uploader", uploader)
+    monkeypatch.setattr(classroom_ui.st, "audio_input", lambda *args, **kwargs: current["audio"])
+    student = make_app("student")
+    text_key = f"student_{aid}_1-1_10101_0_text"
+    transcript_key = f"student_{aid}_1-1_10101_0_transcript"
+    student.text_area(key=text_key).set_value("그림과 파일을 보세요.")
+    student.text_area(key=transcript_key).set_value("음성 설명을 수정했어요.").run()
+    assert not student.exception and not student.error
+    teacher = make_app("teacher")
+    teacher.button(key="timer_end_" + aid).click().run()
+    current.update(drawing=None, uploads=[], audio=None)
+    student.run()
+    assert not student.exception and not student.text_area
+    teacher.button(key="timer_resume_" + aid).click().run()
+    student.run()
+    assert not student.exception and not student.error
+    assert student.text_area(key=text_key).value == "그림과 파일을 보세요."
+    assert student.text_area(key=transcript_key).value == "음성 설명을 수정했어요."
+    assert restored_images[-1] == drawing["image"]
+    selected = next(item for item in student.multiselect if item.label.startswith("답안에 첨부할 저장 파일"))
+    assert len(selected.value) == 1
+    next(button for button in student.button if button.label == "답안 제출").click().run()
+    assert not student.exception and not student.error
+    attempt = room.attempts(aid)[0]
+    assert attempt["text"] == "그림과 파일을 보세요." and attempt["transcript"] == "음성 설명을 수정했어요."
+    assert len(attempt["images"]) == 1 and len(attempt["documents"]) == 1
+    assert room.store.get_blob(attempt["documents"][0]["original_ref"]) == raw_pdf
+    assert room.store.get_blob(attempt["audio"]) == raw_audio
 
 
 def test_teacher_can_republish_hidden_activity_without_stale_status_override(distribution_ui):

@@ -5,11 +5,13 @@ import storage as db
 import ui
 from config import EMOTION_MAP
 from views import emotion
+from views.student_home_updates import apply_pending_navigation, render_student_updates
 
 
 def page(user):
     emotion.toast_after_pick()
     ui.page_title(f"{user['name']}님, 반가워요", f"{user['class']}반 · 오늘 {db.today_str()}")
+    render_student_updates(user)
 
     c1, c2 = st.columns(2, gap="large")
     with c1:

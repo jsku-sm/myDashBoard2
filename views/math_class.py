@@ -212,7 +212,7 @@ def _board_teacher(subject):
             cm = cc1.text_input("선생님 한마디", value=s["teacher_comment"], key=f"cm_{s['id']}",
                                 label_visibility="collapsed", placeholder="선생님 한마디 (학생에게 보여요)")
             if cc2.button("저장", key=f"cms_{s['id']}"):
-                db.update("submissions", s["id"], {"teacher_comment": cm})
+                db.update("submissions", s["id"], {"teacher_comment": cm, "teacher_comment_at": db.now_str()})
                 st.toast("저장했어요.")
             if cc3.button("삭제", key=f"cmd_{s['id']}"):
                 db.delete_file(s["file_id"])

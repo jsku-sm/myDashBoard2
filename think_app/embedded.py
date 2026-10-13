@@ -3,8 +3,12 @@
 No second login, app-wide page config, separate server, iframe app, or sidebar.
 The original classroom editors, uploads, assessment and feedback are reused.
 """
+import hashlib
+import json
+
 import streamlit as st
 
+from . import storage as assessment_storage
 from .ai import AI
 from .classroom import Classroom
 from .classroom_ui import course_detail, student_preview
@@ -12,6 +16,10 @@ from .courses import CourseManager
 from .course_admin import active_courses, archived_courses
 from .integration import load_embedded_settings, student_identity, visible_courses
 from .storage import AppError, GitHubStore, LocalStore, MemoryStore
+from .persistence import local_encryption_key, migrate_memory_store
+from .timer_ui import student_availability_watch
+from .student_drafts import capture_active_drafts
+from .student_scores import render_student_scores
 from snorkl_navigation import REQUESTED_COURSE
 
 
@@ -24,21 +32,37 @@ def memory_store():
 @st.cache_resource(show_spinner=False)
 def persistent_store(mode, data_dir, repo, branch, token, key):
     if mode == "github":
-        if not repo or not token or not key:
-            raise AppError("소노클의 GitHub 저장에는 저장소·토큰·암호화 키가 필요합니다. 아래 연결 안내를 확인하세요.")
+        if not repo or not token:
+            raise AppError("수행평가를 보관할 GitHub 저장소와 토큰이 필요합니다. 아래 연결 안내를 확인하세요.")
         return GitHubStore(repo, branch, token, key)
     if mode == "local":
-        if not key:
-            raise AppError("소노클 로컬 저장에는 encryption_key가 필요합니다. 아래 연결 안내를 확인하세요.")
-        return LocalStore(data_dir, key)
+        return LocalStore(data_dir, local_encryption_key(data_dir, key))
     raise AppError("저장 모드 설정을 확인하세요.")
 
 
 def get_store(settings):
-    if settings.mode == "demo":
-        return memory_store()
-    return persistent_store(settings.mode, settings.data_dir, settings.repo,
-                            settings.branch, settings.github_token, settings.encryption_key)
+    mode = "local" if settings.mode == "demo" else settings.mode
+    arguments = (mode, settings.data_dir, settings.repo,
+                 settings.branch, settings.github_token, settings.encryption_key)
+    store = persistent_store(*arguments)
+    expected_type = assessment_storage.LocalStore if mode == "local" else assessment_storage.GitHubStore
+    if not isinstance(store, expected_type):
+        # Streamlit can retain an instance of the previous module's class after
+        # hot reload. Keep its object and locks for in-flight student writers.
+        old_type = type(store)
+        if old_type.__module__ != expected_type.__module__ or old_type.__name__ != expected_type.__name__:
+            raise AppError("수행평가 저장소 연결을 확인하세요. 기존 보관 자료는 유지됩니다.")
+        lock = store.lock if mode == "local" else store._read_lock
+        with lock:
+            try:
+                store.__class__ = expected_type
+            except TypeError:
+                raise AppError("수행평가 저장소를 다시 연결하지 못했습니다. 앱을 다시 실행하면 기존 보관 자료를 불러옵니다.") from None
+    store.read()
+    # The unchanged cached factory lets a running app recover its previous
+    # memory-only records when this update is loaded.
+    migrate_memory_store(memory_store(), store)
+    return store
 
 
 def embedded_style():
@@ -57,18 +81,22 @@ def settings_help():
     st.caption("기존 [app]·[github] 설정을 지우지 말고 [snorkl]을 한 번만 추가하세요.")
     st.code('''[snorkl]
 mode = "github"
-encryption_key = "소노클에서 사용하던 Fernet 키 또는 새로 생성한 키"
 ai_enabled = false
 # 기존 대시보드의 [github] repo, branch, token을 자동 사용합니다.
+# 기존 암호화 자료가 있을 때만 원래 encryption_key를 추가하세요.
 # 다른 저장소를 쓰면 github_repo, github_branch, github_token을 여기에 설정하세요.''', language="toml")
     st.caption("기존 소노클 기록을 불러오려면 원래 저장소·브랜치·암호화 키를 그대로 사용하세요. 키를 바꾸면 이전 기록을 읽을 수 없습니다.")
     st.caption("원본 앱의 THINK_MODE, GITHUB_REPO, GITHUB_TOKEN, ENCRYPTION_KEY, OPENAI_API_KEY 등 최상위 Secrets도 지원합니다.")
     st.caption("데이터 형식은 유지합니다. 대시보드 CSV와 소노클 think-learning-v1/ 암호화 파일은 별도로 저장됩니다.")
+    st.caption("새 보관 공간의 암호화 키는 비공개 저장소에 함께 보관해 재시작 후에도 같은 자료를 불러옵니다.")
 
 
 def storage_notice(settings, teacher):
-    if settings.mode == "local":
-        st.warning("소노클은 서버의 로컬 파일에 저장됩니다. Streamlit Cloud의 영구 보관용으로 사용하지 마세요.")
+    if settings.mode in ("local", "demo") and teacher:
+        st.caption("수행평가 자료 자동 저장 · 앱을 다시 실행하면 저장된 자료를 불러옵니다.")
+        with st.expander("자료 보관 위치"):
+            st.caption("현재 서버에 암호화해 보관합니다. Streamlit Cloud에서 운영할 때는 GitHub 저장소를 연결하세요.")
+            settings_help()
     elif settings.mode == "github" and teacher:
         st.caption("저장 위치 · 비공개 GitHub의 소노클 전용 암호화 파일")
 
@@ -76,6 +104,7 @@ def storage_notice(settings, teacher):
 def _student_course(store, manager, course, settings, user):
     # Re-check current enrollment every run, including links and stale state.
     identity = student_identity(user, course)
+    capture_active_drafts(course["id"], identity)
     if st.button("이전메뉴로 돌아가기", key="snorkl_student_back"):
         st.session_state.pop("_snorkl_student_course", None)
         st.rerun()
@@ -87,21 +116,59 @@ def _student_course(store, manager, course, settings, user):
             invalidate()
         st.rerun()
     room = Classroom(store)
-    tasks = [task for task in room.activities(course["id"])
+    activities = room.activities(course["id"])
+    key = "snorkl_student_activity_" + course["id"]
+    actor = hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()[:16]
+    selected_key = "snorkl_student_selected_" + course["id"] + "_" + actor
+    selected_id = st.session_state.get(key, st.session_state.get(selected_key))
+    if selected_id:
+        st.session_state[selected_key] = selected_id
+    previously_selected = next((task for task in activities if task["id"] == selected_id), None)
+    ended_notice = "선생님이 평가를 종료했습니다."
+    selected_ended = bool(previously_selected and
+                          room.student_unavailable_notice(previously_selected) == ended_notice)
+    tasks = [task for task in activities
              if room.student_activity_available(task)]
     if not tasks:
-        st.info("수행평가 기간이 아닙니다.")
+        ended = selected_ended or any(room.student_unavailable_notice(task) == ended_notice for task in activities)
+        st.info(ended_notice if ended else "수행평가 기간이 아닙니다.")
+        student_availability_watch(room, course["id"], closed=True)
         return
     mapping = {task["id"]: task for task in tasks}
-    key = "snorkl_student_activity_" + course["id"]
+    if selected_ended:
+        # Keep the student's ended selection until they choose another activity;
+        # student_preview displays the notice without exposing its editor.
+        mapping = {previously_selected["id"]: previously_selected, **mapping}
     if st.session_state.get(key) not in mapping:
         st.session_state.pop(key, None)
+        if st.session_state.get(selected_key) in mapping:
+            st.session_state[key] = st.session_state[selected_key]
     aid = st.selectbox("활동 선택", list(mapping), format_func=lambda value: mapping[value]["title"], key=key)
+    st.session_state[selected_key] = aid
     # Never call shared_student()/student_workbench(): those allow editable identity.
     student_preview(room, course, mapping[aid], AI(settings), identity=identity)
 
 
 def student_view(store, manager, settings, user, requested):
+    if requested:
+        # A home/share shortcut opens the requested activity even if the student
+        # was last viewing their score report.
+        st.session_state.pop("_snorkl_student_scores", None)
+    selected_course = manager.get(st.session_state.get("_snorkl_student_course"))
+    if selected_course is not None:
+        # Capture edits before navigation hides the student editor's widgets.
+        from .integration import matching_class
+        if matching_class(user, selected_course) is not None:
+            capture_active_drafts(selected_course["id"], student_identity(user, selected_course))
+    if st.session_state.get("_snorkl_student_scores"):
+        if st.button("수행평가로 돌아가기", key="snorkl_student_scores_back"):
+            st.session_state.pop("_snorkl_student_scores", None)
+            st.rerun()
+        render_student_scores(store, user)
+        return
+    if st.button("내 점수 확인하기", key="snorkl_student_scores_open", use_container_width=True):
+        st.session_state["_snorkl_student_scores"] = True
+        st.rerun()
     if requested:
         course = manager.get(requested)
         if course is None:
@@ -123,13 +190,18 @@ def student_view(store, manager, settings, user, requested):
         st.info("아직 배정된 소노클 수업이 없습니다. 선생님이 수업을 만들고 반을 지정하면 여기에 표시됩니다.")
         st.info("수행평가 기간이 아닙니다.")
     room = Classroom(store)
+    student_availability_watch(room)
     for course in courses:
+        activities = room.activities(course["id"])
         available = any(room.student_activity_available(task)
-                        for task in room.activities(course["id"]))
+                        for task in activities)
         with st.container(border=True):
             st.caption("참여 학급 · " + ", ".join(course["classes"]))
             if not available:
-                st.info("수행평가 기간이 아닙니다.")
+                notice = next((room.student_unavailable_notice(task) for task in activities
+                               if room.student_unavailable_notice(task) == "선생님이 평가를 종료했습니다."),
+                              "수행평가 기간이 아닙니다.")
+                st.info(notice)
             if st.button(course["title"], key="snorkl_join_" + course["id"],
                          use_container_width=True, disabled=not available) and available:
                 st.session_state["_snorkl_student_course"] = course["id"]

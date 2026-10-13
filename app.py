@@ -220,6 +220,7 @@ if user["role"] == "student" and not emotion.done_today(user):
 
 # A share link chooses a view only; all login/password/emotion/lock checks run first.
 sync_shared_link(st.session_state, st.query_params)
+home.apply_pending_navigation(user)
 page = sidebar(user)
 
 ROUTES = {

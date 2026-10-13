@@ -28,8 +28,11 @@ SCHEMAS: dict[str, list[str]] = {
     "emotions": ["id", "created_at", "date", "student_id", "name", "class", "emotion"],
     "materials": ["id", "uploaded_at", "subject", "category", "unit", "title", "description",
                   "file_id", "file_name", "file_url", "mime"],
+    "announcements": ["id", "created_at", "updated_at", "title", "content", "classes",
+                      "author_id", "author_name", "active"],
     "submissions": ["id", "created_at", "subject", "class", "student_id", "name", "unit", "title",
-                    "content", "file_id", "file_name", "file_url", "mime", "feedback", "teacher_comment"],
+                    "content", "file_id", "file_name", "file_url", "mime", "feedback", "teacher_comment",
+                    "teacher_comment_at"],
     "questions": ["id", "created_at", "subject", "class", "student_id", "name", "anonymous", "unit",
                   "title", "content", "answer", "answered_at"],
     "observations": ["id", "created_at", "class", "student_id", "name", "category", "content"],
@@ -247,7 +250,11 @@ class GitHubBackend:
         r.raise_for_status()
         return base64.b64decode(r.json()["content"])
 
-    def _load_all(self):
+    def _load_all(self, tables=None):
+        selected = set(SCHEMAS) if tables is None else set(tables).intersection(SCHEMAS).difference(self.rows)
+        if not selected:
+            return
+        loaded = {table: [] for table in selected}
         head = self._head()
         r = self._req("GET", f"/repos/{self.repo}/git/trees/{head}", params={"recursive": "1"})
         r.raise_for_status()
@@ -257,10 +264,18 @@ class GitHubBackend:
                 continue
             parts = p[5:-4].split("/")
             table = parts[0]
-            if table not in SCHEMAS:
+            if table not in selected:
                 continue
             text = self._blob(e["sha"]).decode("utf-8-sig")
-            self.rows[table].extend(_norm(row, table) for row in csv.DictReader(io.StringIO(text)))
+            loaded[table].extend(_norm(row, table) for row in csv.DictReader(io.StringIO(text)))
+        with self.lock:
+            for table, rows in loaded.items():
+                if tables is None:
+                    self.rows.setdefault(table, []).extend(rows)
+                else:
+                    # Publish a newly introduced table only after every remote
+                    # read succeeds; existing drafts and dirty rows stay intact.
+                    self.rows.setdefault(table, rows)
 
     @staticmethod
     def _path(table, row):
@@ -344,7 +359,7 @@ class GitHubBackend:
         buf = io.StringIO()
         w = csv.DictWriter(buf, fieldnames=SCHEMAS[table])
         w.writeheader()
-        w.writerows(rows)
+        w.writerows(_norm(row, table) for row in rows)
         return buf.getvalue()
 
     def pending_count(self):
@@ -411,6 +426,26 @@ def get_backend():
     return LocalBackend()
 
 
+def _ready_backend():
+    """Upgrade cached pre-update stores without replacing their live state."""
+    backend = get_backend()
+    current = next((cls for cls in (LocalBackend, GitHubBackend)
+                    if (type(backend).__module__, type(backend).__qualname__) ==
+                    (cls.__module__, cls.__qualname__)), None)
+    if current is None:
+        return backend
+    with backend.lock:
+        if type(backend) is not current:
+            backend.__class__ = current
+        if current is GitHubBackend:
+            missing = set(SCHEMAS).difference(backend.rows)
+            if missing:
+                backend._load_all(tables=missing)
+                for table in missing:
+                    invalidate(table)
+    return backend
+
+
 def backend_status() -> str:
     b = get_backend()
     if b.is_local:
@@ -436,13 +471,14 @@ def _cache():
 
 
 def read(table: str) -> list[dict]:
+    backend = _ready_backend()
     c = _cache()
     ttl = CACHE_TTL.get(table, DEFAULT_TTL)
     with c["lock"]:
         hit = c["data"].get(table)
         if hit and time.time() - hit[0] < ttl:
-            return [dict(r) for r in hit[1]]
-    rows = get_backend().read(table)
+            return [_norm(r, table) for r in hit[1]]
+    rows = [_norm(r, table) for r in backend.read(table)]
     with c["lock"]:
         c["data"][table] = (time.time(), rows)
     return [dict(r) for r in rows]
@@ -457,25 +493,25 @@ def invalidate(table: str):
 def append(table: str, row: dict):
     row = dict(row)
     row.setdefault("id", new_id())
-    get_backend().append(table, row)
+    _ready_backend().append(table, row)
     invalidate(table)
     return row["id"]
 
 
 def append_many(table: str, rows: list[dict]):
     if rows:
-        get_backend().append_many(table, rows)
+        _ready_backend().append_many(table, rows)
         invalidate(table)
 
 
 def update(table: str, row_id: str, changes: dict):
-    ok = get_backend().update(table, row_id, changes)
+    ok = _ready_backend().update(table, row_id, changes)
     invalidate(table)
     return ok
 
 
 def delete(table: str, row_id: str):
-    get_backend().delete(table, row_id)
+    _ready_backend().delete(table, row_id)
     invalidate(table)
 
 

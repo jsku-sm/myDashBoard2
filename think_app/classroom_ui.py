@@ -18,15 +18,19 @@ from .ui import board
 from .media import MODES, activity_mode, validate_audio, validated_graph
 from .design import section
 from .model_answers import render_model_answer, render_question_model_answer, reference_image_key
-from .timer_ui import teacher_timer_controls, student_timer
+from .timer_ui import teacher_timer_controls, student_timer, student_availability_watch
 from .uploads import UploadedFiles, upload_kind, validated_pdf
 from .question_files import render_question_files, display_question_files, question_file_key
 from .curriculum_ui import render_curriculum_criteria
+from .student_drafts import (capture_active_drafts, load_draft, remember_draft,
+                            restore_draft_widgets, forget_draft)
+from .grading import assessment_score_published, public_score, student_feedback
+from .teacher_grading_ui import grading_controls, attempt_grading_controls
 
 graph_calculator = declare_component("think_desmos", path=str(Path(__file__).parent / "graph"))
 
 
-def answer_uploads(room, task, student_id, name, class_id, preview, key, uploads):
+def answer_uploads(room, task, student_id, name, class_id, preview, key, uploads, restored_ids=()):
     """Save chosen files immediately; attach only this student's saved files."""
     service = UploadedFiles(room.store)
     identity_key = hashlib.sha256(json.dumps([task["id"], class_id, student_id.strip(), preview],
@@ -55,6 +59,9 @@ def answer_uploads(room, task, student_id, name, class_id, preview, key, uploads
                   help="선택한 파일과 입력한 답안을 유지한 채 다시 저장합니다.")
     saved_files = service.for_student(task["id"], student_id, class_id, preview)
     mapping = {item["id"]: item for item in saved_files}
+    if selected_key not in st.session_state:
+        st.session_state[selected_key] = [uid for uid in restored_ids if uid in mapping][:2]
+        st.session_state[incoming_key] = []
     old_incoming = st.session_state.get(incoming_key, [])
     selected = [uid for uid in st.session_state.get(selected_key, []) if uid in mapping]
     if not failed:
@@ -211,10 +218,29 @@ def teacher_distribution_controls(room, course, task):
                    "예약 배포 완료 · 시작일부터 학생이 참여할 수 있습니다.")
 
 
-def feedback_view(attempt):
-    st.markdown("### AI 피드백")
-    st.write("평가: **" + grade(attempt) + "**")
-    feedback = attempt.get("feedback")
+def feedback_view(attempt, teacher=True):
+    if not teacher and "assessment_result" in attempt and not assessment_score_published(attempt):
+        st.markdown("### 채점 결과")
+        st.info("선생님이 채점 결과를 검토 중입니다. 배포되면 ‘내 점수 확인하기’에서 확인할 수 있습니다.")
+        return
+    result = attempt.get("assessment_result")
+    if isinstance(result, dict):
+        st.markdown("### 채점 결과")
+        score = result.get("score") if teacher else public_score(attempt)
+        if not teacher and score is None:
+            st.info("선생님이 채점 결과를 검토 중입니다. 배포되면 ‘내 점수 확인하기’에서 확인할 수 있습니다.")
+            return
+        if score is not None:
+            st.metric("수행평가 점수", f"{score:g} / 100")
+        else:
+            st.info("점수를 확정하려면 선생님의 확인이 필요합니다.")
+        if teacher:
+            st.caption("학생에게 배포됨" if result.get("status") == "published" else "검토 대기 · 학생에게 미공개")
+        feedback = result.get("feedback") if teacher else student_feedback(attempt)
+    else:
+        st.markdown("### AI 피드백")
+        st.write("평가: **" + grade(attempt) + "**")
+        feedback = attempt.get("feedback")
     if feedback:
         for label, field in [("잘한 점", "praise"), ("풀이 분석", "observation"), ("힌트", "hint"), ("다음 질문", "next_question")]:
             st.markdown(f"**{label}**")
@@ -224,11 +250,15 @@ def feedback_view(attempt):
         with st.expander("평가 기준별 분석"):
             for result in feedback.get("criteria", []):
                 st.write(result["criterion"] + " · " + result["evidence"])
+        if teacher and feedback.get("rationale"):
+            with st.expander("점수 산정 근거"):
+                st.write(feedback["rationale"])
     else:
-        st.info("아직 AI 평가 결과가 없습니다.")
-    if attempt.get("teacher_comment"):
+        st.info("아직 채점 결과가 없습니다.")
+    comment = (feedback or {}).get("teacher_comment") if isinstance(attempt.get("assessment_result"), dict) else attempt.get("teacher_comment")
+    if comment:
         st.markdown("### 선생님 피드백")
-        st.write(attempt["teacher_comment"])
+        st.write(comment)
 
 
 def attempt_view(room, attempt, ai, teacher=True):
@@ -274,35 +304,34 @@ def attempt_view(room, attempt, ai, teacher=True):
         st.write(attempt["text"])
         st.caption(attempt["created"].replace("T", " "))
     with right:
-        feedback_view(attempt)
-        if (teacher and ai.available and attempt["consent"] and not attempt["feedback"] and
-                not (attempt["activity_snapshot"].get("expected_images") or attempt["activity_snapshot"].get("question_files"))):
-            if st.button("AI 분석하기", key="evaluate_" + attempt["id"]):
-                with st.spinner("모범답안과 비교해 분석하고 있습니다…"):
-                    room.evaluate(attempt["id"], ai)
-                st.rerun()
+        feedback_view(attempt, teacher=teacher)
         if teacher:
-            with st.form("comment_" + attempt["id"]):
-                comment = st.text_area("학생에게 전할 피드백", value=attempt["teacher_comment"], max_chars=3000)
-                if st.form_submit_button("피드백 저장", type="primary"):
-                    room.comment(attempt["id"], comment)
-                    st.rerun()
+            attempt_grading_controls(room, attempt, ai)
+            if not isinstance(attempt.get("assessment_result"), dict):
+                with st.form("comment_" + attempt["id"]):
+                    comment = st.text_area("학생에게 전할 피드백", value=attempt["teacher_comment"], max_chars=3000)
+                    if st.form_submit_button("피드백 저장", type="primary"):
+                        room.comment(attempt["id"], comment)
+                        st.rerun()
 
 
 def student_preview(room, course, task, ai, identity=None, editor_key=None, compact=False):
     task = room.activity(task["id"])
     preview = identity is None
-    if not preview and not room.student_activity_available(task):
-        st.info("수행평가 기간이 아닙니다.")
-        return
     student_id, name, class_id = identity or ("preview", "체험 학생", course["classes"][0])
+    draft_identity = (student_id, name, class_id)
+    capture_active_drafts(course["id"], draft_identity, preview)
+    if not preview and not room.student_activity_available(task):
+        st.info(room.student_unavailable_notice(task))
+        student_availability_watch(room, course["id"], task["id"], closed=True)
+        return
     if not compact:
         st.subheader("학생 모드 체험" if preview else "학생 답안 작성")
     if preview:
         st.caption("체험 답안은 실제 학생 목록과 내보내기에서 제외되며, 체험 기록에서 확인할 수 있습니다.")
     if not compact:
         st.markdown("### " + task["title"])
-    student_timer(room, task["id"])
+    student_timer(room, task["id"], require_visible=not preview)
     st.write(task["prompt"])
     display_question_files(room.store, task)
     st.caption("평가 기준: " + " / ".join(task["criteria"]))
@@ -313,12 +342,16 @@ def student_preview(room, course, task, ai, identity=None, editor_key=None, comp
     if room._within_submission_period(task) and len(previous) < task["max_attempts"]:
         key = (f"student_{editor_key}_{len(previous)}" if editor_key else
                f"student_{task['id']}_{class_id}_{student_id}_{len(previous)}")
+        draft = load_draft(task, draft_identity, preview, len(previous), editor_key)
+        restore_draft_widgets(draft, key)
+        st.session_state.pop(key + "_consent", None)
         mode = activity_mode(task)
         image, graph, quiz_answer = None, None, None
         if mode == "graph":
             graph = graph_calculator(api_key=ai.settings.desmos_api_key,
                                      draft_filename=course["title"] + "-그래프.json",
-                                     key=key + "_graph", default=None)
+                                     initial_state=(draft.get("graph") or {}).get("state"),
+                                     key=key + "_graph", default=draft.get("graph"))
             if not ai.settings.desmos_api_key or (graph and graph.get("mode") == "embed"):
                 st.caption("현재 화면에서 데스모스를 사용할 수 있습니다. ‘캡처하기’에서 현재 탭을 선택하고 영역을 드래그해 PNG로 저장한 뒤 아래에 첨부하세요. 수식과 설명은 나의 답안에 적을 수 있습니다.")
         elif mode == "quiz":
@@ -328,34 +361,30 @@ def student_preview(room, course, task, ai, identity=None, editor_key=None, comp
                 quiz_answer = st.text_input("퀴즈 답", max_chars=2000, key=key + "_quiz")
         else:
             st.caption("펜이나 손가락으로 풀이를 쓰세요. 사진으로 푼 문제도 아래에서 첨부할 수 있습니다.")
-            image = board(key=key + "_board", default=None)
+            saved_board = draft.get("board") or {}
+            image = board(initial_image=saved_board.get("image") if saved_board.get("hasInk") else None,
+                          key=key + "_board", default=draft.get("board"))
         uploads = st.file_uploader("답안 이미지·PDF 첨부 · 최대 2개", type=["png", "jpg", "jpeg", "pdf"],
                                    accept_multiple_files=True, key=key + "_uploads",
                                    help="PNG/JPG 이미지 또는 PDF를 올리세요. PDF는 10MB 이하, 1~200쪽, 암호가 없는 파일을 지원합니다. 학번과 이름을 입력한 파일은 업로드 즉시 저장됩니다.")
-        upload_ids, uploads_saved = answer_uploads(room, task, student_id, name, class_id, preview, key, uploads)
+        upload_ids, uploads_saved = answer_uploads(room, task, student_id, name, class_id, preview, key, uploads,
+                                                   restored_ids=draft.get("upload_ids", ()))
         text = st.text_area("나의 답안", max_chars=12000, key=key + "_text")
-        ai_feedback_available = ai.available and not (task.get("expected_images") or task.get("question_files"))
-        consent = st.checkbox("AI 피드백 받기 · 답안을 OpenAI에 전송", disabled=not ai_feedback_available,
-                              key=key + "_consent", help="선택하면 답안과 첨부한 이미지·PDF를 OpenAI로 전송해 분석합니다. 문제 파일 또는 이미지 모범답안이 첨부된 활동은 교사가 직접 평가합니다.")
-        consent = bool(consent and ai_feedback_available)
-        if task.get("question_files"):
-            st.caption("문제 파일이 첨부된 활동은 교사가 직접 평가합니다.")
         audio = st.audio_input("목소리로 설명하기 · 2분 이내", sample_rate=16000, key=key + "_audio")
-        raw_audio = audio.getvalue() if audio else None
+        raw_audio = audio.getvalue() if audio else draft.get("raw_audio")
+        if not audio and raw_audio:
+            st.audio(raw_audio, format="audio/wav")
+            if st.button("보관된 녹음 삭제", key=key + "_clear_saved_audio"):
+                raw_audio = None
         audio_hash = hashlib.sha256(raw_audio).hexdigest() if raw_audio else ""
         if audio_hash != st.session_state.get(key + "_audio_hash", ""):
             st.session_state[key + "_audio_hash"] = audio_hash
             st.session_state[key + "_transcript"] = ""
-        if st.button("녹음한 말을 글로 바꾸기", disabled=not (raw_audio and ai.available and consent), key=key + "_convert"):
-            try:
-                with st.spinner("음성을 글로 바꾸고 있습니다…"):
-                    st.session_state[key + "_transcript"] = ai.transcribe(raw_audio)
-            except AppError as error:
-                st.error(str(error))
         transcript = st.text_area("음성 설명 확인·수정", max_chars=12000, key=key + "_transcript")
-        st.caption("녹음은 답안과 함께 저장됩니다. AI 피드백을 선택하면 음성을 글로 변환해 분석합니다.")
-        if not ai.available:
-            st.caption("답안과 녹음은 AI 연결 없이도 저장·제출할 수 있습니다.")
+        st.caption("녹음과 확인·수정한 음성 설명은 답안과 함께 저장됩니다.")
+        remember_draft(task, draft_identity, preview, len(previous), editor_key,
+                       widget_key=key, text=text, transcript=transcript, quiz_answer=quiz_answer,
+                       board=image, graph=graph, upload_ids=upload_ids, raw_audio=raw_audio, consent=False)
         with st.popover("작업 전체 저장", use_container_width=True):
             st.caption("파일 준비를 누른 시점의 글·수식·풀이 이미지·첨부 PDF·녹음을 ZIP으로 저장합니다. 교사 제출은 답안 제출을 눌러주세요.")
             if st.button("작업 파일 준비", key=key + "_prepare_work"):
@@ -392,14 +421,12 @@ def student_preview(room, course, task, ai, identity=None, editor_key=None, comp
                     images.insert(0, drawing)
                 request = st.session_state.setdefault(key + "_request", uuid.uuid4().hex)
                 with st.spinner("답안과 첨부 파일을 저장하고 있습니다…"):
-                    attempt_id = room.submit(task["id"], student_id, name, class_id, text, images,
-                                             consent, request, preview=preview, transcript=transcript, audio=raw_audio,
-                                             graph={"mode": "embed"} if embedded_graph else graph, quiz_answer=quiz_answer,
-                                             upload_ids=upload_ids)
+                    room.submit(task["id"], student_id, name, class_id, text, images,
+                                False, request, preview=preview, transcript=transcript, audio=raw_audio,
+                                graph={"mode": "embed"} if embedded_graph else graph, quiz_answer=quiz_answer,
+                                upload_ids=upload_ids)
+                forget_draft(task, draft_identity, preview, len(previous), editor_key)
                 st.session_state[notice_key] = "체험 답안이 저장되었습니다." if preview else "선생님에게 답안을 제출했습니다. 제출한 작업과 녹음을 아래에서 확인할 수 있습니다."
-                if consent:
-                    with st.spinner("AI가 모범답안과 비교하고 있습니다…"):
-                        room.evaluate(attempt_id, ai)
             except AppError as error:
                 if st.session_state.get(notice_key):
                     st.session_state.preview_error = str(error)
@@ -471,13 +498,20 @@ def student_workbench(room, course, task, settings):
 def shared_student(store, course, settings):
     room = Classroom(store)
     default_graph = room.ensure_desmos_activity(course)
-    tasks = [task for task in room.activities(course["id"])
-             if room.student_activity_available(task)]
-    if not tasks:
-        st.info("수행평가 기간이 아닙니다.")
-        return
+    activities = room.activities(course["id"])
     identity_key = "student_identity_" + course["id"]
     identity = st.session_state.get(identity_key)
+    if identity:
+        capture_active_drafts(course["id"], identity)
+    tasks = [task for task in activities
+             if room.student_activity_available(task)]
+    if not tasks:
+        notice = next((room.student_unavailable_notice(task) for task in activities
+                       if room.student_unavailable_notice(task) == "선생님이 평가를 종료했습니다."),
+                      "수행평가 기간이 아닙니다.")
+        st.info(notice)
+        student_availability_watch(room, course["id"], closed=True)
+        return
     if not identity:
         with st.form("student_identity"):
             student_id = st.text_input("학번", max_chars=40)
@@ -531,6 +565,7 @@ def response_gallery(room, course, task, ai):
     for attempt in attempts:
         if classes == "전체" or attempt["class_id"] == classes:
             groups.setdefault((attempt["class_id"], attempt["student_id"]), []).append(attempt)
+    grading_controls(room, task, [attempt for values in groups.values() for attempt in values], ai)
     visible = []
     for values in groups.values():
         if selection == "전체":
@@ -540,13 +575,18 @@ def response_gallery(room, course, task, ai):
         elif selection == "최근 시도":
             visible.append(values[-1])
         else:
-            visible.append(max(values, key=lambda a: (4-GRADES.index(grade(a)) if grade(a) in GRADES else -1, a["number"])))
+            def rank(attempt):
+                score = (attempt.get("assessment_result") or {}).get("score")
+                return (score if score is not None else
+                        (4-GRADES.index(grade(attempt))) * 25 if grade(attempt) in GRADES else -1,
+                        attempt["number"])
+            visible.append(max(values, key=rank))
     if view == "분석":
         columns = st.columns(4)
         for column, label in zip(columns, GRADES):
             column.metric(label, sum(grade(a) == label for a in visible))
         st.caption(f"제출 학생 {len(groups)}명 · 제출 시도 {sum(len(v) for v in groups.values())}회")
-    st.caption("평가 기준: 탁월은 정확한 답과 충분한 설명, 성취는 정확한 답과 대체로 연결된 설명, 발전 중은 일부 근거, 성장 중은 근거 보완이 필요한 답안입니다.")
+    st.caption("점수 구분: 탁월 90점 이상, 성취 75점 이상, 발전 중 50점 이상, 성장 중 50점 미만. 불확실한 답안은 교사 확인 필요로 표시됩니다.")
     if not visible:
         st.info("아직 제출된 학생 답안이 없습니다. 학생 모드에서 활동을 체험할 수 있습니다.")
     for label in GRADES + ["교사 확인 필요", "평가 대기"]:
@@ -565,6 +605,11 @@ def response_gallery(room, course, task, ai):
                     if st.button(f"{attempt['name']} · {attempt['number']}번째 시도", key="open_answer_" + attempt["id"]):
                         st.session_state["answer_" + task["id"]] = (attempt["class_id"], attempt["student_id"])
                     st.caption(attempt["class_id"] + " · " + attempt["created"][:16].replace("T", " "))
+                    result = attempt.get("assessment_result")
+                    if isinstance(result, dict):
+                        if result.get("score") is not None:
+                            st.caption(f"{result['score']:g} / 100점")
+                        st.caption("학생에게 배포됨" if result.get("status") == "published" else "채점 결과 검토 대기")
     student = st.session_state.get("answer_" + task["id"])
     if student in groups:
         st.divider()
@@ -626,7 +671,6 @@ def course_detail(store, course, settings):
             teacher_distribution_controls(room, course, task)
             student_workbench(room, course, task, settings)
         else:
-            section("02", "학생이 제출한 생각들", "#ffdc62")
             response_gallery(room, course, task, ai)
         return
     section("01", "수업 활동")

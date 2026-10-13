@@ -148,13 +148,18 @@ class MemoryStore:
         self.uploads = {}
         self.lock = threading.RLock()
         self.signing_key = os.urandom(32)
+        self._persistence_target = None
 
     def read(self):
         with self.lock:
+            if self._persistence_target is not None:
+                return self._persistence_target.read()
             return copy.deepcopy(self.state)
 
     def transaction(self, change):
         with self.lock:
+            if self._persistence_target is not None:
+                return self._persistence_target.transaction(change)
             state = copy.deepcopy(self.state)
             result = change(state)
             _prepare_submissions(self, self.state, state)
@@ -164,11 +169,15 @@ class MemoryStore:
     def save_student_submission(self, attempt):
         path = student_submission_path(attempt)
         with self.lock:
+            if self._persistence_target is not None:
+                return self._persistence_target.save_student_submission(attempt)
             self.submissions[path] = _submission_bundle(self, attempt)
         return path
 
     def get_student_submission(self, attempt):
         with self.lock:
+            if self._persistence_target is not None:
+                return self._persistence_target.get_student_submission(attempt)
             path = student_submission_path(attempt)
             if path not in self.submissions:
                 raise AppError("학생 제출 파일을 찾을 수 없습니다.")
@@ -177,6 +186,8 @@ class MemoryStore:
     def save_uploaded_file(self, upload):
         path = uploaded_file_path(upload)
         with self.lock:
+            if self._persistence_target is not None:
+                return self._persistence_target.save_uploaded_file(upload)
             if path in self.uploads:
                 return _existing_upload(self.uploads[path], upload)
             self.uploads[path] = {"schema": 1, "upload": copy.deepcopy(upload)}
@@ -184,6 +195,8 @@ class MemoryStore:
 
     def get_uploaded_file(self, upload):
         with self.lock:
+            if self._persistence_target is not None:
+                return self._persistence_target.get_uploaded_file(upload)
             payload = self.uploads.get(uploaded_file_path(upload))
             if payload is None:
                 raise AppError("업로드 저장 파일을 찾을 수 없습니다.")
@@ -191,10 +204,14 @@ class MemoryStore:
 
     def put_blob(self, name, data):
         with self.lock:
+            if self._persistence_target is not None:
+                return self._persistence_target.put_blob(name, data)
             self.blobs[name] = data
 
     def get_blob(self, name):
         with self.lock:
+            if self._persistence_target is not None:
+                return self._persistence_target.get_blob(name)
             if name not in self.blobs:
                 raise AppError("풀이 이미지가 없습니다.")
             return self.blobs[name]
@@ -309,11 +326,10 @@ def decode(cipher, raw):
 class GitHubStore:
     PREFIX = "think-learning-v1"
 
-    def __init__(self, repo, branch, token, key, session=None):
+    def __init__(self, repo, branch, token, key="", session=None):
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) or not token:
             raise AppError("GITHUB_REPO와 GITHUB_TOKEN을 설정하세요.")
-        self.fernet = make_cipher(key)
-        self.signing_key = key.encode()
+        cipher = make_cipher(key) if key else None
         self.repo, self.branch = repo, branch
         self.http = session or requests.Session()
         self.http.headers.update({"Authorization": "Bearer " + token,
@@ -324,6 +340,32 @@ class GitHubStore:
         self._cached_state = None
         self._cache_until = 0
         self._check_private()
+        key = key or self._persistent_encryption_key()
+        self.fernet = cipher or make_cipher(key)
+        self.signing_key = key.encode()
+
+    def _persistent_encryption_key(self):
+        """Bootstrap a stable key in the already-private assessment repository."""
+        path = ".encryption.key"
+        for retry in range(6):
+            raw, _ = self._get(path)
+            if raw is not None:
+                try:
+                    key = raw.decode("ascii").strip()
+                    make_cipher(key)
+                except (UnicodeDecodeError, AppError):
+                    raise AppError("저장된 수행평가 암호화 키를 확인하세요. 키 파일을 지우거나 새 키로 바꾸지 마세요.") from None
+                return key
+            existing, _ = self._get("state.enc")
+            if existing is not None:
+                raise AppError("기존 수행평가 자료가 있습니다. 처음 저장할 때 사용한 encryption_key를 설정하세요. 새 키로 바꾸지 마세요.")
+            response = self._put(path, Fernet.generate_key())
+            if response.status_code in (200, 201, 409, 422):
+                # Read the winner after concurrent first launches; never replace
+                # a key another process has already saved.
+                continue
+            raise AppError("수행평가 보관 설정을 저장하지 못했습니다. GitHub 토큰의 쓰기 권한을 확인하세요.")
+        raise AppError("수행평가 보관 설정이 지연되었습니다. 잠시 후 다시 시도하세요.")
 
     def _request(self, method, url, **kwargs):
         try:

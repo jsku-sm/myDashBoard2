@@ -50,10 +50,105 @@ def test_student_course_list_is_filtered():
     assert visible_courses(student(role="visitor"), courses) == []
 
 
-def test_no_settings_means_explicit_demo_not_a_random_github_repo():
+def test_no_settings_defaults_to_persistent_local_storage_without_a_random_github_repo():
     settings = resolve_settings({}, {})
-    assert settings.mode == "demo" and settings.repo == ""
+    assert settings.mode == "local" and settings.repo == ""
     assert not settings.ai_enabled and not settings.api_key and not settings.desmos_api_key
+
+
+@pytest.mark.parametrize("values,environ", [
+    ({"github": {"repo": "owner/private-data", "token": "test-token", "branch": "data"},
+      "snorkl": {"encryption_key": "test-encryption-key"}}, {}),
+    ({"GITHUB_REPO": "owner/private-data", "GITHUB_TOKEN": "test-token", "GITHUB_BRANCH": "data",
+      "ENCRYPTION_KEY": "test-encryption-key"}, {}),
+    ({}, {"GITHUB_REPO": "owner/private-data", "GITHUB_TOKEN": "test-token", "GITHUB_BRANCH": "data",
+          "ENCRYPTION_KEY": "test-encryption-key"}),
+])
+def test_complete_github_credentials_select_persistent_remote_storage_automatically(values, environ):
+    settings = resolve_settings(values, environ)
+    assert settings.mode == "github"
+    assert settings.repo == "owner/private-data" and settings.branch == "data"
+    assert settings.github_token == "test-token" and settings.encryption_key == "test-encryption-key"
+    assert "test-token" not in repr(settings) and "test-encryption-key" not in repr(settings)
+
+
+@pytest.mark.parametrize("absent,expected", [
+    ("github_repo", "local"), ("github_token", "local"), ("encryption_key", "github"),
+])
+def test_automatic_storage_requires_repo_and_token_but_can_initialize_a_remote_key(absent, expected):
+    group = {"github_repo": "owner/private-data", "github_token": "test-token", "encryption_key": "test-key"}
+    group.pop(absent)
+    settings = resolve_settings({"snorkl": group}, {})
+    assert settings.mode == expected
+
+
+@pytest.mark.parametrize("values,environ", [
+    ({"github": {"repo": "owner/private-data", "token": "test-token", "branch": "data"}}, {}),
+    ({"GITHUB_REPO": "owner/private-data", "GITHUB_TOKEN": "test-token", "GITHUB_BRANCH": "data"}, {}),
+    ({}, {"GITHUB_REPO": "owner/private-data", "GITHUB_TOKEN": "test-token", "GITHUB_BRANCH": "data"}),
+])
+def test_github_without_an_explicit_key_uses_remote_persistence_instead_of_cloud_local_storage(values, environ):
+    settings = resolve_settings(values, environ)
+    assert settings.mode == "github" and settings.encryption_key == ""
+    assert settings.repo == "owner/private-data" and settings.branch == "data"
+    assert settings.github_token == "test-token" and "test-token" not in repr(settings)
+
+
+def test_environment_token_alone_does_not_select_github_or_memory_storage():
+    settings = resolve_settings({}, {"GITHUB_TOKEN": "test-token"})
+    assert settings.mode == "local" and settings.repo == "" and settings.github_token == "test-token"
+
+
+@pytest.mark.parametrize("values,environ", [
+    ({"snorkl": {"mode": "demo"}}, {}),
+    ({"snorkl": {"THINK_MODE": "demo"}}, {}),
+    ({"THINK_MODE": "demo"}, {}),
+    ({}, {"THINK_MODE": "demo"}),
+])
+def test_legacy_demo_settings_use_local_persistence_in_the_embedded_assessment(values, environ):
+    settings = resolve_settings(values, environ)
+    assert settings.mode == "local"
+
+
+@pytest.mark.parametrize("mode,expected", [("local", "local"), ("demo", "github")])
+def test_explicit_local_is_preserved_and_demo_uses_the_configured_persistent_backend(mode, expected):
+    settings = resolve_settings({"github": {"repo": "owner/private-data", "token": "test-token"},
+                                 "snorkl": {"mode": mode, "data_dir": "/tmp/assessment-data",
+                                            "encryption_key": "test-key"}}, {})
+    assert settings.mode == expected and settings.data_dir == "/tmp/assessment-data"
+
+
+@pytest.mark.parametrize("values,environ", [
+    ({"github": {"repo": "owner/private-data", "token": "test-token"}, "snorkl": {"mode": "demo"}}, {}),
+    ({"github": {"repo": "owner/private-data", "token": "test-token"}, "snorkl": {"THINK_MODE": "demo"}}, {}),
+    ({"GITHUB_REPO": "owner/private-data", "GITHUB_TOKEN": "test-token", "THINK_MODE": "demo"}, {}),
+    ({}, {"GITHUB_REPO": "owner/private-data", "GITHUB_TOKEN": "test-token", "THINK_MODE": "demo"}),
+])
+def test_legacy_demo_mode_uses_remote_persistence_when_a_cloud_github_connection_exists(values, environ):
+    settings = resolve_settings(values, environ)
+    assert settings.mode == "github" and settings.encryption_key == ""
+
+
+@pytest.mark.parametrize("empty_field", ["github_repo", "github_token"])
+def test_explicitly_empty_dedicated_credentials_do_not_select_a_lower_priority_github_connection(empty_field):
+    settings = resolve_settings({"github": {"repo": "owner/private-data", "token": "lower-priority-token"},
+                                 "snorkl": {empty_field: ""}}, {})
+    assert settings.mode == "local"
+
+
+@pytest.mark.parametrize("absent", ["github_repo", "github_token", "encryption_key"])
+def test_explicit_github_configuration_does_not_fall_back_when_a_storage_field_is_missing(absent):
+    group = {"mode": "github", "github_repo": "owner/private-data", "github_token": "test-token",
+             "encryption_key": "test-key"}
+    group.pop(absent)
+    settings = resolve_settings({"snorkl": group}, {})
+    assert settings.mode == "github"
+
+
+@pytest.mark.parametrize("mode", ["", "   ", None, "typo"])
+def test_invalid_explicit_storage_mode_is_not_treated_as_an_automatic_choice(mode):
+    with pytest.raises(AppError, match="mode"):
+        resolve_settings({"snorkl": {"mode": mode}}, {})
 
 
 def test_reuses_dashboard_github_without_touching_its_data():

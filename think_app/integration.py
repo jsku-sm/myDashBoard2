@@ -16,8 +16,9 @@ def _mapping(value):
 def resolve_settings(values=None, environ=None):
     """Support [snorkl], standalone keys and the dashboard connection groups.
 
-    Dedicated [snorkl] values take precedence. Dashboard CSV records are not
-    migrated, read as Snorkl records, or changed by this function.
+    Dedicated [snorkl] values take precedence. The embedded assessment uses
+    persistent storage, including older explicit demo configurations. Dashboard
+    CSV records are not migrated, read as Snorkl records, or changed here.
     """
     values = _mapping(values)
     group = _mapping(values.get("snorkl"))
@@ -49,16 +50,27 @@ def resolve_settings(values=None, environ=None):
             return False
         raise AppError(f"[snorkl] {field} 값은 true 또는 false로 설정하세요.")
 
-    mode = str(pick("mode", "THINK_MODE", "demo")).strip().lower()
-    if mode not in ("demo", "local", "github"):
-        raise AppError('[snorkl] mode는 "demo", "local", "github" 중 하나로 설정하세요.')
+    repo = str(pick("github_repo", "GITHUB_REPO", github.get("repo", ""))).strip()
+    token = str(pick("github_token", "GITHUB_TOKEN", github.get("token", ""))).strip()
+    encryption_key = str(pick("encryption_key", "ENCRYPTION_KEY", "")).strip()
+    persistent_mode = "github" if repo and token else "local"
+    missing_mode = object()
+    configured_mode = pick("mode", "THINK_MODE", missing_mode)
+    if configured_mode is missing_mode:
+        mode = persistent_mode
+    else:
+        mode = str(configured_mode).strip().lower()
+        if mode not in ("demo", "local", "github"):
+            raise AppError('[snorkl] mode는 "demo", "local", "github" 중 하나로 설정하세요.')
+        if mode == "demo":
+            mode = persistent_mode
     return Settings(
         mode=mode,
         data_dir=str(pick("data_dir", "THINK_DATA_DIR", str(Path(__file__).resolve().parent.parent / ".think_data"))),
-        repo=str(pick("github_repo", "GITHUB_REPO", github.get("repo", ""))).strip(),
+        repo=repo,
         branch=str(pick("github_branch", "GITHUB_BRANCH", github.get("branch", "main"))).strip(),
-        github_token=str(pick("github_token", "GITHUB_TOKEN", github.get("token", ""))).strip(),
-        encryption_key=str(pick("encryption_key", "ENCRYPTION_KEY", "")).strip(),
+        github_token=token,
+        encryption_key=encryption_key,
         api_key=str(pick("openai_api_key", "OPENAI_API_KEY", shared_openai.get("api_key", ""))).strip(),
         model=str(pick("openai_model", "OPENAI_MODEL", shared_model)).strip(),
         transcription_model=str(pick("transcription_model", "TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe")).strip(),
