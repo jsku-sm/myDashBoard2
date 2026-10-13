@@ -24,8 +24,9 @@ Streamlit으로 만든 수업용 웹앱입니다.
 views/                           메뉴별 화면
 .gitignore
 assets/profile.png               '선생님 소개' 프로필 사진
+assets/login_bg_1.jpeg ~ 3.jpeg  첫 화면에서 순환하는 배경 이미지 3장
 app.py  auth.py  config.py  realtime.py  storage.py  ui.py
-login_bg.py                      첫 화면 배경 그림 3장(코드로 그린 수학 그림)과 바뀌는 간격
+login_bg.py                      첫 화면 배경 이미지 전환 효과와 바뀌는 간격
 profile_data.py                  '선생님 소개' 화면의 글 내용
 requirements.txt  students_template.csv  README.md
 ```
@@ -206,7 +207,8 @@ files/2026-10/...             업로드한 파일 원본
   - **Dark**: 어둡게
 - **적용 범위:** 고른 모드는 그 기기의 브라우저에 기억돼요. 학생마다 따로 정할 수 있어요.
 - **어두운 모드의 모습:** 모눈종이 배경이 남색 칠판 느낌으로 바뀌어요. 카드, 감정 버튼, 폭죽, 잠금 화면, 팝업도 함께 어두워져요.
-- **첫 화면 배경:** 코드로 직접 그린 그림 3장이 5초마다 부드럽게 겹치며 바뀌어요. ① 함수의 그래프, ② 수식 별자리, ③ 원과 황금 나선이에요.
+- **첫 화면 배경:** 첨부 이미지 3장이 10초마다 부드럽게 겹치며 바뀌어요. ① 파란색·노란색 기하학 이미지, ② 수식과 도형 이미지, ③ 책과 수학 공식 이미지 순서로 반복돼요.
+  - 이미지 파일은 `assets/login_bg_1.jpeg`, `assets/login_bg_2.jpeg`, `assets/login_bg_3.jpeg`에 있어요. 배포할 때 세 파일을 함께 올려 주세요.
   - 바뀌는 간격은 `login_bg.py` 맨 위의 `INTERVAL_SEC`에서 바꿀 수 있어요.
   - 기기에서 '동작 줄이기'를 켜 두면 첫 그림만 보여요.
 
