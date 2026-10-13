@@ -15,6 +15,8 @@ from .storage import AppError, student_submission_path
 from .media import MODES, activity_mode, validate_audio, validated_graph
 from .uploads import owned_uploads
 from .reference_images import owned_reference_images
+from .question_files import owned_question_files
+from .curriculum import validate_selection, criteria_text
 
 STATUSES = ["진행 중", "보기만 가능", "숨김"]
 GRADES = ["탁월", "성취", "발전 중", "성장 중"]
@@ -96,19 +98,20 @@ class Classroom:
                 prompt="자유롭게 수식을 입력하고 그래프의 특징을 설명해보세요.",
                 expected="입력한 수식과 그래프가 일치하고, 기울기·절편·교점 등 그래프의 특징을 근거와 함께 설명한다.",
                 criteria=["수식에 맞는 그래프를 나타낸다", "그래프의 특징을 수식과 연결하여 설명한다"],
-                max_attempts=5, start=timestamp[:10], end=None, mode="graph", quiz_options=[],
+                max_attempts=2, start=timestamp[:10], end=None, mode="graph", quiz_options=[],
                 status="진행 중", created=timestamp)
             return aid
         return self.store.transaction(change)
 
     def save_activity(self, course_id, title, prompt, expected, criteria, max_attempts, start, end, aid=None,
-                      mode="writing", quiz_options=None, duration_minutes=None, expected_images=None):
-        if (not all(isinstance(v, str) and v.strip() for v in (title, prompt)) or
-                not isinstance(expected, str) or not criteria):
+                      mode="writing", quiz_options=None, duration_minutes=None, expected_images=None,
+                      question_files=None, curriculum=None):
+        if (not isinstance(title, str) or not title.strip() or not isinstance(prompt, str) or
+                not isinstance(expected, str) or not isinstance(criteria, (list, tuple)) or not criteria):
             raise AppError("활동 이름, 문제, 모범답안과 평가 기준을 모두 입력하세요.")
         if len(title) > 120 or max(len(prompt), len(expected)) > 10000 or not 1 <= max_attempts <= 10:
             raise AppError("입력 길이 또는 최대 시도 횟수를 확인하세요.")
-        if len(criteria) > 8 or any(not c.strip() or len(c) > 500 for c in criteria):
+        if len(criteria) > 8 or any(not isinstance(c, str) or not c.strip() or len(c) > 500 for c in criteria):
             raise AppError("평가 기준은 500자 이내로 최대 8개 입력하세요.")
         if end and end < start:
             raise AppError("마감일은 시작일 이후로 설정하세요.")
@@ -130,6 +133,29 @@ class Classroom:
             old = activities.get(aid, {})
             if old and old["course_id"] != course_id:
                 raise AppError("활동의 수업이 일치하지 않습니다.")
+            questions = owned_question_files(state,
+                old.get("question_files", []) if question_files is None else question_files, course_id)
+            if not prompt.strip() and not questions:
+                raise AppError("학생에게 제시할 문제를 입력하거나 문제 파일을 첨부하세요.")
+            for question in questions:
+                for ref, digest, expected_bytes, limit in (
+                    (question["blob_ref"], question["sha256"], question["bytes"],
+                     600_000 if question["kind"] == "image" else 10_000_000),
+                    (question["original_ref"], question["original_sha256"], question["original_bytes"], 10_000_000),
+                ):
+                    raw = self.store.get_blob(ref)
+                    if (not raw or len(raw) != expected_bytes or len(raw) > limit or
+                            hashlib.sha256(raw).hexdigest() != digest):
+                        raise AppError("저장된 문제 파일을 확인할 수 없습니다. 다시 업로드하세요.")
+            selected_curriculum = old.get("curriculum", {}) if curriculum is None else curriculum
+            if not isinstance(selected_curriculum, dict):
+                raise AppError("교육과정 선택 정보를 확인하세요.")
+            if selected_curriculum:
+                selected_curriculum = validate_selection(selected_curriculum)
+                official = criteria_text(selected_curriculum["subject"], selected_curriculum["unit"],
+                                         selected_curriculum["standard_codes"])
+                if any(criterion not in criteria for criterion in official):
+                    raise AppError("선택한 성취기준이 평가 기준에 포함되어야 합니다.")
             references = owned_reference_images(state,
                 old.get("expected_images", []) if expected_images is None else expected_images, course_id)
             if not expected.strip() and not references:
@@ -143,7 +169,7 @@ class Classroom:
                 raise AppError("평가 시작 후에는 평가 타이머에서 남은 시간을 조정하세요.")
             activities[aid] = dict(old, id=aid, course_id=course_id, title=title.strip(), prompt=prompt.strip(),
                 expected=expected.strip(), criteria=criteria, max_attempts=max_attempts, start=start, end=end,
-                expected_images=references,
+                expected_images=references, question_files=questions, curriculum=selected_curriculum,
                 mode=mode, quiz_options=quiz_options if mode == "quiz" else [],
                 status=old.get("status", "진행 중"), created=old.get("created", now()), duration_minutes=duration)
         self.store.transaction(change)
@@ -321,7 +347,9 @@ class Classroom:
                 raise AppError("현재 제출할 수 없는 활동입니다.")
             if (any(task.get(field) != current.get(field) for field in
                     ("prompt", "expected", "criteria", "mode", "quiz_options")) or
-                    task.get("expected_images", []) != current.get("expected_images", [])):
+                    task.get("expected_images", []) != current.get("expected_images", []) or
+                    task.get("question_files", []) != current.get("question_files", []) or
+                    task.get("curriculum", {}) != current.get("curriculum", {})):
                 raise AppError("활동 내용이 변경되었습니다. 새 문제를 확인한 뒤 다시 제출하세요.")
             course = state.get("courses", {}).get(current["course_id"])
             if not course or class_id not in course["classes"]:
@@ -348,6 +376,8 @@ class Classroom:
         attempt = self.store.read()["course_attempts"][attempt_id]
         if not attempt["consent"]:
             raise AppError("학생이 AI 피드백 사용에 동의하지 않았습니다.")
+        if attempt["activity_snapshot"].get("question_files"):
+            raise AppError("문제 파일이 첨부된 활동은 교사가 직접 평가해 주세요. 현재 AI 평가는 첨부 문제 파일을 읽지 않습니다.")
         if attempt["activity_snapshot"].get("expected_images"):
             raise AppError("모범답안 이미지가 첨부된 활동은 교사가 직접 평가해 주세요. 현재 AI 평가는 이미지 모범답안을 비교하지 않습니다.")
         if not ai.available:
@@ -380,6 +410,16 @@ class Classroom:
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("학생결과.csv", safe_csv(rows) if rows else "학급,학번,이름,활동,시도\n".encode("utf-8-sig"))
             archive.writestr("전체기록.json", json.dumps(dict(activities=activities, attempts=attempts), ensure_ascii=False, indent=2))
+            exported_questions = set()
+            for task in activities + [attempt["activity_snapshot"] for attempt in attempts]:
+                for question in owned_question_files(self.store.read(), task.get("question_files", []), course_id):
+                    if question["id"] in exported_questions:
+                        continue
+                    raw = self.store.get_blob(question["original_ref"])
+                    if not raw or hashlib.sha256(raw).hexdigest() != question["original_sha256"]:
+                        raise AppError("내보낼 문제 파일을 확인할 수 없습니다.")
+                    archive.writestr(f"문제/{question['id']}/{question['filename']}", raw)
+                    exported_questions.add(question["id"])
             for attempt in attempts:
                 for index, ref in enumerate(attempt["images"]):
                     archive.writestr(f"답안/{attempt['id']}/{index+1}.jpg", self.store.get_blob(ref))

@@ -11,7 +11,7 @@ from snorkl_navigation import ACTIVE_TOOL, clear_link
 TOOLS = [
     ("tool_desmos", "1. 데스모스", "그래프를 직접 그려 보며 생각해요."),
     ("tool_activity", "2. 데스모스 액티비티", "선생님이 알려 준 코드로 입장해요."),
-    ("snorkl", "3. 수행평가", "풀이를 쓰고 말하며 생각을 설명해요. 기존 소노클 수업과 활동을 여기에서 실행합니다."),
+    ("snorkl", "3. 수행평가", ""),
     ("tool_quiz", "4. 퀴즈", "배운 내용을 퀴즈로 확인해요."),
     ("tool_apps", "5. 앱 (by Good쌤)", "Good쌤이 직접 만든 수학 앱이에요."),
 ]
@@ -57,7 +57,8 @@ def page(user):
     )
     title, desc = tools[key]
     st.markdown(f"#### {title}")
-    st.caption(desc)
+    if desc:
+        st.caption(desc)
 
     if key == "snorkl":
         from views import snorkl

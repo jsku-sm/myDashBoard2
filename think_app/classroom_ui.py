@@ -17,9 +17,11 @@ from .storage import AppError, GitHubStore, LocalStore
 from .ui import board
 from .media import MODES, activity_mode, validate_audio, validated_graph
 from .design import section
-from .model_answers import render_model_answer, reference_image_key
+from .model_answers import render_model_answer, render_question_model_answer, reference_image_key
 from .timer_ui import teacher_timer_controls, student_timer
 from .uploads import UploadedFiles
+from .question_files import render_question_files, display_question_files, question_file_key
+from .curriculum_ui import render_curriculum_criteria
 
 graph_calculator = declare_component("think_desmos", path=str(Path(__file__).parent / "graph"))
 
@@ -87,6 +89,17 @@ def answer_uploads(room, task, student_id, name, class_id, preview, key, uploads
     return selected, not failed
 
 
+def start_activity_draft(course_id):
+    """Begin a clean draft after the previous activity was saved."""
+    if st.session_state.get("adding_activity"):
+        return
+    prefix = "activity_form_" + course_id + "_"
+    for key in list(st.session_state):
+        if key.startswith(prefix):
+            del st.session_state[key]
+    st.session_state.adding_activity = True
+
+
 def activity_form(room, course_id, task=None, ai=None):
     task = task or {}
     form_key = "activity_form_" + task.get("id", course_id)
@@ -96,12 +109,23 @@ def activity_form(room, course_id, task=None, ai=None):
                             format_func=MODES.get, key=form_key + "_mode")
         st.caption("활동 이름에 ‘데스모스’ 또는 ‘Desmos’를 입력하면 그래프 모드로 저장됩니다.")
         prompt = st.text_area("학생에게 제시할 문제", value=task.get("prompt", ""), max_chars=10000, key=form_key + "_prompt")
+        question_key = question_file_key(form_key)
+        previous_questions = st.session_state.get(question_key, task.get("question_files", []))
+        previous_ids = {record["id"] for record in previous_questions}
+        writing = activity_mode({"title": title, "mode": mode}) == "writing"
+        if writing or previous_questions:
+            render_question_files(task, form_key, room, course_id)
+        if writing:
+            questions = st.session_state.get(question_key, [])
+            render_question_model_answer(
+                dict(task, title=title, prompt=prompt), ai, form_key, room, course_id,
+                auto_generate=any(record["id"] not in previous_ids for record in questions))
         expected_key = render_model_answer(task, ai, form_key, room=room, course_id=course_id)
         expected = st.text_area("모범답안", max_chars=10000, key=expected_key)
-        criteria = st.text_area("평가 기준 · 한 줄에 하나", value="\n".join(task.get("criteria", [])), key=form_key + "_criteria")
+        criteria, curriculum = render_curriculum_criteria(task, form_key)
         options = st.text_area("퀴즈 선택지 · 한 줄에 하나", value="\n".join(task.get("quiz_options", [])),
                                help="퀴즈 모드에서만 사용됩니다. 선택지를 비우면 단답형, 2~8개 입력하면 객관식입니다.", key=form_key + "_options")
-        maximum = st.number_input("최대 시도 횟수", 1, 10, task.get("max_attempts", 5), key=form_key + "_maximum")
+        maximum = st.number_input("최대 시도 횟수", 1, 10, task.get("max_attempts", 2), key=form_key + "_maximum")
         left, right = st.columns(2)
         start = left.date_input("시작일", value=date.fromisoformat(task["start"]) if task else date.fromisoformat(now()[:10]),
                                 key=form_key + "_start")
@@ -123,11 +147,12 @@ def activity_form(room, course_id, task=None, ai=None):
             st.caption("진행 중인 평가의 남은 시간은 활동 화면의 수행평가 타이머에서 조정하세요.")
         if st.button("활동 저장", type="primary", key=form_key + "_save"):
             try:
-                room.save_activity(course_id, title, prompt, expected, [c.strip() for c in criteria.splitlines() if c.strip()],
+                room.save_activity(course_id, title, prompt, expected, criteria,
                                    maximum, start.isoformat(), end.isoformat() if end else None, task.get("id"),
                                    mode, [o.strip() for o in options.splitlines() if o.strip()],
                                    duration_minutes=None if task.get("timer_started_at") else duration,
-                                   expected_images=st.session_state.get(reference_image_key(form_key), []))
+                                   expected_images=st.session_state.get(reference_image_key(form_key), []),
+                                   question_files=st.session_state.get(question_key, []), curriculum=curriculum)
             except AppError as error:
                 st.error(str(error))
             else:
@@ -188,7 +213,8 @@ def attempt_view(room, attempt, ai, teacher=True):
         st.caption(attempt["created"].replace("T", " "))
     with right:
         feedback_view(attempt)
-        if teacher and ai.available and attempt["consent"] and not attempt["feedback"] and not attempt["activity_snapshot"].get("expected_images"):
+        if (teacher and ai.available and attempt["consent"] and not attempt["feedback"] and
+                not (attempt["activity_snapshot"].get("expected_images") or attempt["activity_snapshot"].get("question_files"))):
             if st.button("AI 분석하기", key="evaluate_" + attempt["id"]):
                 with st.spinner("모범답안과 비교해 분석하고 있습니다…"):
                     room.evaluate(attempt["id"], ai)
@@ -213,6 +239,7 @@ def student_preview(room, course, task, ai, identity=None, editor_key=None, comp
         st.markdown("### " + task["title"])
     student_timer(room, task["id"])
     st.write(task["prompt"])
+    display_question_files(room.store, task)
     st.caption("평가 기준: " + " / ".join(task["criteria"]))
     notice_key = f"submission_notice_{task['id']}_{class_id}_{student_id}"
     if st.session_state.get(notice_key):
@@ -242,10 +269,12 @@ def student_preview(room, course, task, ai, identity=None, editor_key=None, comp
                                    help="캡처한 PNG 또는 JPG 파일을 올리세요. 학번과 이름을 입력한 파일은 업로드 즉시 저장됩니다.")
         upload_ids, uploads_saved = answer_uploads(room, task, student_id, name, class_id, preview, key, uploads)
         text = st.text_area("나의 답안", max_chars=12000, key=key + "_text")
-        ai_feedback_available = ai.available and not task.get("expected_images")
+        ai_feedback_available = ai.available and not (task.get("expected_images") or task.get("question_files"))
         consent = st.checkbox("AI 피드백 받기 · 답안을 OpenAI에 전송", disabled=not ai_feedback_available,
-                              key=key + "_consent", help="이미지 모범답안이 첨부된 활동은 교사가 직접 평가합니다.")
+                              key=key + "_consent", help="문제 파일 또는 이미지 모범답안이 첨부된 활동은 교사가 직접 평가합니다.")
         consent = bool(consent and ai_feedback_available)
+        if task.get("question_files"):
+            st.caption("문제 파일이 첨부된 활동은 교사가 직접 평가합니다.")
         audio = st.audio_input("목소리로 설명하기 · 2분 이내", sample_rate=16000, key=key + "_audio")
         raw_audio = audio.getvalue() if audio else None
         audio_hash = hashlib.sha256(raw_audio).hexdigest() if raw_audio else ""
@@ -408,6 +437,9 @@ def response_gallery(room, course, task, ai):
         if st.session_state.get("export_" + task["id"]):
             st.download_button("전체 학생 데이터 ZIP", st.session_state["export_" + task["id"]],
                                file_name="학생답안.zip", mime="application/zip")
+    if view in ("답변", "분석"):
+        st.write(task["prompt"])
+        display_question_files(room.store, task, teacher=True)
     if view == "편집":
         teacher_timer_controls(room, task)
         activity_form(room, course["id"], task, ai)
@@ -522,7 +554,7 @@ def course_detail(store, course, settings):
     filter_col, add_col = st.columns([5, 1])
     selected = filter_col.radio("활동 상태", ["전체", "진행 중", "숨김"], horizontal=True)
     if add_col.button("＋ 활동 추가하기", type="primary"):
-        st.session_state.adding_activity = True
+        start_activity_draft(course["id"])
     if st.session_state.get("adding_activity"):
         activity_form(room, course["id"], ai=ai)
     if st.button("수업 전체 데이터 내보내기 준비"):

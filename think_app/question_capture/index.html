@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;color:#163b3b;background:transparent}
+#drop{padding:21px 16px;min-height:105px;border:2px dashed #83a19a;border-radius:12px;background:#f6faf8;text-align:center;cursor:pointer;outline:none}
+#drop:focus,#drop.over{border-color:#316d63;background:#e9f5ee;box-shadow:0 0 0 2px #cfebdc}
+.title{font-size:15px;font-weight:600}.hint{margin-top:7px;font-size:12px;color:#5e726b}#status{padding:6px 2px;min-height:29px;font-size:12px;color:#42655a}
+#status.error{color:#b23124}
+</style></head><body>
+<div id="drop" tabindex="0" role="group" aria-label="문제 이미지 끌어 놓기 또는 붙여넣기">
+ <div class="title">그림·캡처 이미지를 여기에 끌어 놓으세요</div>
+ <div class="hint">이 영역을 클릭한 뒤 Ctrl+V / ⌘V로 캡처 이미지를 붙여넣을 수도 있어요 · 한 번에 최대 5개 · 파일당 10MB</div>
+</div>
+<div id="status" role="status" aria-live="polite">이미지 파일을 바로 첨부할 수 있습니다.</div>
+<script>
+const drop=document.getElementById('drop'),status=document.getElementById('status');
+const allowed=new Set(['image/png','image/jpeg','image/webp','image/gif']);
+let maxBytes=10000000,maxFiles=5,busy=false,alive=true;
+const send=(type,extra={})=>window.parent.postMessage({isStreamlitMessage:true,type,...extra},'*');
+function message(text,error=false){status.textContent=text;status.classList.toggle('error',error);height()}
+function height(){send('streamlit:setFrameHeight',{height:document.body.scrollHeight+4})}
+function uniqueId(){const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);return Array.from(bytes,value=>value.toString(16).padStart(2,'0')).join('')}
+function filename(file,index){const suffix={'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif'}[file.type];return file.name&&/\.(png|jpe?g|webp|gif)$/i.test(file.name)?file.name:'문제_캡처_'+(index+1)+'.'+suffix}
+function read(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('이미지 파일을 읽지 못했습니다. 다시 첨부하세요.'));reader.readAsDataURL(file)})}
+async function attach(files){
+ if(busy){message('이전 이미지 첨부가 끝난 뒤 다시 시도하세요.',true);return}
+ if(!files.length){message('이미지 파일이나 캡처 이미지를 첨부하세요. 웹 이미지는 파일로 저장한 뒤 올려주세요.',true);return}
+ if(files.length>maxFiles){message('한 번에 최대 '+maxFiles+'개까지 첨부하세요.',true);return}
+ if(files.some(file=>!allowed.has(file.type))){message('PNG, JPG, WebP 또는 GIF 이미지 파일을 첨부하세요.',true);return}
+ if(files.some(file=>!file.size||file.size>maxBytes)){message('이미지는 파일당 10MB 이하로 첨부하세요.',true);return}
+ busy=true;drop.setAttribute('aria-busy','true');message('문제 이미지를 첨부하고 있습니다…');
+ try{
+  const result=await Promise.all(files.map(async(file,index)=>({name:filename(file,index),type:file.type,size:file.size,data_uri:await read(file)})));
+  if(!alive)return;
+  send('streamlit:setComponentValue',{value:{event_id:uniqueId(),files:result},dataType:'json'});
+  message('이미지를 반영했습니다. 첨부 목록에서 확인하세요.');
+ }catch(error){message(error.message||'이미지 첨부에 실패했습니다. 다시 시도하세요.',true)}
+ finally{busy=false;drop.setAttribute('aria-busy','false')}
+}
+function transferredFiles(transfer){
+ if(!transfer)return [];
+ const files=Array.from(transfer.files||[]);
+ if(files.length)return files;
+ return Array.from(transfer.items||[]).filter(item=>item.kind==='file').map(item=>item.getAsFile()).filter(Boolean);
+}
+function inlineImage(transfer){
+ if(!transfer||!transfer.getData)return null;
+ const text=(transfer.getData('text/uri-list')||transfer.getData('text/plain')||'').trim();
+ // Never fetch dragged URLs: accept only an image already embedded as data.
+ if(text.length>4*Math.ceil(maxBytes/3)+40)return null;
+ const match=/^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]*={0,2})$/.exec(text);
+ if(!match)return null;
+ try{const decoded=atob(match[2]);if(!decoded.length||decoded.length>maxBytes)return null;const bytes=Uint8Array.from(decoded,c=>c.charCodeAt(0));return new File([bytes],'문제_이미지.'+({'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif'}[match[1]]),{type:match[1]})}catch{return null}
+}
+drop.addEventListener('click',()=>drop.focus());
+drop.addEventListener('dragover',event=>{event.preventDefault();drop.classList.add('over');if(event.dataTransfer)event.dataTransfer.dropEffect='copy'});
+drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
+drop.addEventListener('drop',event=>{event.preventDefault();drop.classList.remove('over');const files=transferredFiles(event.dataTransfer);if(!files.length){const embedded=inlineImage(event.dataTransfer);if(embedded)files.push(embedded)}return attach(files)});
+drop.addEventListener('paste',event=>{const files=transferredFiles(event.clipboardData);if(!files.length){const embedded=inlineImage(event.clipboardData);if(embedded)files.push(embedded)}event.preventDefault();return attach(files)});
+window.addEventListener('message',event=>{if(event.source!==window.parent||!event.data||event.data.type!=='streamlit:render')return;const args=event.data.args||{};maxBytes=Math.min(10000000,Number(args.max_file_bytes)||10000000);maxFiles=Math.min(5,Number(args.max_files)||5);height()});
+window.addEventListener('resize',height);window.addEventListener('pagehide',()=>{alive=false});
+send('streamlit:componentReady',{apiVersion:1});height();
+</script></body></html>

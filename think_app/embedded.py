@@ -149,7 +149,6 @@ def teacher_view(store, manager, settings, requested):
             return
         st.session_state.pop("selected_course", None)
         st.session_state.pop("selected_activity", None)
-    st.caption("수행평가 만들기 → 활동·모범답안 등록 → 학생 답안 확인·피드백")
     if settings.mode == "github":
         current, archived = st.tabs(["현재 진행 중", "보관됨"])
         with current:
@@ -165,7 +164,6 @@ def render(user):
         st.error("대시보드 로그인이 필요합니다.")
         return
     teacher = user["role"] == "teacher"
-    st.caption("수업도구 / 3. 수행평가 · 교사 공간" if teacher else "수업도구 / 3. 수행평가 · 학생 공간")
     with st.container(key="snorkl_workspace"):
         embedded_style()
         try:
