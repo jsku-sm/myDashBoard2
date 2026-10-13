@@ -87,9 +87,10 @@ def _student_course(store, manager, course, settings, user):
             invalidate()
         st.rerun()
     room = Classroom(store)
-    tasks = [task for task in room.activities(course["id"]) if task.get("status") != "숨김"]
+    tasks = [task for task in room.activities(course["id"])
+             if room.student_activity_available(task)]
     if not tasks:
-        st.info("선생님이 공개한 활동이 아직 없습니다.")
+        st.info("수행평가 기간이 아닙니다.")
         return
     mapping = {task["id"]: task for task in tasks}
     key = "snorkl_student_activity_" + course["id"]
@@ -121,10 +122,17 @@ def student_view(store, manager, settings, user, requested):
     courses = visible_courses(user, manager.list_courses())
     if not courses:
         st.info("아직 배정된 소노클 수업이 없습니다. 선생님이 수업을 만들고 반을 지정하면 여기에 표시됩니다.")
+        st.info("수행평가 기간이 아닙니다.")
+    room = Classroom(store)
     for course in courses:
+        available = any(room.student_activity_available(task)
+                        for task in room.activities(course["id"]))
         with st.container(border=True):
             st.caption("참여 학급 · " + ", ".join(course["classes"]))
-            if st.button(course["title"], key="snorkl_join_" + course["id"], use_container_width=True):
+            if not available:
+                st.info("수행평가 기간이 아닙니다.")
+            if st.button(course["title"], key="snorkl_join_" + course["id"],
+                         use_container_width=True, disabled=not available) and available:
                 st.session_state["_snorkl_student_course"] = course["id"]
                 st.rerun()
 

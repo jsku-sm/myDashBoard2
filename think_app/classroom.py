@@ -9,7 +9,7 @@ import re
 import uuid
 import zipfile
 
-from .courses import now
+from .courses import KST, now
 from .service import safe_csv
 from .storage import AppError, student_submission_path
 from .media import MODES, activity_mode, validate_audio, validated_graph
@@ -18,7 +18,7 @@ from .reference_images import owned_reference_images
 from .question_files import owned_question_files
 from .curriculum import validate_selection, criteria_text
 
-STATUSES = ["진행 중", "보기만 가능", "숨김"]
+STATUSES = ["배포 전", "진행 중", "보기만 가능", "숨김"]
 GRADES = ["탁월", "성취", "발전 중", "성장 중"]
 
 
@@ -99,7 +99,7 @@ class Classroom:
                 expected="입력한 수식과 그래프가 일치하고, 기울기·절편·교점 등 그래프의 특징을 근거와 함께 설명한다.",
                 criteria=["수식에 맞는 그래프를 나타낸다", "그래프의 특징을 수식과 연결하여 설명한다"],
                 max_attempts=2, start=timestamp[:10], end=None, mode="graph", quiz_options=[],
-                status="진행 중", created=timestamp)
+                status="배포 전", distribution_required=True, created=timestamp)
             return aid
         return self.store.transaction(change)
 
@@ -171,7 +171,8 @@ class Classroom:
                 expected=expected.strip(), criteria=criteria, max_attempts=max_attempts, start=start, end=end,
                 expected_images=references, question_files=questions, curriculum=selected_curriculum,
                 mode=mode, quiz_options=quiz_options if mode == "quiz" else [],
-                status=old.get("status", "진행 중"), created=old.get("created", now()), duration_minutes=duration)
+                status=old.get("status", "배포 전"), created=old.get("created", now()), duration_minutes=duration,
+                distribution_required=old.get("distribution_required", not bool(old)))
         self.store.transaction(change)
         return aid
 
@@ -181,24 +182,62 @@ class Classroom:
         self.activity(aid)
         self.store.transaction(lambda s: s["course_activities"][aid].update(status=status))
 
+    @staticmethod
+    def is_distributed(task):
+        """Keep legacy published activities available without backfilling state."""
+        return not task.get("distribution_required", False) or bool(task.get("distributed_at"))
+
+    @staticmethod
+    def activity_within_dates(task):
+        """Course dates include both boundaries and are compared in Korea time."""
+        today = datetime.fromisoformat(now()).astimezone(KST).date().isoformat()
+        start, end = task.get("start"), task.get("end")
+        return (isinstance(start, str) and start <= today and
+                (not end or isinstance(end, str) and today <= end))
+
+    @staticmethod
+    def _begin_timer(task, duration):
+        instant = _timer_now()
+        task.update(duration_minutes=duration, timer_started_at=instant.isoformat(timespec="seconds"),
+                    timer_deadline=(instant + timedelta(minutes=duration)).isoformat(timespec="seconds"),
+                    timer_ended_at=None)
+
+    def distribute_activity(self, aid):
+        """Publish a saved activity and start an in-period timer atomically."""
+        def change(state):
+            task = state.get("course_activities", {}).get(aid)
+            if not task:
+                raise AppError("활동을 찾을 수 없습니다.")
+            if task.get("course_id") not in state.get("courses", {}):
+                raise AppError("수업을 찾을 수 없습니다.")
+            today = datetime.fromisoformat(now()).astimezone(KST).date().isoformat()
+            if task.get("end") and task["end"] < today:
+                raise AppError("마감일이 지난 활동입니다. 평가 기간을 수정한 뒤 배포하세요.")
+            duration = _duration(task.get("duration_minutes", 0))
+            task.update(status="진행 중", distributed_at=task.get("distributed_at") or now())
+            if (duration and self.activity_within_dates(task) and not task.get("timer_started_at") and
+                    not task.get("timer_ended_at")):
+                self._begin_timer(task, duration)
+            return task
+        return self.store.transaction(change)
+
     def start_timer(self, aid, duration_minutes=None):
-        """Start a shared assessment clock once, at the teacher's distribution time."""
+        """Start a shared assessment clock once after distribution."""
         if duration_minutes is not None:
             _duration(duration_minutes, allow_zero=False)
         def change(state):
             task = state.get("course_activities", {}).get(aid)
             if not task:
                 raise AppError("활동을 찾을 수 없습니다.")
+            if not self.is_distributed(task):
+                raise AppError("학생에게 활동을 배포한 뒤 평가를 시작하세요.")
             duration = _duration(task.get("duration_minutes", 0) if duration_minutes is None else duration_minutes,
                                  allow_zero=False)
             if not self._within_submission_period(task):
                 raise AppError("활동 상태와 시작일·마감일을 확인한 뒤 평가를 시작하세요.")
             if task.get("timer_started_at"):
                 raise AppError("이미 시작한 평가입니다. 남은 시간을 조정하세요.")
-            instant = _timer_now()
-            task.update(duration_minutes=duration, timer_started_at=instant.isoformat(timespec="seconds"),
-                        timer_deadline=(instant + timedelta(minutes=duration)).isoformat(timespec="seconds"),
-                        timer_ended_at=None)
+            self._begin_timer(task, duration)
         self.store.transaction(change)
 
     def adjust_timer(self, aid, remaining_minutes):
@@ -233,8 +272,8 @@ class Classroom:
 
     @staticmethod
     def _within_submission_period(task):
-        today = now()[:10]
-        return task["status"] == "진행 중" and task["start"] <= today and (not task["end"] or today <= task["end"])
+        return (task.get("status") == "진행 중" and Classroom.is_distributed(task) and
+                Classroom.activity_within_dates(task))
 
     @staticmethod
     def timer_state(task):
@@ -253,6 +292,13 @@ class Classroom:
     @staticmethod
     def _can_submit(task):
         return (Classroom._within_submission_period(task) and
+                Classroom.timer_state(task)["phase"] in ("unlimited", "running"))
+
+    @staticmethod
+    def student_activity_available(task):
+        """Hide unpublished, out-of-period and inactive timed activities."""
+        return (Classroom.is_distributed(task) and task.get("status") in ("진행 중", "보기만 가능") and
+                Classroom.activity_within_dates(task) and
                 Classroom.timer_state(task)["phase"] in ("unlimited", "running"))
 
     def submit(self, aid, student_id, name, class_id, text, images, consent, request_id, preview=False,

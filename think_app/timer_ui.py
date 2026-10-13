@@ -31,11 +31,16 @@ def _timer_view(room, task):
 def student_timer(room, aid):
     task = room.activity(aid)
     availability = room._can_submit(task)
+    visibility = room.student_activity_available(task)
     state_key = "timer_submission_available_" + aid
+    visibility_key = "timer_student_activity_available_" + aid
     previous = st.session_state.get(state_key)
+    previous_visibility = st.session_state.get(visibility_key)
     st.session_state[state_key] = availability
+    st.session_state[visibility_key] = visibility
     _timer_view(room, task)
-    if previous is not None and previous != availability:
+    if ((previous is not None and previous != availability) or
+            (previous_visibility is not None and previous_visibility != visibility)):
         # Recheck the submission button on start, expiry, or extension. Editor
         # widget keys stay unchanged and ordinary countdown ticks stay isolated.
         st.rerun(scope="app")
@@ -43,7 +48,9 @@ def student_timer(room, aid):
 
 def _teacher_timer_changed(room, aid, message):
     st.session_state["timer_teacher_notice_" + aid] = message
-    st.session_state["timer_submission_available_" + aid] = room._can_submit(room.activity(aid))
+    task = room.activity(aid)
+    st.session_state["timer_submission_available_" + aid] = room._can_submit(task)
+    st.session_state["timer_student_activity_available_" + aid] = room.student_activity_available(task)
     st.rerun(scope="app")
 
 
@@ -57,11 +64,13 @@ def teacher_timer_controls(room, task):
         if notice:
             st.success(notice)
         if timer["phase"] in ("unlimited", "waiting"):
-            duration = st.number_input("배포할 풀이 시간(분)", min_value=1, max_value=1440,
+            duration = st.number_input("평가 풀이 시간(분)", min_value=1, max_value=1440,
                                        value=timer["duration_minutes"] or 30,
                                        key="timer_distribution_minutes_" + aid + str(timer["duration_minutes"]),
-                                       help="평가 시작·배포를 누르면 이 시간으로 모든 학생의 타이머가 시작됩니다.")
-            if st.button("평가 시작 · 배포", type="primary", key="timer_start_" + aid,
+                                       help="배포된 활동에서 평가 시작을 누르면 모든 학생의 타이머가 시작됩니다.")
+            if not room.is_distributed(task):
+                st.caption("학생에게 배포하면 설정한 풀이 시간으로 평가 타이머가 시작됩니다.")
+            if st.button("평가 시작", type="primary", key="timer_start_" + aid,
                          disabled=not room._within_submission_period(task)):
                 try:
                     room.start_timer(aid, int(duration))

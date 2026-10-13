@@ -1,4 +1,7 @@
 """Exercise curriculum changes and activity saves through real Streamlit widgets."""
+import io
+import json
+import zipfile
 import pytest
 from types import SimpleNamespace
 from streamlit.testing.v1 import AppTest
@@ -41,6 +44,8 @@ def test_new_form_saves_selected_standards_and_defaults_to_two_attempts(activity
     app.button(key=prefix + "_save").click().run()
     assert not app.exception and not app.error
     task = room.activities(cid)[0]
+    assert task["status"] == "배포 전"
+    assert not task.get("distributed_at")
     assert task["max_attempts"] == 2
     assert task["criteria"] == criteria_text("공통수학1", unit_names("공통수학1")[0], [code])
     assert task["curriculum"] == selection_metadata("공통수학1", unit_names("공통수학1")[0], [code])
@@ -98,6 +103,79 @@ def question_generation_app(activity_app, monkeypatch, uploads):
     return AppTest.from_string(source), calls
 
 
+def form_teacher_openai(monkeypatch):
+    import think_app.ai as ai_module
+    connections, requests = [], []
+
+    def create(**kwargs):
+        requests.append(kwargs)
+        return {"status": "completed", "output_text": "2+2=4입니다. 두 개씩 더하면 네 개가 됩니다."}
+
+    def factory(**kwargs):
+        connections.append(kwargs)
+        return SimpleNamespace(responses=SimpleNamespace(create=create))
+
+    monkeypatch.setattr(ai_module, "OpenAI", factory)
+    return connections, requests
+
+
+def test_form_question_auto_answer_uses_teacher_key_with_student_ai_disabled(activity_app, monkeypatch):
+    _, cid, _ = activity_app
+    uploads = [SimpleNamespace(name="문제.txt", getvalue=lambda: "2+2의 값을 구하세요.".encode())]
+    app, _ = question_generation_app(activity_app, monkeypatch, uploads)
+    original = AI(Settings(ai_enabled=False, api_key="server-test-key"))
+    monkeypatch.setattr(classroom_ui, "_form_test_ai", original)
+    connections, requests = form_teacher_openai(monkeypatch)
+    app.run()
+    prefix = "activity_form_" + cid
+    assert not app.exception
+    assert not app.checkbox(key=prefix + "_question_ai_consent").disabled
+    app.checkbox(key=prefix + "_question_ai_consent").check().run()
+    assert not app.exception and len(requests) == 1
+    assert connections[0]["api_key"] == "server-test-key"
+    assert app.text_area(key=prefix + "_expected").value.startswith("2+2=4")
+    assert original.available is False
+    app.text_area(key=prefix + "_expected").set_value("교사가 검토한 답: 4").run()
+    assert not app.exception and len(requests) == 1
+    assert app.text_area(key=prefix + "_expected").value == "교사가 검토한 답: 4"
+
+
+def test_form_key_entry_generates_answer_without_saving_key_to_activity_or_export(activity_app, monkeypatch):
+    room, cid, _ = activity_app
+    uploads = [SimpleNamespace(name="문제.txt", getvalue=lambda: "2+2의 값을 구하세요.".encode())]
+    app, _ = question_generation_app(activity_app, monkeypatch, uploads)
+    original = AI(Settings(ai_enabled=False, api_key=""))
+    monkeypatch.setattr(classroom_ui, "_form_test_ai", original)
+    connections, requests = form_teacher_openai(monkeypatch)
+    app.run()
+    prefix = "activity_form_" + cid
+    assert not app.exception and not app.checkbox(key=prefix + "_question_ai_consent").disabled
+    app.checkbox(key=prefix + "_question_ai_consent").check().run()
+    assert not app.exception and app.checkbox(key=prefix + "_question_ai_consent").value
+    key_input = app.text_input(key=prefix + "_question_api_key")
+    assert key_input.proto.type == key_input.proto.PASSWORD and not requests
+    assert not connections
+    key_input.set_value("session-test-key").run()
+    assert not app.exception and len(requests) == 1
+    assert connections[0]["api_key"] == "session-test-key"
+    assert app.text_area(key=prefix + "_expected").value.startswith("2+2=4")
+    assert app.checkbox(key=prefix + "_question_ai_consent").value
+    app.text_area(key=prefix + "_expected").set_value("교사가 보완한 답: 4").run()
+    assert not app.exception and len(requests) == 1
+    app.text_input(key=prefix + "_title").set_value("문제 파일 평가")
+    app.text_area(key=prefix + "_criteria").set_value("풀이 과정을 설명한다.")
+    app.button(key=prefix + "_save").click().run()
+    assert not app.exception and not app.error
+    task = room.activities(cid)[0]
+    assert task["expected"] == "교사가 보완한 답: 4"
+    assert task["status"] == "배포 전" and len(requests) == 1
+    assert original.available is False and original.settings.api_key == ""
+    assert "session-test-key" not in json.dumps(room.store.read(), ensure_ascii=False)
+    assert all(b"session-test-key" not in raw for raw in room.store.blobs.values())
+    with zipfile.ZipFile(io.BytesIO(room.export(cid, task["id"]))) as archive:
+        assert all(b"session-test-key" not in archive.read(name) for name in archive.namelist())
+
+
 def test_question_upload_generates_editable_answer_once_and_saves_file_only_problem(activity_app, monkeypatch):
     room, cid, _ = activity_app
     uploads = [SimpleNamespace(name="문제.txt", getvalue=lambda: "2+2의 값을 구하세요.".encode())]
@@ -117,6 +195,8 @@ def test_question_upload_generates_editable_answer_once_and_saves_file_only_prob
     app.button(key=prefix + "_save").click().run()
     assert not app.exception and not app.error and len(calls) == 1
     task = room.activities(cid)[0]
+    assert task["status"] == "배포 전"
+    assert not task.get("distributed_at")
     assert task["prompt"] == ""
     assert task["expected"] == "교사가 검토한 답: 4"
     assert task["question_files"][0]["filename"] == "문제.txt"

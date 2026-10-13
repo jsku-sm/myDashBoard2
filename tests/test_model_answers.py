@@ -1,6 +1,7 @@
 """Model-answer uploads populate the editable answer without repeating reads."""
 import io
 import base64
+import json
 from types import SimpleNamespace
 import zipfile
 
@@ -11,6 +12,8 @@ from pypdf.generic import DictionaryObject, NameObject, DecodedStreamObject, Num
 from streamlit.testing.v1 import AppTest
 
 from think_app import model_answers
+from think_app.ai import AI
+from think_app.config import Settings
 from think_app.storage import AppError
 
 
@@ -468,3 +471,130 @@ def test_question_answer_ui_opts_in_generates_once_and_preserves_teacher_edits()
     app.text_area(key="form_expected").set_value("동의 해제 후 편집").run()
     assert not app.exception and len(calls) == 2
     assert app.text_area(key="form_expected").value == "동의 해제 후 편집"
+
+
+def teacher_question_app(ai, filename="문제.txt", raw=b"x + 1 = 3"):
+    from think_app.courses import CourseManager
+    from think_app.question_files import QuestionFiles
+    from think_app.storage import MemoryStore
+    store = MemoryStore()
+    cid = CourseManager(store).create("수행평가", "#123456", ["1반"])
+    record = QuestionFiles(store).save(cid, raw, filename)
+    app = AppTest.from_string(
+        "import streamlit as st\n"
+        "from think_app.model_answers import render_question_model_answer\n"
+        "key = render_question_model_answer({'expected': '기존 풀이'}, st.session_state['ai'], 'form', "
+        "st.session_state['room'], st.session_state['course_id'])\n"
+        "st.text_area('모범답안', key=key)\n")
+    app.session_state["room"] = SimpleNamespace(store=store)
+    app.session_state["course_id"] = cid
+    app.session_state["ai"] = ai
+    app.session_state["form_question_files"] = [record]
+    return app, store
+
+
+def mock_teacher_openai(monkeypatch, output="양변에서 1을 빼면 x=2입니다.", responses=None):
+    import think_app.ai as ai_module
+    connections, requests = [], []
+    results = iter(responses) if responses is not None else None
+
+    def create(**kwargs):
+        requests.append(kwargs)
+        if results is not None:
+            return next(results)
+        return {"status": "completed", "output_text": output}
+
+    def factory(**kwargs):
+        connections.append(kwargs)
+        return SimpleNamespace(responses=SimpleNamespace(create=create))
+
+    monkeypatch.setattr(ai_module, "OpenAI", factory)
+    return connections, requests
+
+
+def test_teacher_question_generation_uses_server_key_when_student_ai_is_disabled(monkeypatch):
+    connections, requests = mock_teacher_openai(monkeypatch)
+    original = AI(Settings(ai_enabled=False, api_key="server-test-key", model="teacher-configured-model"))
+    app, store = teacher_question_app(original)
+    app.run()
+    assert not app.exception
+    assert not app.checkbox(key="form_question_ai_consent").disabled
+    assert requests == []
+    app.checkbox(key="form_question_ai_consent").check().run()
+    assert not app.exception and len(requests) == 1
+    assert connections[0]["api_key"] == "server-test-key"
+    assert requests[0]["model"] == "teacher-configured-model" and requests[0]["store"] is False
+    assert app.text_area(key="form_expected").value == "양변에서 1을 빼면 x=2입니다."
+    assert original.available is False and original.settings.ai_enabled is False
+    assert "server-test-key" not in json.dumps(store.read(), ensure_ascii=False)
+    app.text_area(key="form_expected").set_value("교사가 수정한 풀이").run()
+    assert not app.exception and len(requests) == 1
+    assert app.text_area(key="form_expected").value == "교사가 수정한 풀이"
+
+
+def test_teacher_can_opt_in_before_key_is_available_and_key_entry_generates_automatically(monkeypatch):
+    connections, requests = mock_teacher_openai(monkeypatch)
+    original = AI(Settings(ai_enabled=False, api_key=""))
+    app, store = teacher_question_app(original)
+    app.run()
+    assert not app.exception
+    assert not app.checkbox(key="form_question_ai_consent").disabled
+    assert not requests
+    app.checkbox(key="form_question_ai_consent").check().run()
+    assert not app.exception and app.checkbox(key="form_question_ai_consent").value
+    key_input = next(item for item in app.text_input if "OpenAI" in item.label and "키" in item.label)
+    assert key_input.proto.type == key_input.proto.PASSWORD
+    assert not requests and not connections
+    assert app.text_area(key="form_expected").value == "기존 풀이"
+    assert any("키" in item.value for item in list(app.info) + list(app.error))
+    key_input.set_value("session-test-key").run()
+    assert not app.exception and app.checkbox(key="form_question_ai_consent").value
+    assert len(requests) == 1 and connections[0]["api_key"] == "session-test-key"
+    assert app.text_area(key="form_expected").value == "양변에서 1을 빼면 x=2입니다."
+    assert original.available is False and original.settings.api_key == ""
+    assert "session-test-key" not in json.dumps(store.read(), ensure_ascii=False)
+    assert all(b"session-test-key" not in raw for raw in store.blobs.values())
+    app.text_area(key="form_expected").set_value("교사가 보완한 풀이").run()
+    assert not app.exception and len(requests) == 1
+    assert app.text_area(key="form_expected").value == "교사가 보완한 풀이"
+
+
+def test_teacher_server_key_flow_sends_the_complete_pdf_once(monkeypatch):
+    _, requests = mock_teacher_openai(monkeypatch, "스캔과 텍스트 문제의 풀이")
+    raw = scanned_pdf(text_page=True)
+    app, _ = teacher_question_app(AI(Settings(ai_enabled=False, api_key="server-test-key")),
+                                  filename="혼합문제.pdf", raw=raw)
+    app.run()
+    app.checkbox(key="form_question_ai_consent").check().run()
+    assert not app.exception and len(requests) == 1
+    assert app.text_area(key="form_expected").value == "스캔과 텍스트 문제의 풀이"
+    pdf = next(item for item in requests[0]["input"][0]["content"] if item["type"] == "input_file")
+    assert pdf["filename"] == "혼합문제.pdf"
+    assert pdf["file_data"] == "data:application/pdf;base64," + base64.b64encode(raw).decode()
+    app.run()
+    assert not app.exception and len(requests) == 1
+
+
+def test_teacher_key_correction_retries_failed_answer_and_preserves_successful_edits(monkeypatch):
+    connections, requests = mock_teacher_openai(monkeypatch, responses=[
+        {"status": "incomplete", "output_text": "미완성 풀이"},
+        {"status": "completed", "output_text": "완성된 풀이: x=2"},
+    ])
+    app, store = teacher_question_app(AI(Settings(ai_enabled=False, api_key="")))
+    app.run()
+    app.checkbox(key="form_question_ai_consent").check().run()
+    app.text_input(key="form_question_api_key").set_value("first-test-key").run()
+    assert not app.exception and len(requests) == 1
+    assert app.text_area(key="form_expected").value == "기존 풀이"
+    assert any("완료되지" in error.value for error in app.error)
+    app.run()
+    assert not app.exception and len(requests) == 1
+    app.text_input(key="form_question_api_key").set_value("corrected-test-key").run()
+    assert not app.exception and len(requests) == 2
+    assert [connection["api_key"] for connection in connections] == ["first-test-key", "corrected-test-key"]
+    assert app.text_area(key="form_expected").value == "완성된 풀이: x=2"
+    app.text_area(key="form_expected").set_value("교사가 수정한 완성 풀이").run()
+    app.text_input(key="form_question_api_key").set_value("next-session-test-key").run()
+    assert not app.exception and len(requests) == 2
+    assert app.text_area(key="form_expected").value == "교사가 수정한 완성 풀이"
+    assert "corrected-test-key" not in json.dumps(store.read(), ensure_ascii=False)

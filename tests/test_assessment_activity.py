@@ -105,6 +105,7 @@ def test_submission_snapshot_is_immutable_and_export_keeps_historical_and_curren
     first = files.save(cid, original, "첫문제.png")
     metadata, official = curriculum_selection()
     aid = save_task(room, cid, prompt="", question_files=[first], curriculum=metadata, criteria=official)
+    room.distribute_activity(aid)
     request = room.submit(aid, "1001", "학생", "1반", "답은 4입니다.", [], False, "a" * 32)
     snapshot = copy.deepcopy(store.read()["course_attempts"][request]["activity_snapshot"])
     second = files.save(cid, b"2+2?", "next.txt")
@@ -126,6 +127,7 @@ def test_question_revision_during_submission_is_rejected(assessment, monkeypatch
     first = files.save(cid, image_bytes(), "첫문제.png")
     second = files.save(cid, image_bytes("green"), "새문제.png")
     aid = save_task(room, cid, prompt="", question_files=[first])
+    room.distribute_activity(aid)
     put_blob = store.put_blob
     changed = False
 

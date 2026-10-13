@@ -18,10 +18,10 @@ TOOLS = [
 
 
 def app_table(links):
-    """앱 목록: 번호와 학습 주제를 표시하고, 주제를 누르면 새 탭에서 엽니다."""
+    """앱 목록: 번호와 학습 주제를 표시하고, 주제를 누르면 현재 창에서 엽니다."""
     rows = "".join(
         f'<tr><td class="num">{i:02}</td><td class="topic">'
-        f'<a href="{html.escape(url, quote=True)}" target="_blank" rel="noopener noreferrer">'
+        f'<a href="{html.escape(url, quote=True)}" target="_self" rel="noopener noreferrer">'
         f'{html.escape(name)}</a></td></tr>'
         for i, (name, url) in enumerate(links, start=1)
     )

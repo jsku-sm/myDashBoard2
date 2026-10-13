@@ -1,5 +1,6 @@
 """Bring teacher-reviewed reference answers into the editable activity answer."""
 import base64
+from dataclasses import replace
 import hashlib
 import io
 import json
@@ -12,7 +13,8 @@ import zipfile
 from openai import APIError, APITimeoutError
 import streamlit as st
 
-from .ai import normalized_image
+from .ai import AI, normalized_image
+from .config import Settings
 from .storage import AppError
 from .image_search import google_images_url
 from .reference_images import ReferenceImages
@@ -365,6 +367,20 @@ def import_question_model_answer(task, files, ai, form_key, retry=False, *, cons
     return result
 
 
+def _question_generation_ai(ai, api_key=""):
+    """Use teacher consent independently of the student-feedback enable flag."""
+    if ai is not None and ai.available:
+        return ai
+    settings = getattr(ai, "settings", None)
+    if not isinstance(settings, Settings):
+        settings = Settings(api_key=getattr(settings, "api_key", "") or "",
+                            model=getattr(settings, "model", "") or Settings().model)
+    key = (settings.api_key or api_key).strip()
+    if not key:
+        return None
+    return AI(replace(settings, ai_enabled=True, api_key=key), client=getattr(ai, "client", None))
+
+
 def render_question_model_answer(task, ai, form_key, room, course_id, *, auto_generate=False):
     """Generate after an explicitly authorized upload, before the answer widget."""
     from .question_files import QuestionFiles, question_file_key
@@ -372,30 +388,47 @@ def render_question_model_answer(task, ai, form_key, room, course_id, *, auto_ge
     status_key = form_key + "_question_answer_generation"
     consent_key = form_key + "_question_ai_consent"
     previous_consent_key = consent_key + "_previous"
+    connection_key = form_key + "_question_ai_connection"
     st.session_state.setdefault(expected_key, task.get("expected", ""))
     records = st.session_state.get(question_file_key(form_key), task.get("question_files", []))
     if not records:
         st.session_state.pop(status_key, None)
         st.session_state.pop(previous_consent_key, None)
+        st.session_state.pop(connection_key, None)
         return expected_key
-    available = bool(ai and ai.available)
     consent = st.checkbox("문제 파일을 OpenAI로 분석해 모범답안 자동 작성", value=False,
-                          disabled=not available, key=consent_key)
+                          key=consent_key)
     just_consented = bool(consent and not st.session_state.get(previous_consent_key, False))
     st.session_state[previous_consent_key] = bool(consent)
-    st.caption("자동 작성을 선택하면 첨부한 문제를 기존 AI 연결의 OpenAI로 보내 분석합니다. 이후 추가한 파일도 자동으로 분석합니다. 아래 모범답안에서 내용을 읽고 수정한 뒤 활동을 저장하세요.")
+    st.caption("선택하면 첨부한 문제를 OpenAI로 보내 정답과 풀이를 작성합니다. 이후 추가한 파일도 자동으로 분석합니다. 결과는 아래 모범답안 입력란에서 읽고 수정할 수 있습니다.")
+    analysis_ai = _question_generation_ai(ai)
+    if analysis_ai is None:
+        api_key = st.text_input("OpenAI API 키", type="password", key=form_key + "_question_api_key",
+                                help="기존 서버 연결이 없을 때 입력하세요. 키는 현재 로그인한 교사의 브라우저 세션에서만 사용하며 활동이나 학생 답안에 저장하지 않습니다.")
+        analysis_ai = _question_generation_ai(ai, api_key=api_key)
+    available = bool(analysis_ai and analysis_ai.available)
+    # Remember only a credential fingerprint; the raw key stays in its password
+    # widget's session state and never enters activity metadata or answer status.
+    settings = getattr(analysis_ai, "settings", None)
+    connection = hashlib.sha256(json.dumps([
+        getattr(settings, "api_key", ""), getattr(settings, "model", "")
+    ]).encode()).hexdigest() if available else ""
+    connection_changed = st.session_state.get(connection_key, "") != connection
+    st.session_state[connection_key] = connection
     retry = st.button("문제 파일로 모범답안 다시 작성", disabled=not available or not consent,
                       key=form_key + "_generate_question_answer")
     result = st.session_state.get(status_key)
     if result and result.get("digests") != [record.get("original_sha256") for record in records]:
         result = None
         st.session_state.pop(status_key, None)
-    if available and consent and (auto_generate or just_consented or retry):
+    reconnect = bool(connection_changed and not (result and result.get("generated")))
+    if available and consent and (auto_generate or just_consented or retry or reconnect):
         try:
             service = QuestionFiles(room.store)
             files = [(record["filename"], service.read(record, course_id, original=True)) for record in records]
             with st.spinner("문제 파일을 분석해 모범답안을 작성하고 있습니다…"):
-                result = import_question_model_answer(task, files, ai, form_key, retry=retry, consent=True)
+                result = import_question_model_answer(task, files, analysis_ai, form_key,
+                                                     retry=retry or reconnect, consent=True)
         except AppError as error:
             st.error(str(error))
             return expected_key
@@ -404,7 +437,7 @@ def render_question_model_answer(task, ai, form_key, room, course_id, *, auto_ge
     elif result and result["generated"]:
         st.success("문제 파일을 분석한 모범답안을 아래 입력란에 작성했습니다. 내용을 확인·수정하세요.")
     elif not available:
-        st.info("AI를 연결하면 첨부한 문제 파일로 모범답안을 작성할 수 있습니다. 모범답안은 직접 입력할 수도 있습니다.")
+        st.info("OpenAI API 키를 입력하고 자동 작성을 선택하면 첨부한 문제를 분석해 아래 모범답안 입력란에 정답과 풀이를 기록합니다.")
     return expected_key
 
 

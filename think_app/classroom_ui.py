@@ -141,10 +141,12 @@ def activity_form(room, course_id, task=None, ai=None):
         if task.get("timer_started_at"):
             st.session_state[duration_key] = task.get("duration_minutes", 0)
         duration = st.number_input("문제 풀이 시간 · 분", min_value=0, max_value=1440,
-                                    help="0분은 시간 제한 없음입니다. 시간을 정한 활동은 교사 화면에서 ‘평가 시작 · 배포’를 누르면 시작됩니다.",
+                                    help="학생에게 배포하면 풀이 시간이 시작됩니다. 예약 배포한 활동은 시작일에 ‘평가 시작’을 누르세요. 0분은 시간 제한 없음입니다.",
                                     key=duration_key, disabled=bool(task.get("timer_started_at")))
         if task.get("timer_started_at"):
             st.caption("진행 중인 평가의 남은 시간은 활동 화면의 수행평가 타이머에서 조정하세요.")
+        if not task:
+            st.caption("저장한 활동은 배포 전 상태로 보관됩니다. 활동 목록에서 ‘학생에게 배포’를 누르면 참여 학급에 공개됩니다.")
         if st.button("활동 저장", type="primary", key=form_key + "_save"):
             try:
                 room.save_activity(course_id, title, prompt, expected, criteria,
@@ -156,8 +158,52 @@ def activity_form(room, course_id, task=None, ai=None):
             except AppError as error:
                 st.error(str(error))
             else:
+                st.session_state["activity_saved_notice_" + course_id] = (
+                    "활동을 수정했습니다." if task else
+                    "활동을 저장했습니다. ‘학생에게 배포’를 눌러 참여 학급에 공개하세요.")
                 st.session_state.pop("adding_activity", None)
                 st.rerun()
+
+
+def teacher_distribution_controls(room, course, task):
+    """Publish a saved activity to its enrolled classes with one explicit action."""
+    task = room.activity(task["id"])
+    notice_key = "activity_distribution_notice_" + task["id"]
+    if notice_key in st.session_state:
+        st.success(st.session_state.pop(notice_key))
+    unpublished = not room.is_distributed(task) or task["status"] == "배포 전"
+    label = ("학생에게 배포" if unpublished else
+             "학생에게 다시 배포" if task["status"] != "진행 중" else "배포 완료")
+    expired = bool(task.get("end") and task["end"] < now()[:10])
+    st.caption("배포 대상 · " + ", ".join(course["classes"]) +
+               " · 수행평가 기간 · " + task["start"] + " ~ " + (task.get("end") or "마감일 없음"))
+    if st.button(label, type="primary", key="distribute_activity_" + task["id"],
+                 disabled=expired or (room.is_distributed(task) and task["status"] == "진행 중")):
+        try:
+            room.distribute_activity(task["id"])
+        except AppError as error:
+            st.error(str(error))
+        else:
+            current = room.activity(task["id"])
+            if current["start"] > now()[:10]:
+                message = "학생에게 예약 배포했습니다. 시작일에 수행평가가 표시됩니다."
+                if current.get("duration_minutes"):
+                    message = "학생에게 예약 배포했습니다. 시작일에 ‘평가 시작’을 누르면 학생에게 표시되고 풀이 타이머가 시작됩니다."
+            elif room.timer_state(current)["phase"] == "expired":
+                message = "배포 상태를 변경했습니다. 풀이 시간이 끝나 학생에게 표시되지 않습니다. 수행평가 타이머에서 남은 시간을 조정하세요."
+            elif room.timer_state(current)["phase"] == "ended":
+                message = "배포 상태를 변경했습니다. 종료된 평가는 학생에게 표시되지 않습니다."
+            else:
+                message = "학생에게 배포했습니다. 참여 학급의 학생 메뉴에 활동이 표시됩니다."
+            st.session_state[notice_key] = message
+            st.rerun()
+    if expired:
+        st.caption("마감일이 지났습니다. 편집에서 수행평가 기간을 수정한 뒤 배포하세요.")
+    elif unpublished:
+        st.caption("학생에게 배포하기 전에는 학생 메뉴에 활동이 표시되지 않습니다.")
+    elif task["start"] > now()[:10]:
+        st.caption("예약 배포 완료 · 시작일에 ‘평가 시작’을 누르세요." if task.get("duration_minutes") else
+                   "예약 배포 완료 · 시작일부터 학생이 참여할 수 있습니다.")
 
 
 def feedback_view(attempt):
@@ -230,6 +276,9 @@ def attempt_view(room, attempt, ai, teacher=True):
 def student_preview(room, course, task, ai, identity=None, editor_key=None, compact=False):
     task = room.activity(task["id"])
     preview = identity is None
+    if not preview and not room.student_activity_available(task):
+        st.info("수행평가 기간이 아닙니다.")
+        return
     student_id, name, class_id = identity or ("preview", "체험 학생", course["classes"][0])
     if not compact:
         st.subheader("학생 모드 체험" if preview else "학생 답안 작성")
@@ -398,6 +447,11 @@ def student_workbench(room, course, task, settings):
 def shared_student(store, course, settings):
     room = Classroom(store)
     default_graph = room.ensure_desmos_activity(course)
+    tasks = [task for task in room.activities(course["id"])
+             if room.student_activity_available(task)]
+    if not tasks:
+        st.info("수행평가 기간이 아닙니다.")
+        return
     identity_key = "student_identity_" + course["id"]
     identity = st.session_state.get(identity_key)
     if not identity:
@@ -416,10 +470,6 @@ def shared_student(store, course, settings):
     if st.button("참여 정보 변경"):
         st.session_state.pop(identity_key, None)
         st.rerun()
-    tasks = [t for t in room.activities(course["id"]) if t["status"] != "숨김"]
-    if not tasks:
-        st.info("공개된 활동이 없습니다.")
-        return
     mapping = {t["id"]: t for t in tasks}
     ids = list(mapping)
     aid = st.selectbox("활동 선택", ids, index=ids.index(default_graph) if default_graph in ids else 0,
@@ -428,6 +478,7 @@ def shared_student(store, course, settings):
 
 
 def response_gallery(room, course, task, ai):
+    teacher_distribution_controls(room, course, task)
     toolbar, export = st.columns([4, 1])
     view = toolbar.radio("활동 화면", ["답변", "분석", "편집", "학생으로 체험해보기"], horizontal=True,
                          key="activity_view_" + task["id"])
@@ -511,6 +562,9 @@ def course_detail(store, course, settings):
         st.rerun()
     st.title(course["title"])
     st.caption("참여 학급 · " + ", ".join(course["classes"]))
+    notice = st.session_state.pop("activity_saved_notice_" + course["id"], None)
+    if notice:
+        st.success(notice)
     aid = st.session_state.get("selected_activity")
     if aid:
         if st.button("← 활동 목록"):
@@ -545,6 +599,7 @@ def course_detail(store, course, settings):
                                 key="workspace_activity_" + workspace + course["id"])
         task = mapping[selected]
         if workspace == "작업하기":
+            teacher_distribution_controls(room, course, task)
             student_workbench(room, course, task, settings)
         else:
             section("02", "학생이 제출한 생각들", "#ffdc62")
@@ -552,7 +607,7 @@ def course_detail(store, course, settings):
         return
     section("01", "수업 활동")
     filter_col, add_col = st.columns([5, 1])
-    selected = filter_col.radio("활동 상태", ["전체", "진행 중", "숨김"], horizontal=True)
+    selected = filter_col.radio("활동 상태", ["전체", "배포 전", "진행 중", "숨김"], horizontal=True)
     if add_col.button("＋ 활동 추가하기", type="primary"):
         start_activity_draft(course["id"])
     if st.session_state.get("adding_activity"):
@@ -576,8 +631,14 @@ def course_detail(store, course, settings):
             recent.caption(f"{len(attempts)}개 답변")
             start.write("시작일 · " + task["start"])
             end.write("마감일 · " + (task["end"] or "—"))
-            value = status.selectbox("상태", STATUSES, index=STATUSES.index(task["status"]), key="status_" + task["id"])
+            status_options = (["배포 전", "숨김"] if not room.is_distributed(task) or task["status"] == "배포 전"
+                              else [value for value in STATUSES if value != "배포 전"])
+            if task["status"] not in status_options:
+                status_options.insert(0, task["status"])
+            value = status.selectbox("상태", status_options, index=status_options.index(task["status"]),
+                                     key="status_" + task["id"] + "_" + task["status"])
             if value != task["status"]:
                 room.set_status(task["id"], value)
                 st.rerun()
+            teacher_distribution_controls(room, course, task)
             teacher_timer_controls(room, task)

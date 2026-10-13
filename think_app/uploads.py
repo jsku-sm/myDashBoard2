@@ -27,9 +27,12 @@ def _activity(state, aid, class_id):
     course = state.get("courses", {}).get(task["course_id"])
     if not course or class_id not in course.get("classes", []):
         raise AppError("파일을 저장할 참여 대상 학급을 확인하세요.")
-    # Keep a draft even if the teacher's timer expired while the capture was
-    # being made. Classroom.submit remains the authority for the deadline.
-    if task.get("status") == "숨김" or task.get("start", "") > now()[:10]:
+    # Import locally because Classroom also imports uploaded-file ownership.
+    from .classroom import Classroom
+    # Preserve an in-period draft when the shared timer expires during capture,
+    # while refusing files for unpublished or out-of-period assessments.
+    if (task.get("status") not in ("진행 중", "보기만 가능") or
+            not Classroom.is_distributed(task) or not Classroom.activity_within_dates(task)):
         raise AppError("현재 파일을 저장할 수 없는 활동입니다.")
     return task
 

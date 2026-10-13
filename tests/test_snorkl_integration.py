@@ -82,6 +82,74 @@ def test_snorkl_group_wins_over_environment_and_legacy_values():
     assert result.mode == "local" and result.repo == "owner/specific" and not result.ai_enabled
 
 
+def test_record_generator_openai_connection_can_be_reused_without_enabling_student_ai():
+    values = {"openai": {"api_key": "shared-test-key", "model": "gpt-4o-mini"}}
+    result = resolve_settings(values, {})
+    assert result.api_key == "shared-test-key" and result.model == "gpt-4o-mini"
+    assert not result.ai_enabled and "shared-test-key" not in repr(result)
+    for explicit in (False, True):
+        configured = resolve_settings(dict(values, snorkl={"ai_enabled": explicit}), {})
+        assert configured.ai_enabled is explicit
+
+
+@pytest.mark.parametrize("model", ["", "   "])
+def test_empty_shared_record_model_uses_assessment_default(model):
+    values = {"openai": {"api_key": "shared-test-key", "model": model}}
+    result = resolve_settings(values, {})
+    assert result.api_key == "shared-test-key" and result.model == "gpt-4.1-mini"
+    # An explicitly blank assessment model keeps its existing priority.
+    assert resolve_settings(dict(values, snorkl={"openai_model": ""}), {}).model == ""
+
+
+@pytest.mark.parametrize("settings,environ,key,model", [
+    ({"snorkl": {"openai_api_key": "dedicated-key", "openai_model": "dedicated-model"},
+      "OPENAI_API_KEY": "legacy-key", "OPENAI_MODEL": "legacy-model"},
+     {"OPENAI_API_KEY": "environment-key", "OPENAI_MODEL": "environment-model"}, "dedicated-key", "dedicated-model"),
+    ({"snorkl": {"OPENAI_API_KEY": "group-key", "OPENAI_MODEL": "group-model"}},
+     {"OPENAI_API_KEY": "environment-key", "OPENAI_MODEL": "environment-model"}, "group-key", "group-model"),
+    ({"OPENAI_API_KEY": "legacy-key", "OPENAI_MODEL": "legacy-model"},
+     {"OPENAI_API_KEY": "environment-key", "OPENAI_MODEL": "environment-model"}, "environment-key", "environment-model"),
+    ({"OPENAI_API_KEY": "legacy-key", "OPENAI_MODEL": "legacy-model"}, {}, "legacy-key", "legacy-model"),
+])
+def test_assessment_openai_settings_keep_priority_over_shared_record_connection(settings, environ, key, model):
+    values = dict(settings, openai={"api_key": "shared-test-key", "model": "shared-model"})
+    result = resolve_settings(values, environ)
+    assert result.api_key == key and result.model == model
+    assert not result.ai_enabled
+
+
+@pytest.mark.parametrize("settings,environ", [
+    ({"snorkl": {"openai_api_key": ""}}, {}),
+    ({"snorkl": {"OPENAI_API_KEY": ""}}, {}),
+    ({}, {"OPENAI_API_KEY": ""}),
+    ({"OPENAI_API_KEY": ""}, {}),
+])
+def test_explicit_empty_assessment_key_does_not_fall_back_to_record_key(settings, environ):
+    values = dict(settings, openai={"api_key": "shared-test-key", "model": "shared-model"})
+    assert resolve_settings(values, environ).api_key == ""
+
+
+@pytest.mark.parametrize("base_url", ["https://api.openai.com/v1", "https://api.openai.com/v1/"])
+def test_official_record_endpoint_allows_connection_reuse(base_url):
+    result = resolve_settings({"openai": {"api_key": "shared-test-key", "model": "shared-model", "base_url": base_url}}, {})
+    assert result.api_key == "shared-test-key" and result.model == "shared-model"
+
+
+@pytest.mark.parametrize("base_url", ["https://other-provider.example/v1", "http://api.openai.com/v1",
+                                     "https://api.openai.com/v1/custom", ""])
+def test_custom_record_endpoint_credentials_are_not_sent_to_assessment_openai(base_url):
+    result = resolve_settings({"openai": {"api_key": "other-provider-key", "model": "provider-model", "base_url": base_url}}, {})
+    assert not result.api_key and result.model == "gpt-4.1-mini"
+    assert not result.ai_enabled
+
+
+def test_custom_record_endpoint_does_not_override_explicit_assessment_connection():
+    result = resolve_settings({"snorkl": {"openai_api_key": "assessment-key", "openai_model": "assessment-model"},
+                               "openai": {"api_key": "provider-key", "model": "provider-model",
+                                          "base_url": "https://other-provider.example/v1"}}, {})
+    assert result.api_key == "assessment-key" and result.model == "assessment-model"
+
+
 @pytest.mark.parametrize("value,expected", [(True,True), (False,False), ("true",True), ("false",False),
                                            ("1",True), ("0",False), ("yes",True), ("off",False)])
 def test_boolean_settings(value, expected):

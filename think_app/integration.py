@@ -14,7 +14,7 @@ def _mapping(value):
 
 
 def resolve_settings(values=None, environ=None):
-    """Support [snorkl], the standalone app's top-level keys, and [github].
+    """Support [snorkl], standalone keys and the dashboard connection groups.
 
     Dedicated [snorkl] values take precedence. Dashboard CSV records are not
     migrated, read as Snorkl records, or changed by this function.
@@ -22,6 +22,12 @@ def resolve_settings(values=None, environ=None):
     values = _mapping(values)
     group = _mapping(values.get("snorkl"))
     github = _mapping(values.get("github"))
+    shared_openai = _mapping(values.get("openai"))
+    # The record generator can use a custom API provider. Its credentials must
+    # not be reused by the assessment client's official OpenAI endpoint.
+    if str(shared_openai.get("base_url", "https://api.openai.com/v1")).strip().rstrip("/") != "https://api.openai.com/v1":
+        shared_openai = {}
+    shared_model = str(shared_openai.get("model", "")).strip() or "gpt-4.1-mini"
     environ = os.environ if environ is None else environ
 
     def pick(field, legacy, default=""):
@@ -53,8 +59,8 @@ def resolve_settings(values=None, environ=None):
         branch=str(pick("github_branch", "GITHUB_BRANCH", github.get("branch", "main"))).strip(),
         github_token=str(pick("github_token", "GITHUB_TOKEN", github.get("token", ""))).strip(),
         encryption_key=str(pick("encryption_key", "ENCRYPTION_KEY", "")).strip(),
-        api_key=str(pick("openai_api_key", "OPENAI_API_KEY", "")).strip(),
-        model=str(pick("openai_model", "OPENAI_MODEL", "gpt-4.1-mini")).strip(),
+        api_key=str(pick("openai_api_key", "OPENAI_API_KEY", shared_openai.get("api_key", ""))).strip(),
+        model=str(pick("openai_model", "OPENAI_MODEL", shared_model)).strip(),
         transcription_model=str(pick("transcription_model", "TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe")).strip(),
         ai_enabled=flag("ai_enabled", "AI_ENABLED"),
         desmos_api_key=str(pick("desmos_api_key", "DESMOS_API_KEY", "")).strip(),
