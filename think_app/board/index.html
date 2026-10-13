@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+*{box-sizing:border-box}body{font-family:system-ui,sans-serif;margin:0;color:#222;background:#fffdf6}
+.tools{display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding:10px 4px}
+button,select{font:inherit;font-size:13px;border:2px solid #222;background:white;padding:8px 10px;border-radius:9px;color:#222;cursor:pointer}
+button.active{background:#cbf56e;color:#222}button:focus-visible{outline:3px solid #4384ff;outline-offset:2px}
+label{font-size:13px;display:flex;align-items:center;gap:5px}input[type=color]{width:33px;height:33px;border:none;padding:2px;background:white}
+canvas{width:calc(100% - 6px);height:auto;display:block;touch-action:none;border:2px solid #222;border-radius:16px;background:#fff;box-shadow:5px 5px 0 #222;margin-bottom:7px}
+.status{font-size:12px;color:#747b88;padding:8px 4px;min-height:30px}.tip{font-size:12px;color:#747b88;margin-left:auto}
+</style></head><body>
+<div class="tools">
+ <button id="pen" class="active" aria-label="펜" aria-pressed="true">✎ 펜</button><button id="erase" aria-label="지우개" aria-pressed="false">지우개</button>
+ <label>색 <input type="color" id="color" value="#153e40" aria-label="펜 색"></label>
+ <label>굵기 <select id="size" aria-label="펜 굵기"><option value="3">가는 선</option><option value="6">보통</option><option value="12">굵은 선</option></select></label>
+ <button id="undo">되돌리기</button><button id="clear">전체 지우기</button>
+ <label><input id="grid" type="checkbox" checked>좌표 격자</label>
+</div>
+<canvas id="board" width="1000" height="620" aria-label="풀이를 그리는 화이트보드. 키보드 사용자는 앱의 설명 입력란을 이용할 수 있습니다."></canvas>
+<div class="status" id="status" role="status">펜이나 손가락으로 풀이를 써 보세요. 선을 그린 후 자동으로 반영됩니다.</div>
+<script>
+const canvas=document.getElementById('board'),ctx=canvas.getContext('2d');
+let strokes=[],current=null,mode='pen',base=null,initialized=false,revision=0;
+const $=id=>document.getElementById(id);
+const send=(type,extra={})=>window.parent.postMessage({isStreamlitMessage:true,type,...extra},'*');
+function grid(){ctx.strokeStyle='#e6efeb';ctx.lineWidth=1;for(let x=0;x<=1000;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,620);ctx.stroke()}for(let y=10;y<=620;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(1000,y);ctx.stroke()}ctx.strokeStyle='#c3d5ce';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(500,0);ctx.lineTo(500,620);ctx.moveTo(0,310);ctx.lineTo(1000,310);ctx.stroke()}
+function render(){ctx.clearRect(0,0,1000,620);ctx.fillStyle='white';ctx.fillRect(0,0,1000,620);if($('grid').checked)grid();if(base)ctx.drawImage(base,0,0,1000,620);for(const s of strokes){ctx.strokeStyle=s.color;ctx.fillStyle=s.color;ctx.lineWidth=s.size;ctx.lineCap='round';ctx.lineJoin='round';if(s.points.length===1){ctx.beginPath();ctx.arc(s.points[0][0],s.points[0][1],s.size/2,0,Math.PI*2);ctx.fill()}else{ctx.beginPath();s.points.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.stroke()}}}
+function sync(){revision++;send('streamlit:setComponentValue',{value:{image:canvas.toDataURL('image/png'),hasInk:!!base||strokes.some(s=>s.color!=='#ffffff'),revision},dataType:'json'});$('status').textContent='풀이판 반영 완료 · 아래 제출 버튼으로 설명과 함께 제출하세요.'}
+function point(e){const r=canvas.getBoundingClientRect();return [(e.clientX-r.left)*1000/r.width,(e.clientY-r.top)*620/r.height]}
+canvas.addEventListener('pointerdown',e=>{e.preventDefault();canvas.setPointerCapture(e.pointerId);current={color:mode==='erase'?'#ffffff':$('color').value,size:mode==='erase'?28:Number($('size').value),points:[point(e)]};strokes.push(current);render();$('status').textContent='작성 중…'});
+canvas.addEventListener('pointermove',e=>{if(!current)return;e.preventDefault();current.points.push(point(e));render()});
+function end(){if(!current)return;current=null;sync()}
+canvas.addEventListener('pointerup',end);canvas.addEventListener('pointercancel',end);
+function setMode(v){mode=v;['pen','erase'].forEach(x=>{$(x).classList.toggle('active',x===v);$(x).setAttribute('aria-pressed',x===v?'true':'false')})}
+$('pen').onclick=()=>setMode('pen');$('erase').onclick=()=>setMode('erase');
+$('undo').onclick=()=>{strokes.pop();render();sync()};$('clear').onclick=()=>{if((base||strokes.length)&&!confirm('풀이판을 모두 지울까요?'))return;strokes=[];base=null;render();sync()};
+$('grid').onchange=()=>{render();sync()};
+window.addEventListener('message',event=>{if(event.source!==window.parent||event.data.type!=='streamlit:render')return;const args=event.data.args||{};if(!initialized){initialized=true;if(args.initial_image){const im=new Image();im.onload=()=>{base=im;render();sync()};im.src=args.initial_image}else{render()}}send('streamlit:setFrameHeight',{height:document.body.scrollHeight+4})});
+window.addEventListener('resize',()=>send('streamlit:setFrameHeight',{height:document.body.scrollHeight+4}));
+render();send('streamlit:componentReady',{apiVersion:1});send('streamlit:setFrameHeight',{height:document.body.scrollHeight+4});
+</script></body></html>

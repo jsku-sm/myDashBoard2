@@ -12,6 +12,7 @@ import realtime as rt
 import storage as db
 import ui
 from config import APP_TITLE, POLL_SEC
+from snorkl_navigation import main_menu_changed, sync_shared_link
 from views import account, dashboard, emotion, home, intro, math_class, sudanote, teacher, tools
 
 st.set_page_config(page_title=APP_TITLE, page_icon="📐", layout="wide")
@@ -167,7 +168,8 @@ def sidebar(user):
         if st.session_state.get("nav") not in items:
             st.session_state.pop("nav", None)
         page = st.radio("메뉴", list(items), format_func=items.get, key="nav",
-                        label_visibility="collapsed")
+                        label_visibility="collapsed", on_change=main_menu_changed,
+                        args=(st.session_state, st.query_params))
         st.divider()
         if is_t:
             locked = rt.locked_classes()
@@ -191,6 +193,17 @@ if not user:
     login_page()
     st.stop()
 
+# Re-read the account before any role-specific view, including embedded tools.
+fresh = auth.get_user(user["id"])
+if fresh is None or fresh.get("role") not in ("teacher", "student"):
+    st.session_state.clear()
+    st.rerun()
+user = fresh
+st.session_state["user"] = user
+if user["must_change"] == "1":
+    account.force_change(user)
+    st.stop()
+
 if user["role"] == "student":
     st.session_state["_locked"] = rt.is_locked(user["class"])
     rt.touch(user["id"])
@@ -200,18 +213,13 @@ if user["role"] == "student":
         st.stop()
     show_popups()
 
-fresh = auth.get_user(user["id"])
-if fresh is None:
-    st.session_state.clear()
-    st.rerun()
-if fresh["must_change"] == "1":
-    account.force_change(fresh)
-    st.stop()
 
 if user["role"] == "student" and not emotion.done_today(user):
     emotion.emotion_page(user)
     st.stop()
 
+# A share link chooses a view only; all login/password/emotion/lock checks run first.
+sync_shared_link(st.session_state, st.query_params)
 page = sidebar(user)
 
 ROUTES = {

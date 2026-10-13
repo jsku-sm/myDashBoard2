@@ -1,5 +1,12 @@
-streamlit>=1.55
-pandas>=2.0
-altair>=5.0
-openpyxl>=3.1
-requests>=2.31
+# Python 3.11 or 3.12 recommended for deployment.
+streamlit>=1.55,<2
+pandas>=2.2,<3
+altair>=5,<7
+openpyxl>=3.1,<4
+requests>=2.32,<3
+openai>=1.75,<4
+cryptography>=43,<47
+pydantic>=2.8,<3
+Pillow>=10.4,<13
+qrcode[pil]>=8,<9
+pypdf>=6.8,<7

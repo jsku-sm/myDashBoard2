@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;color:#202020;background:#fffdf5}
+.workspace{border:2px solid #202020;border-radius:18px;overflow:hidden;background:white;margin:0 5px 7px 0;box-shadow:5px 5px 0 #202020}
+.heading{display:flex;align-items:center;gap:12px;padding:14px 18px;background:#f5f1ff;border-bottom:2px solid #202020;flex-wrap:wrap}
+.tag{background:#4384ff;border:2px solid #202020;border-radius:9px;padding:5px 9px;font-size:13px;font-weight:800}
+.heading strong{font-size:16px}.hint{font-size:13px;margin:0;color:#626874;line-height:1.6}
+#calculator{width:100%;height:560px}
+#calculator iframe{display:block;width:100%;height:100%;border:0;background:white}
+#calculator:empty{display:grid;place-content:center;gap:14px;padding:28px;background:#fffdf5;text-align:center}
+#calculator:empty::before{content:"데스모스를 불러오고 있어요";font-size:21px;font-weight:800}
+#calculator:empty::after{content:"잠시 후 이 화면에서 수식을 입력할 수 있어요.";font-size:14px;color:#626874;line-height:1.7}
+.tools{display:flex;align-items:center;gap:10px;padding:14px 16px;flex-wrap:wrap;border-top:2px solid #202020;background:#fffdf5}
+button{font:inherit;font-weight:700;font-size:13px;background:#c9f56d;color:#202020;border:2px solid #202020;border-radius:9px;padding:10px 14px;cursor:pointer}
+button.secondary{background:white}button:disabled{opacity:.45;cursor:default}button:focus-visible{outline:3px solid #4384ff;outline-offset:3px}
+#retry{background:#ffdb61}#status{font-size:13px;line-height:1.6;flex:1 1 260px}
+#screen-status{padding:0 16px 12px;margin:0;font-size:13px;line-height:1.6;color:#626874}
+#screen-dialog{position:fixed;inset:0;z-index:1000;background:#fffdf5;padding:12px;display:flex;flex-direction:column;gap:10px}
+#screen-dialog[hidden]{display:none}#screen-dialog h2{margin:0;font-size:18px}#screen-dialog p{margin:0;font-size:13px;line-height:1.6}
+#screen-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#e9e9ed;border:2px solid #202020;border-radius:8px}
+#screen-preview{display:block;max-width:100%;max-height:100%;touch-action:none;cursor:crosshair}
+.screen-actions{display:flex;gap:8px;flex-wrap:wrap}
+@media(max-width:550px){.heading,.tools{padding:12px}#calculator{height:500px}.hint{width:100%}}
+</style></head><body>
+<div class="workspace">
+ <div class="heading"><span class="tag">GRAPH LAB</span><strong>데스모스 · 수식으로 탐구하기</strong><p class="hint" id="graph-help">수식을 입력하고 그래프를 움직여 보세요. 작업 파일을 저장해 이어서 풀거나, 아래에서 선생님께 제출할 수 있어요.</p></div>
+ <div id="calculator" role="region" aria-label="데스모스 그래프 계산기" aria-describedby="graph-help"></div>
+ <div class="tools">
+  <button id="screen-capture" type="button" aria-haspopup="dialog">캡처하기</button>
+  <button id="capture" type="button" class="secondary" disabled>현재 그래프 반영</button>
+  <button id="download" type="button" class="secondary" disabled>작업 파일 저장</button>
+  <button id="open" type="button" class="secondary" aria-controls="import" disabled>작업 불러오기</button>
+  <input id="import" type="file" accept=".json,application/json" aria-label="데스모스 작업 JSON 파일" hidden>
+  <button id="retry" type="button" hidden>연결 다시 시도</button>
+  <span id="status" role="status" aria-live="polite" aria-atomic="true">그래프 도구를 준비하고 있습니다…</span>
+ </div>
+ <p id="screen-status" role="status" aria-live="polite">‘캡처하기’를 누르고 브라우저에서 현재 탭이나 화면을 선택하세요. 저장된 PNG 파일을 아래 답안 파일 업로드에 첨부할 수 있습니다.</p>
+</div>
+<section id="screen-dialog" role="dialog" aria-modal="true" aria-labelledby="screen-title" aria-describedby="screen-instructions" hidden tabindex="-1">
+ <h2 id="screen-title">캡처할 영역 선택</h2>
+ <p id="screen-instructions">아래 화면에서 그래프 영역을 드래그한 후 ‘선택 영역 저장’을 누르세요. Esc 키로 취소할 수 있습니다.</p>
+ <div id="screen-stage"><canvas id="screen-preview" aria-label="캡처 화면. 마우스로 저장할 영역을 드래그하세요."></canvas></div>
+ <div class="screen-actions">
+  <button id="screen-save" type="button" disabled>선택 영역 저장</button>
+  <button id="screen-all" type="button" class="secondary">전체 선택</button>
+  <button id="screen-recapture" type="button" class="secondary">다시 캡처</button>
+  <button id="screen-cancel" type="button" class="secondary">취소</button>
+ </div>
+ <p id="screen-selection" role="status" aria-live="polite">저장할 영역을 드래그하세요.</p>
+</section>
+<script>
+const send=(type,extra={})=>window.parent.postMessage({isStreamlitMessage:true,type,...extra},'*');
+const status=document.getElementById('status'),help=document.getElementById('graph-help'),container=document.getElementById('calculator'),button=document.getElementById('capture'),download=document.getElementById('download'),open=document.getElementById('open'),fileInput=document.getElementById('import'),retry=document.getElementById('retry');
+const sdkHelp=help.textContent,embedHelp='이 화면에서 수식을 입력하고 그래프를 움직여 보세요. 그래프를 제출하려면 화면을 캡처해 아래에 첨부하고 풀이를 적어 주세요.';
+let calculator=null,loading=false,timer=null,loadTimer=null,captureTimer=null,handshakeTimer=null,startupTimer=null,revision=0,captureId=0,loadId=0,lastArgs={},sdkScript=null,embedFrame=null,failedKey=null,receivedRender=false,pendingValue=null,handshakeAttempts=0;
+const screenButton=document.getElementById('screen-capture'),screenStatus=document.getElementById('screen-status'),screenDialog=document.getElementById('screen-dialog'),screenPreview=document.getElementById('screen-preview'),screenStage=document.getElementById('screen-stage'),screenSave=document.getElementById('screen-save'),screenAll=document.getElementById('screen-all'),screenRecapture=document.getElementById('screen-recapture'),screenCancel=document.getElementById('screen-cancel'),screenSelection=document.getElementById('screen-selection');
+let screenStream=null,screenVideo=null,screenSnapshot=null,screenRect=null,screenStart=null,screenPointer=null,screenRequest=0,screenFrameTimer=null,screenReadyReject=null,screenUrls=new Set(),screenClosing=false;
+function stopScreenSharing(){
+  if(screenStream){screenStream.getTracks().forEach(track=>track.stop());screenStream=null}
+  if(screenVideo){screenVideo.onloadeddata=null;screenVideo.onerror=null;screenVideo.srcObject=null;screenVideo=null}
+  clearTimeout(screenFrameTimer);screenFrameTimer=null;
+  if(screenReadyReject){const reject=screenReadyReject;screenReadyReject=null;reject(new Error('Screen sharing ended'))}
+}
+function closeScreenCapture(restoreFocus=true){
+  screenRequest++;stopScreenSharing();screenDialog.hidden=true;screenButton.disabled=false;
+  screenSnapshot=null;screenRect=null;screenStart=null;screenPointer=null;screenPreview.width=0;screenPreview.height=0;screenSave.disabled=true;
+  if(restoreFocus&&!screenClosing)screenButton.focus();
+}
+function fitScreenPreview(){
+  if(!screenSnapshot)return;
+  const bounds=screenStage.getBoundingClientRect();
+  const scale=Math.min((bounds.width-4)/screenSnapshot.width,(bounds.height-4)/screenSnapshot.height);
+  if(scale>0){screenPreview.style.width=Math.floor(screenSnapshot.width*scale)+'px';screenPreview.style.height=Math.floor(screenSnapshot.height*scale)+'px'}
+}
+function drawScreenSelection(){
+  if(!screenSnapshot)return;
+  const ctx=screenPreview.getContext('2d');ctx.clearRect(0,0,screenPreview.width,screenPreview.height);ctx.drawImage(screenSnapshot,0,0);
+  screenSave.disabled=!screenRect||screenRect.width<1||screenRect.height<1;
+  if(screenSave.disabled){screenSelection.textContent='저장할 영역을 드래그하세요.';return}
+  const {x,y,width,height}=screenRect;
+  ctx.fillStyle='rgba(0,0,0,.42)';ctx.fillRect(0,0,screenPreview.width,screenPreview.height);
+  ctx.drawImage(screenSnapshot,x,y,width,height,x,y,width,height);
+  ctx.strokeStyle='#4384ff';ctx.lineWidth=Math.max(2,screenPreview.width/screenPreview.getBoundingClientRect().width*2);ctx.strokeRect(x,y,width,height);
+  screenSelection.textContent='선택 영역: '+width+' × '+height+' 픽셀 · 다시 드래그하면 영역을 바꿀 수 있습니다.';
+}
+function screenPoint(event){
+  const bounds=screenPreview.getBoundingClientRect();
+  if(!(bounds.width>0&&bounds.height>0))return null;
+  return {x:Math.max(0,Math.min(screenPreview.width,(event.clientX-bounds.left)*screenPreview.width/bounds.width)),y:Math.max(0,Math.min(screenPreview.height,(event.clientY-bounds.top)*screenPreview.height/bounds.height))};
+}
+function updateScreenRect(point){
+  if(!screenStart||!point)return;
+  const x=Math.floor(Math.min(screenStart.x,point.x)),y=Math.floor(Math.min(screenStart.y,point.y));
+  screenRect={x,y,width:Math.min(screenPreview.width,Math.ceil(Math.max(screenStart.x,point.x)))-x,height:Math.min(screenPreview.height,Math.ceil(Math.max(screenStart.y,point.y)))-y};
+  drawScreenSelection();
+}
+screenPreview.onpointerdown=event=>{
+  if(!screenSnapshot||event.button!==0)return;
+  const point=screenPoint(event);if(!point)return;
+  event.preventDefault();screenStart=point;screenPointer=event.pointerId;screenRect=null;screenPreview.setPointerCapture(event.pointerId);drawScreenSelection();
+};
+screenPreview.onpointermove=event=>{if(screenPointer===event.pointerId)updateScreenRect(screenPoint(event))};
+screenPreview.onpointerup=event=>{
+  if(screenPointer!==event.pointerId)return;
+  const point=screenPoint(event);
+  // A click alone must never create a one-pixel selection after rounding.
+  if(point&&screenStart&&(Math.abs(point.x-screenStart.x)<1||Math.abs(point.y-screenStart.y)<1)){screenRect=null;drawScreenSelection()}
+  else updateScreenRect(point);
+  if(screenPreview.hasPointerCapture(event.pointerId))screenPreview.releasePointerCapture(event.pointerId);
+  screenStart=null;screenPointer=null;
+};
+screenPreview.onpointercancel=()=>{screenStart=null;screenPointer=null;screenRect=null;drawScreenSelection()};
+screenAll.onclick=()=>{if(screenSnapshot){screenRect={x:0,y:0,width:screenSnapshot.width,height:screenSnapshot.height};drawScreenSelection()}};
+screenCancel.onclick=()=>{closeScreenCapture();screenStatus.textContent='캡처를 취소했습니다. 그래프를 계속 수정하거나 다시 캡처할 수 있습니다.'};
+screenDialog.addEventListener('keydown',event=>{
+  if(event.key==='Escape'){event.preventDefault();screenCancel.onclick()}
+  if(event.key==='Tab'){
+    const buttons=[screenSave,screenAll,screenRecapture,screenCancel].filter(item=>!item.disabled),index=buttons.indexOf(document.activeElement);
+    if(event.shiftKey&&(index<=0)){event.preventDefault();buttons.at(-1).focus()}
+    else if(!event.shiftKey&&(index===buttons.length-1||index<0)){event.preventDefault();buttons[0].focus()}
+  }
+});
+function screenCaptureError(error){
+  const manual='기기의 스크린샷 기능으로 그래프를 저장한 뒤 아래 답안 파일 업로드에 첨부할 수 있습니다.';
+  if(error&&error.name==='NotAllowedError')return '화면 공유가 취소되었거나 브라우저에서 허용하지 않았습니다. ‘캡처하기’를 다시 누르고 현재 탭 공유를 허용해 주세요. '+manual;
+  if(error&&error.name==='NotReadableError')return '선택한 화면을 읽지 못했습니다. 운영체제의 화면 기록 권한을 확인하고 다시 시도해 주세요. '+manual;
+  if(error&&error.name==='InvalidStateError')return '현재 창을 활성화한 뒤 ‘캡처하기’를 다시 눌러주세요. '+manual;
+  return '화면 캡처를 시작하지 못했습니다. PC의 Chrome 또는 Edge에서 HTTPS로 접속해 다시 시도해 주세요. '+manual;
+}
+async function startScreenCapture(){
+  closeScreenCapture(false);
+  if(!navigator.mediaDevices||typeof navigator.mediaDevices.getDisplayMedia!=='function'){
+    screenStatus.textContent='이 브라우저에서는 화면 캡처를 지원하지 않습니다. PC의 Chrome 또는 Edge에서 HTTPS로 접속하거나, 모바일·태블릿의 스크린샷 기능으로 저장한 파일을 아래 답안 파일 업로드에 첨부해 주세요.';return;
+  }
+  const id=screenRequest;screenButton.disabled=true;screenStatus.textContent='브라우저에서 데스모스가 보이는 현재 탭이나 화면을 선택하고 공유를 허용해 주세요.';
+  try{
+    // Invoke directly from the click handler: the browser must ask which surface to share.
+    const stream=await navigator.mediaDevices.getDisplayMedia({video:{displaySurface:'browser'},audio:false,preferCurrentTab:true,selfBrowserSurface:'include',surfaceSwitching:'exclude'});
+    if(id!==screenRequest){stream.getTracks().forEach(track=>track.stop());return}
+    screenStream=stream;
+    const video=document.createElement('video');screenVideo=video;video.muted=true;video.playsInline=true;
+    const ready=new Promise((resolve,reject)=>{
+      screenReadyReject=reject;video.onloadeddata=()=>{screenReadyReject=null;resolve()};video.onerror=()=>reject(new Error('No video frame'));
+      screenFrameTimer=setTimeout(()=>reject(new Error('Screen frame timed out')),12000);
+    });
+    video.srcObject=stream;await Promise.all([video.play(),ready]);
+    if(id!==screenRequest)return;
+    if(!(video.videoWidth>0&&video.videoHeight>0))throw new Error('Empty screen frame');
+    const snapshot=document.createElement('canvas');snapshot.width=video.videoWidth;snapshot.height=video.videoHeight;
+    snapshot.getContext('2d').drawImage(video,0,0);screenSnapshot=snapshot;
+    // Sharing ends before the selection overlay opens; only this frozen frame is retained.
+    stopScreenSharing();screenPreview.width=snapshot.width;screenPreview.height=snapshot.height;
+    screenDialog.hidden=false;fitScreenPreview();drawScreenSelection();screenDialog.focus();
+    // Bring this same-origin component into view when its toolbar was below the fold.
+    try{window.frameElement?.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'})}catch(error){}
+    screenStatus.textContent='화면 공유가 종료되었습니다. 저장할 그래프 영역을 선택하세요.';
+  }catch(error){
+    if(id!==screenRequest)return;
+    closeScreenCapture();screenStatus.textContent=screenCaptureError(error);
+  }
+}
+screenButton.onclick=startScreenCapture;screenRecapture.onclick=startScreenCapture;
+screenSave.onclick=()=>{
+  if(!screenSnapshot||!screenRect||screenRect.width<1||screenRect.height<1)return;
+  const id=screenRequest,{x,y,width,height}=screenRect,output=document.createElement('canvas');output.width=width;output.height=height;
+  output.getContext('2d').drawImage(screenSnapshot,x,y,width,height,0,0,width,height);screenSave.disabled=true;
+  output.toBlob(blob=>{
+    if(id!==screenRequest)return;
+    if(!blob){screenSave.disabled=false;screenSelection.textContent='파일을 만들지 못했습니다. 다시 저장해 주세요.';return}
+    const url=URL.createObjectURL(blob);screenUrls.add(url);
+    const stamp=new Date(Date.now()+9*60*60*1000).toISOString().slice(0,19).replace(/[T:]/g,'-');
+    const link=document.createElement('a');link.href=url;link.download='데스모스-캡처-'+stamp+'.png';
+    document.body.appendChild(link);link.click();link.remove();
+    setTimeout(()=>{if(screenUrls.delete(url))URL.revokeObjectURL(url)},1000);
+    closeScreenCapture();screenStatus.textContent='선택한 영역의 PNG 파일 다운로드를 요청했습니다. 다운로드 폴더에서 파일을 확인하고 아래 답안 파일 업로드에 첨부해 주세요.';
+  },'image/png');
+};
+function publish(value){
+  value={mode:calculator?'sdk':'embed',can_capture:!!calculator,...value};
+  if(!receivedRender){pendingValue=value;return}
+  send('streamlit:setComponentValue',{value,dataType:'json'});
+}
+function resize(){send('streamlit:setFrameHeight',{height:document.body.scrollHeight+6})}
+function showEmbed(message=''){
+  if(embedFrame){
+    if(message)status.textContent=message+' 아래 데스모스 페이지에서 계속 작업할 수 있습니다.';
+    return;
+  }
+  button.disabled=true;download.disabled=true;open.disabled=true;
+  button.hidden=true;download.hidden=true;open.hidden=true;help.textContent=embedHelp;
+  const frame=document.createElement('iframe');embedFrame=frame;
+  frame.title='데스모스 그래프 계산기';
+  // Desmos' ?embed page hides equation editing; the full calculator allows it inline.
+  frame.src='https://www.desmos.com/calculator?lang=ko';
+  frame.setAttribute('allow','clipboard-write; fullscreen');
+  frame.referrerPolicy='strict-origin-when-cross-origin';
+  frame.onload=()=>{
+    if(embedFrame!==frame)return;
+    // A cross-origin frame load does not prove the graph app has finished loading.
+    publish({ready:false,connected:false,frame_loaded:true});
+    status.textContent='데스모스 페이지가 이 화면에 열렸습니다. 그래프 이미지는 캡처해 아래에 첨부해 주세요.';
+    resize();
+  };
+  frame.onerror=()=>{
+    if(embedFrame!==frame)return;
+    status.textContent='데스모스 페이지를 불러오지 못했습니다. 인터넷 연결을 확인하고 ‘연결 다시 시도’를 눌러주세요.';
+    retry.hidden=false;publish({ready:false,connected:false,frame_loaded:false});resize();
+  };
+  container.appendChild(frame);retry.hidden=false;
+  status.textContent=(message?message+' ':'')+'이 화면에서 데스모스 페이지를 불러오고 있습니다…';
+  publish({ready:false,connected:false,frame_loaded:false});resize();
+}
+function removeEmbed(){if(embedFrame){embedFrame.remove();embedFrame=null}}
+function expressions(){return calculator.getExpressions().filter(e=>(typeof e.latex==='string'&&e.latex.trim())||e.type==='table')}
+function invalidate(){
+  revision++;captureId++;clearTimeout(timer);clearTimeout(captureTimer);
+  publish({ready:false,state:calculator.getState(),revision});
+  status.textContent='변경한 그래프를 반영하고 있습니다…';
+  timer=setTimeout(capture,650);
+}
+function captureFailed(version,id){
+  if(version!==revision||id!==captureId)return;
+  captureId++;clearTimeout(captureTimer);
+  publish({ready:false,state:calculator.getState(),revision});
+  status.textContent='그래프 저장에 실패했습니다. ‘현재 그래프 반영’을 눌러 다시 시도하세요.';
+  resize();
+}
+function capture(){
+  if(!calculator)return;
+  clearTimeout(timer);clearTimeout(captureTimer);
+  const version=revision,id=++captureId,state=calculator.getState(),items=expressions();
+  publish({ready:false,state,revision:version});
+  if(!items.length){status.textContent='수식을 입력하면 그래프로 나타납니다.';resize();return}
+  status.textContent='현재 수식과 그래프 화면을 반영하고 있습니다…';
+  captureTimer=setTimeout(()=>captureFailed(version,id),15000);
+  try{
+    const bounds=calculator.graphpaperBounds,pixels=bounds.pixelCoordinates;
+    if(!(pixels.width>0&&pixels.height>0))throw new Error('Graph is not visible');
+    const scale=Math.min(2,1500/Math.max(pixels.width,pixels.height));
+    calculator.asyncScreenshot({format:'png',width:Math.max(1,Math.round(pixels.width*scale)),height:Math.max(1,Math.round(pixels.height*scale)),mode:'stretch',mathBounds:bounds.mathCoordinates,showLabels:true},image=>{
+      if(version!==revision||id!==captureId)return;
+      clearTimeout(captureTimer);
+      if(typeof image!=='string'||!image.startsWith('data:image/png;base64,')){captureFailed(version,id);return}
+      publish({ready:true,image,state,expressions:items,revision:version});
+      status.textContent='현재 수식과 그래프 반영 완료 · 아래 ‘답안 제출’을 누르면 선생님께 전달됩니다.';
+      resize();
+    });
+  }catch(error){captureFailed(version,id)}
+  resize();
+}
+button.onclick=capture;
+download.onclick=()=>{
+  if(!calculator)return;
+  const payload={application:'Think Desmos',state:calculator.getState(),expressions:expressions()};
+  const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'}));
+  const link=document.createElement('a');link.href=url;link.download=lastArgs.draft_filename||'데스모스-작업.json';
+  document.body.appendChild(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  status.textContent='작업 파일을 기기에 저장했습니다. 선생님께 전달하려면 아래 ‘답안 제출’을 누르세요.';
+  resize();
+};
+open.onclick=()=>fileInput.click();
+fileInput.onchange=async()=>{
+  const file=fileInput.files&&fileInput.files[0];
+  if(!file||!calculator)return;
+  try{
+    if(file.size>500000)throw new Error('Large file');
+    const payload=JSON.parse(await file.text());
+    const state=payload&&((payload.graph&&payload.graph.state)||payload.state||payload);
+    if(!state||typeof state!=='object'||Array.isArray(state)||!state.expressions||!Array.isArray(state.expressions.list))throw new Error('Invalid graph');
+    calculator.setState(state);invalidate();capture();
+  }catch(error){status.textContent='작업 파일을 불러오지 못했습니다. 데스모스에서 저장한 JSON 파일을 선택하세요.';resize()}
+  finally{fileInput.value=''}
+};
+function loadFailed(id,message){
+  if(id!==loadId)return;
+  loadId++;clearTimeout(loadTimer);loading=false;
+  if(sdkScript){sdkScript.remove();sdkScript=null}
+  failedKey=lastArgs.api_key;
+  showEmbed(message);retry.hidden=false;resize();
+}
+function initialize(id){
+  if(id!==loadId)return;
+  clearTimeout(loadTimer);
+  try{
+    removeEmbed();
+    calculator=Desmos.GraphingCalculator(container,{language:'ko',images:false,links:false,pasteGraphLink:false});
+    if(lastArgs.initial_state)calculator.setState(lastArgs.initial_state);
+    calculator.observeEvent('change',invalidate);
+    button.disabled=false;download.disabled=false;open.disabled=false;button.hidden=false;download.hidden=false;open.hidden=false;
+    help.textContent=sdkHelp;retry.hidden=true;loading=false;failedKey=null;
+    publish({ready:false,connected:true});
+    status.textContent='수식을 입력하면 그래프로 나타납니다.';
+    if(lastArgs.initial_state)capture();
+    resize();
+  }catch(error){
+    if(calculator){calculator.destroy();calculator=null}
+    loadFailed(id,'그래프 도구를 시작하지 못했습니다. ‘연결 다시 시도’를 눌러주세요.');
+  }
+}
+function load(force=false){
+  if(calculator||loading)return;
+  if(!lastArgs.api_key){
+    if(force)removeEmbed();
+    showEmbed();return;
+  }
+  if(!force&&failedKey===lastArgs.api_key)return;
+  if(force)failedKey=null;
+  const id=++loadId;
+  loading=true;retry.hidden=true;status.textContent='데스모스 그래프 도구를 불러오고 있습니다…';
+  sdkScript=document.createElement('script');
+  sdkScript.src='https://www.desmos.com/api/v1.12/calculator.js?apiKey='+encodeURIComponent(lastArgs.api_key)+'&lang=ko';
+  sdkScript.async=true;sdkScript.onload=()=>initialize(id);
+  sdkScript.onerror=()=>loadFailed(id,'그래프 도구를 불러오지 못했습니다. 인터넷 연결을 확인하고 다시 시도하세요.');
+  loadTimer=setTimeout(()=>loadFailed(id,'그래프 도구 연결이 지연되고 있습니다. 인터넷 연결을 확인하고 다시 시도하세요.'),15000);
+  document.head.appendChild(sdkScript);resize();
+}
+retry.onclick=()=>load(true);
+window.addEventListener('message',event=>{
+  if(event.source!==window.parent||!event.data||event.data.type!=='streamlit:render')return;
+  receivedRender=true;clearTimeout(handshakeTimer);clearTimeout(startupTimer);
+  if(pendingValue){const value=pendingValue;pendingValue=null;publish(value)}
+  lastArgs=event.data.args||{};load();resize();
+});
+window.addEventListener('resize',()=>{resize();fitScreenPreview()});
+window.addEventListener('pagehide',()=>{screenClosing=true;closeScreenCapture(false);screenUrls.forEach(url=>URL.revokeObjectURL(url));screenUrls.clear();clearTimeout(timer);clearTimeout(loadTimer);clearTimeout(captureTimer);clearTimeout(handshakeTimer);clearTimeout(startupTimer);if(calculator)calculator.destroy()});
+function announceReady(){
+  if(receivedRender)return;
+  send('streamlit:componentReady',{apiVersion:1});
+  if(++handshakeAttempts<10)handshakeTimer=setTimeout(announceReady,1000);
+}
+announceReady();resize();
+// Show the usable official calculator even if the first render handshake is delayed.
+startupTimer=setTimeout(()=>{if(!calculator&&!loading)showEmbed()},2000);
+</script></body></html>
