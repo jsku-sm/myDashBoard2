@@ -13,13 +13,13 @@ from streamlit.components.v1 import declare_component
 from .ai import AI, normalized_image, board_image
 from .classroom import Classroom, STATUSES, GRADES, grade
 from .courses import now
-from .storage import AppError, GitHubStore, LocalStore
+from .storage import AppError, GitHubStore, LocalStore, student_pdf_attachments
 from .ui import board
 from .media import MODES, activity_mode, validate_audio, validated_graph
 from .design import section
 from .model_answers import render_model_answer, render_question_model_answer, reference_image_key
 from .timer_ui import teacher_timer_controls, student_timer
-from .uploads import UploadedFiles
+from .uploads import UploadedFiles, upload_kind, validated_pdf
 from .question_files import render_question_files, display_question_files, question_file_key
 from .curriculum_ui import render_curriculum_criteria
 
@@ -35,7 +35,7 @@ def answer_uploads(room, task, student_id, name, class_id, preview, key, uploads
     incoming_key = selected_key + "_incoming"
     incoming, failed = [], False
     if len(uploads) > 2:
-        st.error("첨부 이미지는 최대 2개까지 올려주세요.")
+        st.error("첨부 파일은 이미지와 PDF를 합쳐 최대 2개까지 올려주세요.")
         failed = True
     elif uploads and not (student_id.strip() and name.strip()):
         st.info("학번과 이름을 입력하면 업로드한 파일을 저장합니다.")
@@ -79,8 +79,13 @@ def answer_uploads(room, task, student_id, name, class_id, preview, key, uploads
         for uid in selected:
             saved = mapping[uid]
             try:
-                st.image(room.store.get_blob(saved["blob_ref"]), caption=saved["filename"], use_container_width=True)
-                st.download_button("저장한 원본 파일 내려받기", room.store.get_blob(saved["original_ref"]),
+                if upload_kind(saved) == "image":
+                    st.image(service.read(saved, task["id"], student_id, class_id, preview),
+                             caption=saved["filename"], use_container_width=True)
+                else:
+                    st.caption("PDF 첨부 · " + saved["filename"])
+                st.download_button("저장한 원본 파일 내려받기", service.read(saved, task["id"], student_id, class_id,
+                                                                               preview, original=True),
                                    file_name=saved["filename"], mime=saved["original_mime"],
                                    key=selected_key + "_download_" + uid)
             except AppError as error:
@@ -233,9 +238,20 @@ def attempt_view(room, attempt, ai, teacher=True):
         for ref in attempt["images"]:
             st.image(room.store.get_blob(ref), use_container_width=True)
         files = UploadedFiles(room.store)
+        pdfs = student_pdf_attachments(room.store, attempt)
+        pdf_ids = {saved["id"] for saved, _ in pdfs}
+        for saved, raw in pdfs:
+            st.caption("PDF 답안 · " + saved["filename"])
+            st.download_button("업로드한 원본 내려받기 · " + saved["filename"], raw,
+                               file_name=saved["filename"], mime="application/pdf",
+                               key="attempt_original_" + attempt["id"] + "_" + saved["id"])
         for uid in attempt.get("upload_ids", []):
+            if uid in pdf_ids:
+                continue
             saved = files.get(uid, attempt["activity_id"], attempt["student_id"], attempt["class_id"], attempt["preview"])
-            st.download_button("업로드한 원본 내려받기 · " + saved["filename"], room.store.get_blob(saved["original_ref"]),
+            st.download_button("업로드한 원본 내려받기 · " + saved["filename"],
+                               files.read(saved, attempt["activity_id"], attempt["student_id"], attempt["class_id"],
+                                          attempt["preview"], original=True),
                                file_name=saved["filename"], mime=saved["original_mime"],
                                key="attempt_original_" + attempt["id"] + "_" + uid)
         if attempt.get("graph"):
@@ -313,14 +329,14 @@ def student_preview(room, course, task, ai, identity=None, editor_key=None, comp
         else:
             st.caption("펜이나 손가락으로 풀이를 쓰세요. 사진으로 푼 문제도 아래에서 첨부할 수 있습니다.")
             image = board(key=key + "_board", default=None)
-        uploads = st.file_uploader("답안 이미지 첨부 · 최대 2개", type=["png", "jpg", "jpeg"],
+        uploads = st.file_uploader("답안 이미지·PDF 첨부 · 최대 2개", type=["png", "jpg", "jpeg", "pdf"],
                                    accept_multiple_files=True, key=key + "_uploads",
-                                   help="캡처한 PNG 또는 JPG 파일을 올리세요. 학번과 이름을 입력한 파일은 업로드 즉시 저장됩니다.")
+                                   help="PNG/JPG 이미지 또는 PDF를 올리세요. PDF는 10MB 이하, 1~200쪽, 암호가 없는 파일을 지원합니다. 학번과 이름을 입력한 파일은 업로드 즉시 저장됩니다.")
         upload_ids, uploads_saved = answer_uploads(room, task, student_id, name, class_id, preview, key, uploads)
         text = st.text_area("나의 답안", max_chars=12000, key=key + "_text")
         ai_feedback_available = ai.available and not (task.get("expected_images") or task.get("question_files"))
         consent = st.checkbox("AI 피드백 받기 · 답안을 OpenAI에 전송", disabled=not ai_feedback_available,
-                              key=key + "_consent", help="문제 파일 또는 이미지 모범답안이 첨부된 활동은 교사가 직접 평가합니다.")
+                              key=key + "_consent", help="선택하면 답안과 첨부한 이미지·PDF를 OpenAI로 전송해 분석합니다. 문제 파일 또는 이미지 모범답안이 첨부된 활동은 교사가 직접 평가합니다.")
         consent = bool(consent and ai_feedback_available)
         if task.get("question_files"):
             st.caption("문제 파일이 첨부된 활동은 교사가 직접 평가합니다.")
@@ -341,15 +357,19 @@ def student_preview(room, course, task, ai, identity=None, editor_key=None, comp
         if not ai.available:
             st.caption("답안과 녹음은 AI 연결 없이도 저장·제출할 수 있습니다.")
         with st.popover("작업 전체 저장", use_container_width=True):
-            st.caption("파일 준비를 누른 시점의 글·수식·풀이 이미지·녹음을 ZIP으로 저장합니다. 교사 제출은 답안 제출을 눌러주세요.")
+            st.caption("파일 준비를 누른 시점의 글·수식·풀이 이미지·첨부 PDF·녹음을 ZIP으로 저장합니다. 교사 제출은 답안 제출을 눌러주세요.")
             if st.button("작업 파일 준비", key=key + "_prepare_work"):
                 try:
                     archive_uploads = uploads
                     if uploads_saved:
                         files = UploadedFiles(room.store)
-                        archive_uploads = [io.BytesIO(room.store.get_blob(
-                            files.get(uid, task["id"], student_id, class_id, preview)["original_ref"]))
-                            for uid in upload_ids]
+                        archive_uploads = []
+                        for uid in upload_ids:
+                            saved = files.get(uid, task["id"], student_id, class_id, preview)
+                            document = io.BytesIO(files.read(saved, task["id"], student_id, class_id, preview,
+                                                            original=True))
+                            document.name = saved["filename"]
+                            archive_uploads.append(document)
                     st.session_state[key + "_work_file"] = work_archive(task, text, transcript, quiz_answer, graph,
                                                                        image, archive_uploads, raw_audio)
                 except AppError as error:
@@ -365,7 +385,7 @@ def student_preview(room, course, task, ai, identity=None, editor_key=None, comp
         if st.button("답안 제출", type="primary", disabled=not can_submit or not graph_ready or not uploads_saved or not student_id.strip() or not name.strip(), key=key + "_submit"):
             try:
                 if len(uploads) > 2:
-                    raise AppError("첨부 이미지는 최대 2개까지 제출할 수 있습니다.")
+                    raise AppError("첨부 파일은 이미지와 PDF를 합쳐 최대 2개까지 제출할 수 있습니다.")
                 images = []
                 drawing = board_image(image)
                 if drawing:
@@ -401,7 +421,7 @@ def student_preview(room, course, task, ai, identity=None, editor_key=None, comp
 def work_archive(task, text, transcript, quiz_answer, graph, drawing, uploads, audio):
     """Download a snapshot of unsubmitted work without sending it to a teacher."""
     if len(uploads) > 2:
-        raise AppError("첨부 이미지는 최대 2개까지 저장할 수 있습니다.")
+        raise AppError("첨부 파일은 이미지와 PDF를 합쳐 최대 2개까지 저장할 수 있습니다.")
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("작업.json", json.dumps(dict(activity_id=task["id"], title=task["title"],
@@ -417,7 +437,11 @@ def work_archive(task, text, transcript, quiz_answer, graph, drawing, uploads, a
         if image:
             archive.writestr("손글씨.jpg", image)
         for index, upload in enumerate(uploads):
-            archive.writestr(f"첨부풀이-{index + 1}.jpg", normalized_image(upload.getvalue()))
+            raw = upload.getvalue()
+            if Path(getattr(upload, "name", "")).suffix.lower() == ".pdf" or raw.startswith(b"%PDF-"):
+                archive.writestr(f"첨부풀이-{index + 1}.pdf", validated_pdf(raw))
+            else:
+                archive.writestr(f"첨부풀이-{index + 1}.jpg", normalized_image(raw))
         if audio:
             archive.writestr("녹음.wav", validate_audio(audio))
     return output.getvalue()

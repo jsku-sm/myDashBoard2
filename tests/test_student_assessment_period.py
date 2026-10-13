@@ -196,3 +196,36 @@ def test_empty_assigned_course_has_the_period_notice_on_all_entry_paths(student_
     *_, make_app = student_app
     for route in ("list", "requested", "selected"):
         assert_no_activity_content(make_app(route))
+
+
+@pytest.mark.parametrize("route", ["list", "requested", "selected"])
+def test_student_assessment_omits_the_old_course_heading(student_app, route):
+    _, room, _, course_id, _, make_app = student_app
+    add_activity(room, course_id)
+    app = make_app(route)
+    assert not app.exception and not app.error
+    assert "내 소노클 수업" not in [item.value for item in app.subheader]
+    assert not any("내 소노클 수업" in item.label for item in app.button)
+
+
+@pytest.mark.parametrize("published", [True, False])
+def test_previous_menu_button_returns_to_course_list_and_preserves_enrollment(student_app, published):
+    _, room, manager, course_id, _, make_app = student_app
+    aid = add_activity(room, course_id, published=published)
+    other = manager.create("다른 반 수업", "#123456", ["1-2"])
+    add_activity(room, other)
+    app = make_app("requested")
+    back = app.button(key="snorkl_student_back")
+    assert back.label == "이전메뉴로 돌아가기"
+    back.click().run()
+    assert not app.exception and not app.error
+    assert "_snorkl_student_course" not in app.session_state
+    assert not app.selectbox and not app.text_area and not app.get("download_button")
+    assert "내 소노클 수업" not in [item.value for item in app.subheader]
+    own = app.button(key="snorkl_join_" + course_id)
+    assert own.disabled is not published
+    assert "snorkl_join_" + other not in [item.key for item in app.button]
+    if published:
+        own.click().run()
+        assert not app.exception and not app.error
+        assert app.selectbox(key="snorkl_student_activity_" + course_id).value == aid

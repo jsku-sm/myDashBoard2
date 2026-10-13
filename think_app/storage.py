@@ -68,13 +68,52 @@ def _existing_upload(payload, candidate):
     fields = ("id", "activity_id", "course_id", "class_id", "student_id", "preview",
               "original_ref", "blob_ref", "original_mime", "mime", "original_sha256",
               "sha256", "original_bytes", "bytes", "saved")
+    def kind(upload):
+        return upload.get("kind", "pdf" if upload.get("mime") == "application/pdf" else "image")
     if (not isinstance(existing, dict) or not existing.get("saved") or
+            kind(existing) != kind(candidate) or
             any(existing.get(field) != candidate.get(field) for field in fields) or
             uploaded_file_path(existing) != uploaded_file_path(candidate)):
         raise AppError("업로드 파일이 기존 저장 내용과 다릅니다. 저장소를 확인하세요.")
     # A simultaneous retry may use a new timestamp or filename. Keep the first
     # fully stored copy; these fields do not change the upload's identity.
     return copy.deepcopy(existing)
+
+
+def student_pdf_attachments(store, attempt):
+    """Read immutable submitted PDF snapshots, independent of shared drafts."""
+    documents = attempt.get("documents", [])
+    if not isinstance(documents, list) or len(documents) > 3:
+        raise AppError("제출한 PDF 첨부 정보를 확인하세요.")
+    result, seen = [], set()
+    for document in documents:
+        if not isinstance(document, dict) or not document.get("saved"):
+            raise AppError("제출한 PDF 첨부 정보를 확인하세요.")
+        if (document.get("kind") != "pdf" or document.get("mime") != "application/pdf" or
+                document.get("original_mime") != "application/pdf" or
+                any(document.get(field) != attempt.get(field) for field in
+                    ("activity_id", "course_id", "student_id", "class_id")) or
+                bool(document.get("preview")) != bool(attempt.get("preview")) or
+                document.get("id") not in attempt.get("upload_ids", [])):
+            raise AppError("제출한 PDF 첨부의 소유 정보를 확인하세요.")
+        ref, digest, size = document.get("blob_ref"), document.get("sha256"), document.get("bytes")
+        filename = document.get("filename")
+        if (not isinstance(ref, str) or not re.fullmatch(r"[a-f0-9]{32}", ref) or ref in seen or
+                ref != document.get("original_ref") or
+                not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest) or
+                digest != document.get("original_sha256") or type(size) is not int or
+                not 0 < size <= 10_000_000 or size != document.get("original_bytes") or
+                not isinstance(filename, str) or not filename.lower().endswith(".pdf") or
+                len(filename) > 200 or any(character in filename for character in ("/", "\\")) or
+                not all(character.isprintable() for character in filename)):
+            raise AppError("제출한 PDF 첨부 파일 정보를 확인하세요.")
+        raw = store.get_blob(ref)
+        if (not isinstance(raw, bytes) or len(raw) != size or not raw.startswith(b"%PDF-") or
+                hashlib.sha256(raw).hexdigest() != digest):
+            raise AppError("저장된 PDF 답안을 확인할 수 없습니다.")
+        seen.add(ref)
+        result.append((copy.deepcopy(document), raw))
+    return result
 
 
 def _submission_bundle(store, attempt):
@@ -86,6 +125,9 @@ def _submission_bundle(store, attempt):
         raw = store.get_blob(reference)
         assets[reference] = {"mime_type": mime_type, "sha256": hashlib.sha256(raw).hexdigest(),
                              "base64": base64.b64encode(raw).decode()}
+    for document, raw in student_pdf_attachments(store, attempt):
+        assets[document["blob_ref"]] = {"mime_type": "application/pdf", "sha256": document["sha256"],
+                                       "base64": base64.b64encode(raw).decode()}
     return {"schema": 1, "submission": copy.deepcopy(attempt), "assets": assets}
 
 

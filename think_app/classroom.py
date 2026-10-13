@@ -11,9 +11,9 @@ import zipfile
 
 from .courses import KST, now
 from .service import safe_csv
-from .storage import AppError, student_submission_path
+from .storage import AppError, student_submission_path, student_pdf_attachments
 from .media import MODES, activity_mode, validate_audio, validated_graph
-from .uploads import owned_uploads
+from .uploads import owned_uploads, upload_kind, UploadedFiles
 from .reference_images import owned_reference_images
 from .question_files import owned_question_files
 from .curriculum import validate_selection, criteria_text
@@ -356,10 +356,9 @@ class Classroom:
         for raw in images:
             if not isinstance(raw, (bytes, bytearray)) or not raw or len(raw) > 600000:
                 raise AppError("답안 이미지를 600KB 이하로 저장하세요.")
+        upload_service = UploadedFiles(self.store)
         for upload in selected_uploads:
-            raw = self.store.get_blob(upload["blob_ref"])
-            if len(raw) > 600000 or hashlib.sha256(raw).hexdigest() != upload["sha256"]:
-                raise AppError("저장된 업로드 이미지를 확인할 수 없습니다. 파일을 다시 올려주세요.")
+            upload_service.read(upload, aid, student_id, class_id, preview)
         if not self._can_submit(task):
             raise AppError("현재 제출할 수 없는 활동입니다.")
         course = state.get("courses", {}).get(task["course_id"])
@@ -378,7 +377,7 @@ class Classroom:
             ref = uuid.uuid4().hex
             self.store.put_blob(ref, bytes(raw))
             refs.append(ref)
-        refs.extend(upload["blob_ref"] for upload in selected_uploads)
+        refs.extend(upload["blob_ref"] for upload in selected_uploads if upload_kind(upload) == "image")
         audio_ref = None
         if audio:
             audio_ref = uuid.uuid4().hex
@@ -403,6 +402,8 @@ class Classroom:
             current_uploads = owned_uploads(state, upload_ids, aid, student_id, class_id, preview)
             if current_uploads != selected_uploads:
                 raise AppError("업로드 파일이 변경되었습니다. 파일을 다시 확인하세요.")
+            for upload in current_uploads:
+                upload_service.read(upload, aid, student_id, class_id, preview)
             previous = previous_attempts(attempts)
             if len(previous) >= current["max_attempts"]:
                 raise AppError("최대 시도 횟수에 도달했습니다.")
@@ -412,6 +413,7 @@ class Classroom:
                 transcript=transcript.strip(), audio=audio_ref, graph=graph_data, quiz_answer=quiz_answer,
                 graph_source=graph_source,
                 upload_ids=list(upload_ids),
+                documents=copy.deepcopy([upload for upload in current_uploads if upload_kind(upload) == "pdf"]),
                 mode=mode, reflection="", activity_snapshot=copy.deepcopy(current))
             attempt["submission_file"] = student_submission_path(attempt)
             attempts[request_id] = attempt
@@ -432,8 +434,12 @@ class Classroom:
             transcript = ai.transcribe(self.store.get_blob(attempt["audio"]))
             self.store.transaction(lambda s: s["course_attempts"][attempt_id].update(transcript=transcript))
             attempt["transcript"] = transcript
-        feedback = ai.feedback(attempt["activity_snapshot"], attempt,
-                               [self.store.get_blob(ref) for ref in attempt["images"]])
+        images = [self.store.get_blob(ref) for ref in attempt["images"]]
+        documents = [(document["filename"], raw) for document, raw in student_pdf_attachments(self.store, attempt)]
+        if documents:
+            feedback = ai.feedback(attempt["activity_snapshot"], attempt, images, documents=documents)
+        else:
+            feedback = ai.feedback(attempt["activity_snapshot"], attempt, images)
         self.store.transaction(lambda s: s["course_attempts"][attempt_id].update(feedback=feedback, error=""))
 
     def comment(self, attempt_id, comment):
@@ -469,6 +475,8 @@ class Classroom:
             for attempt in attempts:
                 for index, ref in enumerate(attempt["images"]):
                     archive.writestr(f"답안/{attempt['id']}/{index+1}.jpg", self.store.get_blob(ref))
+                for index, (document, raw) in enumerate(student_pdf_attachments(self.store, attempt)):
+                    archive.writestr(f"답안/{attempt['id']}/첨부-{index+1}-{document['filename']}", raw)
                 if attempt.get("audio"):
                     archive.writestr(f"답안/{attempt['id']}/녹음.wav", self.store.get_blob(attempt["audio"]))
                 if attempt.get("graph"):

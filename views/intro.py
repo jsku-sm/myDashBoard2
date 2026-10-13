@@ -14,6 +14,7 @@ CSS = """
 <style>
 .st-key-pf_image img { border-radius: 24px; }
 .st-key-pf_tabs h3, .st-key-pf_intro h1, .st-key-pf_intro h3 { word-break:keep-all; }
+.pf-name-suffix { font-size:.45em; font-weight:400; margin-left:.2em; white-space:nowrap; }
 .pf-eyebrow { color:light-dark(#755d8d, #B9A0D6); font-size:.8rem; font-weight:700; letter-spacing:.16em; }
 .pf-hero-description { color:var(--muted); line-height:1.85; margin-top:.6rem; }
 .pf-tag { display:inline-block; background:var(--card); color:var(--ink); border:1px solid var(--line); border-radius:999px;
@@ -92,7 +93,8 @@ def intro_page(user):
         _html(f'<div class="pf-quote">“{escape(PROFILE["motto"])}”</div>')
     with intro_col, st.container(key="pf_intro"):
         _html('<div class="pf-eyebrow">MATH × AI · GOOD TEACHER</div>')
-        st.title(PROFILE["name"])
+        st.markdown(f'# {escape(PROFILE["name"])} <small class="pf-name-suffix">선생님</small>',
+                    unsafe_allow_html=True)
         st.markdown("**수학교사 · AI 교육 전문가**")
         st.subheader(PROFILE["slogan"])
         _html('<p class="pf-hero-description">수학을 통해 학생과 소통하고,<br>'
@@ -144,6 +146,4 @@ def intro_page(user):
             st.markdown(f"📧 [{PROFILE['email']}](mailto:{PROFILE['email']})")
 
     st.divider()
-    _html(f'<div class="pf-footer">© 2026 {escape(PROFILE["name"])} · 배우고, 나누고, 함께 성장합니다.</div>')
-    if user["role"] == "teacher":
-        st.caption("✏️ 이 화면의 내용은 코드 저장소의 `profile_data.py`에서, 사진은 `assets/profile.png`에서 바꿀 수 있어요.")
+    _html('<div class="pf-footer">© 배우고, 나누고, 함께 성장합니다.</div>')

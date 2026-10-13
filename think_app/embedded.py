@@ -76,7 +76,7 @@ def storage_notice(settings, teacher):
 def _student_course(store, manager, course, settings, user):
     # Re-check current enrollment every run, including links and stale state.
     identity = student_identity(user, course)
-    if st.button("← 내 소노클 수업 목록", key="snorkl_student_back"):
+    if st.button("이전메뉴로 돌아가기", key="snorkl_student_back"):
         st.session_state.pop("_snorkl_student_course", None)
         st.rerun()
     st.title(course["title"])
@@ -117,7 +117,6 @@ def student_view(store, manager, settings, user, requested):
             return
         st.session_state.pop("_snorkl_student_course", None)
         st.info("수업이 삭제되었거나 보관되었습니다.")
-    st.subheader("내 소노클 수업")
     st.caption("로그인한 반에 배정된 수업만 표시됩니다.")
     courses = visible_courses(user, manager.list_courses())
     if not courses:

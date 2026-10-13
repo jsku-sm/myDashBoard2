@@ -1,7 +1,8 @@
-"""Durable image drafts, saved before a student submits an answer."""
+"""Durable image and PDF drafts, saved before a student submits an answer."""
 import hashlib
 import io
 import json
+from pathlib import Path
 import re
 
 from PIL import Image
@@ -9,6 +10,37 @@ from PIL import Image
 from .ai import normalized_image
 from .courses import now
 from .storage import AppError, uploaded_file_path
+
+
+MAX_PDF_BYTES = 10_000_000
+MAX_IMAGE_BYTES = 12_000_000
+MAX_NORMALIZED_IMAGE_BYTES = 600_000
+
+
+def validated_pdf(raw):
+    """Return the original bytes of a bounded, readable, unencrypted PDF."""
+    if not isinstance(raw, (bytes, bytearray)) or not raw:
+        raise AppError("업로드할 PDF 파일을 선택하세요.")
+    if len(raw) > MAX_PDF_BYTES:
+        raise AppError("답안 PDF는 10MB 이하로 올려주세요.")
+    from .question_files import _document_mime
+    raw = bytes(raw)
+    try:
+        _document_mime(raw, ".pdf")
+    except AppError as error:
+        message = str(error).replace("문제 PDF", "답안 PDF").replace("이미지 또는 DOCX 파일", "PNG 또는 JPG 파일")
+        raise AppError(message) from None
+    return raw
+
+
+def upload_kind(metadata):
+    """Recognize older image records which predate the explicit kind field."""
+    kind = metadata.get("kind")
+    if kind is None:
+        kind = "pdf" if metadata.get("mime") == "application/pdf" else "image"
+    if kind not in ("image", "pdf"):
+        raise AppError("저장된 업로드 파일 형식을 확인하세요.")
+    return kind
 
 
 def _identity(student_id, name, class_id):
@@ -72,19 +104,24 @@ class UploadedFiles:
         if not isinstance(aid, str) or not aid:
             raise AppError("파일을 저장할 활동을 확인하세요.")
         if not isinstance(raw, (bytes, bytearray)) or not raw:
-            raise AppError("업로드할 PNG 또는 JPG 파일을 선택하세요.")
+            raise AppError("업로드할 PNG, JPG 또는 PDF 파일을 선택하세요.")
         raw = bytes(raw)
-        normalized = normalized_image(raw)
-        with Image.open(io.BytesIO(raw)) as image:
-            original_mime = {"PNG": "image/png", "JPEG": "image/jpeg"}.get(image.format)
-        if not original_mime:
-            raise AppError("PNG 또는 JPG 파일만 업로드할 수 있습니다.")
         if not isinstance(filename, str) or not filename.strip():
             raise AppError("업로드 파일 이름을 확인하세요.")
         filename = filename.replace("\\", "/").rsplit("/", 1)[-1]
         filename = "".join(character for character in filename if character.isprintable()).strip()
         if not filename or len(filename) > 200:
             raise AppError("업로드 파일 이름은 200자 이내로 설정하세요.")
+        if Path(filename).suffix.lower() == ".pdf":
+            normalized = validated_pdf(raw)
+            kind, original_mime = "pdf", "application/pdf"
+        else:
+            normalized = normalized_image(raw)
+            with Image.open(io.BytesIO(raw)) as image:
+                original_mime = {"PNG": "image/png", "JPEG": "image/jpeg"}.get(image.format)
+            if not original_mime:
+                raise AppError("PNG, JPG 또는 PDF 파일만 업로드할 수 있습니다.")
+            kind = "image"
         state = self.store.read()
         task = _activity(state, aid, class_id)
         original_sha = hashlib.sha256(raw).hexdigest()
@@ -93,18 +130,23 @@ class UploadedFiles:
         upload_id = hashlib.sha256(identity.encode()).hexdigest()[:32]
         existing = state.get("course_uploads", {}).get(upload_id)
         if existing:
-            return owned_uploads(state, [upload_id], aid, student_id, class_id, preview)[0]
+            record = owned_uploads(state, [upload_id], aid, student_id, class_id, preview)[0]
+            self.read(record, aid, student_id, class_id, preview)
+            self.read(record, aid, student_id, class_id, preview, original=True)
+            return record
         original_ref = hashlib.sha256(("original:" + identity).encode()).hexdigest()[:32]
-        blob_ref = hashlib.sha256(("normalized:" + identity).encode()).hexdigest()[:32]
+        blob_ref = (original_ref if kind == "pdf" else
+                    hashlib.sha256(("normalized:" + identity).encode()).hexdigest()[:32])
         try:
             self.store.put_blob(original_ref, raw)
-            self.store.put_blob(blob_ref, normalized)
+            if blob_ref != original_ref:
+                self.store.put_blob(blob_ref, normalized)
         except OSError:
             raise AppError("업로드 파일 저장에 실패했습니다. 파일을 유지한 채 다시 시도하세요.") from None
         candidate = dict(id=upload_id, activity_id=aid, course_id=task["course_id"], student_id=student_id,
                          name=name, class_id=class_id, preview=bool(preview), filename=filename,
                          original_ref=original_ref, blob_ref=blob_ref, original_mime=original_mime,
-                         mime="image/jpeg", original_sha256=original_sha,
+                         kind=kind, mime=original_mime if kind == "pdf" else "image/jpeg", original_sha256=original_sha,
                          sha256=hashlib.sha256(normalized).hexdigest(), original_bytes=len(raw),
                          bytes=len(normalized), created=now(), saved=True)
         candidate["upload_file"] = uploaded_file_path(candidate)
@@ -139,3 +181,36 @@ class UploadedFiles:
 
     def get(self, upload_id, aid, student_id, class_id, preview=False):
         return owned_uploads(self.store.read(), [upload_id], aid, student_id, class_id, preview)[0]
+
+    def read(self, metadata, aid, student_id, class_id, preview=False, original=False):
+        """Read only a student's canonical attachment and verify its bytes."""
+        upload_id = metadata.get("id") if isinstance(metadata, dict) else metadata
+        record = self.get(upload_id, aid, student_id, class_id, preview)
+        if isinstance(metadata, dict) and metadata != record:
+            raise AppError("업로드 파일이 저장 내용과 다릅니다. 다시 올려주세요.")
+        kind = upload_kind(record)
+        if kind == "pdf":
+            if (record.get("mime") != "application/pdf" or record.get("original_mime") != "application/pdf" or
+                    record.get("blob_ref") != record.get("original_ref") or
+                    record.get("sha256") != record.get("original_sha256") or
+                    record.get("bytes") != record.get("original_bytes")):
+                raise AppError("저장된 PDF 파일 정보를 확인할 수 없습니다. 다시 올려주세요.")
+            limit = MAX_PDF_BYTES
+        else:
+            if (record.get("mime") != "image/jpeg" or
+                    record.get("original_mime") not in ("image/png", "image/jpeg")):
+                raise AppError("저장된 이미지 파일 정보를 확인할 수 없습니다. 다시 올려주세요.")
+            limit = MAX_IMAGE_BYTES if original else MAX_NORMALIZED_IMAGE_BYTES
+        ref, digest, byte_count = (("original_ref", "original_sha256", "original_bytes") if original else
+                                  ("blob_ref", "sha256", "bytes"))
+        if not isinstance(record.get(ref), str) or not re.fullmatch(r"[a-f0-9]{32}", record[ref]):
+            raise AppError("저장된 업로드 파일을 확인할 수 없습니다. 다시 올려주세요.")
+        try:
+            raw = self.store.get_blob(record.get(ref))
+        except AppError:
+            raise AppError("저장된 업로드 파일을 확인할 수 없습니다. 다시 올려주세요.") from None
+        if (not isinstance(raw, (bytes, bytearray)) or not raw or len(raw) > limit or
+                type(record.get(byte_count)) is not int or len(raw) != record[byte_count] or
+                hashlib.sha256(raw).hexdigest() != record.get(digest)):
+            raise AppError("저장된 업로드 파일을 확인할 수 없습니다. 다시 올려주세요.")
+        return bytes(raw)
