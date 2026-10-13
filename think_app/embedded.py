@@ -173,7 +173,7 @@ def render(user):
         st.error("대시보드 로그인이 필요합니다.")
         return
     teacher = user["role"] == "teacher"
-    st.caption("수업도구 / 가. 소노클 · 교사 공간" if teacher else "수업도구 / 가. 소노클 · 학생 공간")
+    st.caption("수업도구 / 3. 수행평가 · 교사 공간" if teacher else "수업도구 / 3. 수행평가 · 학생 공간")
     with st.container(key="snorkl_workspace"):
         embedded_style()
         try:
