@@ -27,6 +27,9 @@ TOOL_PRESENTATION = (
 
 TOOLS_PAGE_CSS = """
 <style>
+.st-key-pastel_tools [data-testid="stMarkdownContainer"] {
+    font-family:'Pretendard',-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+}
 /* Keep the real radio control and its callbacks; give each option a card surface. */
 [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker [role="radiogroup"] {
     display:grid;grid-template-columns:repeat(5,minmax(0,1fr));
@@ -38,7 +41,7 @@ TOOLS_PAGE_CSS = """
 [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker
     :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]) {
     position:relative;align-items:flex-start;flex:1;gap:7px;
-    width:100%;max-width:100%;min-height:165px;margin:0;padding:46px 13px 33px;
+    width:100%;max-width:100%;min-height:140px;margin:0;padding:46px 13px 33px;
     border:1.5px solid var(--tool-line);border-radius:17px;
     background:var(--tool-bg);color:var(--tool-ink);
     box-shadow:0 3px 0 color-mix(in srgb,var(--tool-line) 45%,transparent);
@@ -169,7 +172,19 @@ TOOLS_PAGE_CSS = """
 @media(max-width:650px) {
     [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker [role="radiogroup"] {grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;}
     [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker [role="radiogroup"] > :last-child {grid-column:1/-1;}
-    [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]) {min-height:151px;}
+    [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]) {
+        min-height:108px;padding:36px 12px 26px;
+    }
+    [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker
+        :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):is(:has(input:checked),[data-selected="true"]) {
+        padding:35.5px 11.5px 25.5px;
+    }
+    [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker
+        :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"])::before {
+        top:7px;left:12px;width:24px;height:23px;font-size:1.3rem;
+    }
+    [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker
+        :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]) p::after {display:none;}
     .st-key-pastel_tools .st-key-tool_selected_content {padding:17px 13px;border-radius:17px;}
 }
 @media(prefers-reduced-motion:reduce) {

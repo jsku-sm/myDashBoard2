@@ -29,6 +29,9 @@ CSS = """<style>
   --sn-purple-line:light-dark(#C9B4E2,#765E8E);
   --sn-purple-bg:light-dark(#F2ECFB,#30283F);
 }
+.st-key-pastel_sudanote [data-testid="stMarkdownContainer"] {
+  font-family:'Pretendard',-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+}
 .st-key-pastel_sudanote :is(.st-key-sn_guide,.st-key-sn_form,.st-key-sn_filters,.st-key-sn_history) {
   border:1.5px solid var(--sn-purple-line); border-radius:20px;
   padding:1.1rem 1.2rem; gap:.8rem; color:var(--sn-ink);
