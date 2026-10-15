@@ -1,6 +1,4 @@
 """수업도구: 선택한 메뉴의 내용만 표시합니다."""
-import html
-
 import streamlit as st
 
 import storage as db
@@ -15,31 +13,51 @@ TOOLS = [
     ("tool_quiz", "4. 퀴즈", "배운 내용을 퀴즈로 확인해요."),
     ("tool_apps", "5. 앱 (by Good쌤)", "Good쌤이 직접 만든 수학 앱이에요."),
 ]
+ACTIVE_APP = "_tool_apps_active_app"
+
+
+def open_app(name, url):
+    st.session_state[ACTIVE_APP] = (name, url)
+
+
+def close_app():
+    st.session_state.pop(ACTIVE_APP, None)
 
 
 def app_table(links):
-    """앱 목록: 번호와 학습 주제를 표시하고, 주제를 누르면 현재 창에서 엽니다."""
-    rows = "".join(
-        f'<tr><td class="num">{i:02}</td><td class="topic">'
-        f'<a href="{html.escape(url, quote=True)}" target="_self" rel="noopener noreferrer">'
-        f'{html.escape(name)}</a></td></tr>'
-        for i, (name, url) in enumerate(links, start=1)
-    )
+    """번호와 학습 주제를 표시하고, 대시보드 세션 안에서 앱을 선택합니다."""
     st.markdown(
         "<style>"
-        ".app-table-wrap{overflow-x:auto;border:1.5px solid var(--line);border-radius:12px;background:var(--card);}"
-        ".app-table{width:100%;border-collapse:collapse;color:var(--ink);font-size:1rem;margin:0;}"
-        ".app-table th,.app-table td{padding:.85rem 1.2rem;border-bottom:1px solid var(--line);text-align:left;}"
-        ".app-table th{background:var(--soft);color:var(--muted);font-size:.84rem;font-weight:700;}"
-        ".app-table tr:last-child td{border-bottom:0;}"
-        ".app-table .num{width:5rem;color:var(--muted);font-variant-numeric:tabular-nums;}"
-        ".app-table .topic a{color:var(--ink);font-weight:650;text-decoration:none;}"
-        ".app-table .topic a:hover{text-decoration:underline;text-decoration-color:var(--hl);text-decoration-thickness:3px;}"
-        "</style>"
-        f'<div class="app-table-wrap"><table class="app-table"><thead><tr><th>번호</th><th>학습 주제</th></tr></thead>'
-        f"<tbody>{rows}</tbody></table></div>",
+        ".st-key-tool_apps_list{background:var(--card);border-color:var(--line);border-radius:12px;}"
+        ".st-key-tool_apps_list button{justify-content:flex-start;text-align:left;color:var(--ink);font-weight:650;}"
+        ".st-key-tool_apps_list button:hover{text-decoration:underline;text-decoration-color:var(--hl);text-decoration-thickness:3px;}"
+        "</style>",
         unsafe_allow_html=True,
     )
+    with st.container(border=True, key="tool_apps_list"):
+        number, topic = st.columns([1, 8], vertical_alignment="center")
+        number.markdown("**번호**")
+        topic.markdown("**학습 주제**")
+        for i, (name, url) in enumerate(links, start=1):
+            number, topic = st.columns([1, 8], vertical_alignment="center")
+            number.caption(f"{i:02}")
+            topic.button(
+                name, key=f"tool_app_open_{i}", type="tertiary", width="stretch",
+                on_click=open_app, args=(name, url),
+            )
+
+
+def apps_panel(links):
+    selected = st.session_state.get(ACTIVE_APP)
+    if selected not in links:
+        close_app()
+        app_table(links)
+        return
+
+    name, url = selected
+    st.button("← 앱 목록으로 돌아가기", key="tool_apps_back", on_click=close_app)
+    st.subheader(name)
+    ui.embed(url, height=760)
 
 
 def page(user):
@@ -72,7 +90,7 @@ def page(user):
     if not links:
         st.caption("선생님이 링크를 준비 중이에요.")
     elif key == "tool_apps":
-        app_table(links)
+        apps_panel(links)
     else:
         cols = st.columns(min(len(links), 3))
         for i, (name, url) in enumerate(links):
