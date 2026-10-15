@@ -288,8 +288,111 @@ NAVIGATION_CSS = """
 """
 
 
+PAGE_CONTROLS_CSS = """
+<style>
+.st-key-pastel_math1 {
+  --choice-bg:light-dark(#EDF7F0,#1C332A); --choice-line:light-dark(#A7CFB7,#496F5D);
+  --choice-accent:light-dark(#356D50,#A1D9B8);
+}
+.st-key-pastel_math2 {
+  --choice-bg:light-dark(#EBF3FE,#1F3045); --choice-line:light-dark(#B0CBEA,#47688E);
+  --choice-accent:light-dark(#36699E,#A1C9F3);
+}
+.st-key-pastel_sudanote {
+  --choice-bg:light-dark(#F4EFFC,#30283F); --choice-line:light-dark(#CDBCE7,#6A547F);
+  --choice-accent:light-dark(#725294,#CDAEEB);
+}
+.st-key-pastel_tools {
+  --choice-bg:light-dark(#FFF2E9,#3A2B24); --choice-line:light-dark(#EBC8AC,#866044);
+  --choice-accent:light-dark(#966039,#EDBB93);
+}
+
+/* A selected menu retains its marker when hovered or reached by keyboard. */
+[data-testid="stMain"] :is(.st-key-pastel_math1,.st-key-pastel_math2,.st-key-pastel_sudanote,.st-key-pastel_tools)
+  [role="tab"][aria-selected="true"]::after {
+  content:"✓"; margin-left:.4rem; color:var(--menu-accent); font-weight:800;
+}
+[data-testid="stMain"] :is(.st-key-pastel_math1,.st-key-pastel_math2,.st-key-pastel_sudanote,.st-key-pastel_tools)
+  [role="tab"][aria-selected="true"]:hover {
+  box-shadow:inset 0 -3px 0 var(--menu-accent),0 3px 9px color-mix(in srgb,var(--menu-accent) 18%,transparent);
+}
+
+/* Both native select implementations keep the same clear, colored surface. */
+[data-testid="stMain"] :is(.st-key-pastel_math1,.st-key-pastel_math2,.st-key-pastel_sudanote,.st-key-pastel_tools)
+  :is([data-testid="stSelectbox"],[data-testid="stMultiSelect"])
+  :is([data-baseweb="select"] > div,.react-aria-ComboBox > [role="group"]:has(input[role="combobox"])) {
+  min-height:44px; border:1.5px solid var(--choice-line); border-radius:12px;
+  background:var(--choice-bg); color:var(--ink); cursor:pointer;
+  box-shadow:0 2px 0 color-mix(in srgb,var(--choice-line) 35%,transparent);
+}
+[data-testid="stMain"] :is(.st-key-pastel_math1,.st-key-pastel_math2,.st-key-pastel_sudanote,.st-key-pastel_tools)
+  :is([data-testid="stSelectbox"],[data-testid="stMultiSelect"])
+  :is([data-baseweb="select"]:focus-within > div,.react-aria-ComboBox:focus-within > [role="group"]:has(input[role="combobox"])) {
+  border-color:var(--choice-accent); outline:2px solid var(--choice-line); outline-offset:2px;
+}
+[data-testid="stMain"] :is(.st-key-pastel_math1,.st-key-pastel_math2,.st-key-pastel_sudanote,.st-key-pastel_tools)
+  :is([data-testid="stSelectbox"],[data-testid="stMultiSelect"],[data-testid="stDateInput"]) label p {
+  color:var(--choice-accent); font-weight:750;
+}
+
+/* Option popovers are portaled outside the page's own container. */
+body:has(:is(.st-key-pastel_math1,.st-key-pastel_math2,.st-key-pastel_sudanote,.st-key-pastel_tools))
+  [role="listbox"] [role="option"] {
+  border-left:3px solid transparent; border-radius:7px;
+}
+body:has(:is(.st-key-pastel_math1,.st-key-pastel_math2,.st-key-pastel_sudanote,.st-key-pastel_tools))
+  [role="listbox"] [role="option"]:is([aria-selected="true"],[data-selected="true"]) {
+  background:light-dark(#E3F2E9,#244437); color:light-dark(#28583F,#D1EEDB);
+  border-left-color:light-dark(#397357,#A1D9B8); font-weight:750;
+}
+body:has(:is(.st-key-pastel_math1,.st-key-pastel_math2,.st-key-pastel_sudanote,.st-key-pastel_tools))
+  [role="listbox"] [role="option"]:is(:hover,[data-focused],[data-focus-visible]) {
+  outline:2px solid light-dark(#B8CDEA,#6D8BAD); outline-offset:-2px;
+}
+
+/* Upload and download actions are distinct from lesson content. */
+[data-testid="stMain"] :is(.st-key-pastel_math1,.st-key-pastel_math2,.st-key-pastel_sudanote,.st-key-pastel_tools)
+  [data-testid="stFileUploaderDropzone"] {
+  border:1.5px dashed var(--choice-line); border-radius:14px; background:var(--choice-bg);
+}
+[data-testid="stMain"] :is(.st-key-pastel_math1,.st-key-pastel_math2,.st-key-pastel_sudanote,.st-key-pastel_tools)
+  :is([data-testid="stFileUploaderDropzone"],[data-testid="stDownloadButton"],[class*="st-key-dlp_"]) button {
+  min-height:42px; border:1.5px solid var(--choice-accent); border-radius:11px;
+  background:var(--choice-bg); color:var(--choice-accent); font-weight:750;
+}
+[data-testid="stMain"] :is(.st-key-pastel_math1,.st-key-pastel_math2) [data-testid="stLinkButton"] a {
+  min-height:44px; padding:.65rem 1rem; border:1.5px solid var(--choice-line); border-radius:12px;
+  background:var(--choice-bg); color:var(--choice-accent); font-weight:750;
+}
+[data-testid="stMain"] :is(.st-key-pastel_math1,.st-key-pastel_math2) [class*="st-key-cms_"] button {
+  min-height:42px; border:1.5px solid var(--choice-line); border-radius:11px;
+  background:var(--choice-bg); color:var(--choice-accent); font-weight:750;
+}
+[data-testid="stMain"] :is(.st-key-pastel_math1,.st-key-pastel_math2,.st-key-pastel_sudanote)
+  button:is([kind="primary"],[kind="primaryFormSubmit"]) {
+  min-height:44px; padding:.65rem 1rem; border:1.5px solid light-dark(#7DB496,#76AB8D);
+  border-radius:12px; background:light-dark(#D7EFDF,#244B39); color:light-dark(#24523A,#D6F4E2);
+  font-weight:750; box-shadow:0 2px 0 light-dark(#A7CFB7,#162F23);
+}
+[data-testid="stMain"] :is(.st-key-pastel_math1,.st-key-pastel_math2,.st-key-pastel_sudanote)
+  button:is([kind="primary"],[kind="primaryFormSubmit"]):hover:not(:disabled) {
+  background:light-dark(#C4E5D0,#2D5B45); border-color:light-dark(#397357,#A1D9B8);
+}
+[data-testid="stMain"] .st-key-pastel_tools :is(.st-key-tool_apps_back,[class*="st-key-save_tool_"]) button {
+  min-height:44px; padding:.65rem 1rem; border:1.5px solid light-dark(#C5B0DF,#6A547F);
+  border-radius:12px; background:light-dark(#EEE7F9,#30283F); color:light-dark(#624681,#E9D9F8); font-weight:750;
+}
+[data-testid="stMain"] :is(.st-key-pastel_math1,.st-key-pastel_math2,.st-key-pastel_sudanote)
+  button:is([kind="primary"],[kind="primaryFormSubmit"]):focus-visible,
+[data-testid="stMain"] .st-key-pastel_tools :is(.st-key-tool_apps_back,[class*="st-key-save_tool_"]) button:focus-visible {
+  outline:3px solid var(--choice-accent); outline-offset:3px;
+}
+</style>
+"""
+
+
 def inject_css():
-    st.markdown(CSS + NAVIGATION_CSS, unsafe_allow_html=True)
+    st.markdown(CSS + NAVIGATION_CSS + PAGE_CONTROLS_CSS, unsafe_allow_html=True)
 
 
 def page_title(title: str, sub: str = ""):

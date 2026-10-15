@@ -17,6 +17,168 @@ TOOLS = [
 ]
 ACTIVE_APP = "_tool_apps_active_app"
 
+TOOL_PRESENTATION = (
+    ("∿", "그래프를 그리며 탐구해요", "그래프 탐구"),
+    ("✦", "코드를 입력하고 함께 활동해요", "함께하는 활동"),
+    ("✎", "생각을 설명하고 기록해요", "생각과 표현"),
+    ("?", "배운 내용을 가볍게 확인해요", "개념 확인"),
+    ("▦", "직접 움직이며 수학을 만나요", "수학 앱 모음"),
+)
+
+TOOLS_PAGE_CSS = """
+<style>
+/* Keep the real radio control and its callbacks; give each option a card surface. */
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker [role="radiogroup"] {
+    display:grid;grid-template-columns:repeat(5,minmax(0,1fr));
+    gap:10px;padding:3px 0 9px;
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker [role="radiogroup"] > div {
+    display:flex;min-width:0;width:100%;
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker
+    :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]) {
+    position:relative;align-items:flex-start;flex:1;gap:7px;
+    width:100%;max-width:100%;min-height:165px;margin:0;padding:46px 13px 33px;
+    border:1.5px solid var(--tool-line);border-radius:17px;
+    background:var(--tool-bg);color:var(--tool-ink);
+    box-shadow:0 3px 0 color-mix(in srgb,var(--tool-line) 45%,transparent);
+    cursor:pointer;transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease;
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker
+    :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"])::before {
+    content:var(--tool-icon);position:absolute;top:10px;left:13px;
+    display:grid;place-items:center;width:29px;height:27px;
+    border:1px solid color-mix(in srgb,var(--tool-line) 75%,transparent);
+    border-radius:9px;background:light-dark(#FFFFFFB8,#FFFFFF12);
+    color:var(--tool-accent);font-family:Georgia,serif;font-size:1.5rem;font-weight:750;line-height:1;
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker
+    :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"])::after {
+    content:"선택하기 →";position:absolute;bottom:10px;right:13px;
+    color:var(--tool-accent);font-size:.72rem;font-weight:750;line-height:1.4;
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker
+    :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]) p {
+    color:var(--tool-ink);font-size:.93rem;font-weight:750;line-height:1.4;
+    white-space:normal;word-break:keep-all;overflow-wrap:anywhere;
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker
+    :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]) p::after {
+    content:var(--tool-description);display:block;margin-top:7px;
+    color:light-dark(#647082,#C2CCDC);font-size:.73rem;font-weight:450;line-height:1.45;
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker
+    :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):is(:has(input:checked),[data-selected="true"]) {
+    border:2px solid var(--tool-accent);padding:45.5px 12.5px 32.5px;
+    background:color-mix(in srgb,var(--tool-bg),var(--tool-accent) 7%);
+    box-shadow:inset 0 -4px 0 var(--tool-accent),0 3px 0 var(--tool-line);
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker
+    :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):is(:has(input:checked),[data-selected="true"])::after {
+    content:"✓ 선택한 메뉴";font-weight:850;
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker
+    :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):hover {
+    border-color:var(--tool-accent);transform:translateY(-2px);
+    box-shadow:0 5px 12px color-mix(in srgb,var(--tool-accent) 16%,transparent);
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker
+    :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):is(:has(input:checked),[data-selected="true"]):hover {
+    box-shadow:inset 0 -4px 0 var(--tool-accent),0 5px 12px color-mix(in srgb,var(--tool-accent) 16%,transparent);
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker
+    :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):has(input:focus-visible) {
+    outline:3px solid var(--tool-accent);outline-offset:3px;
+}
+.st-key-pastel_tools .st-key-tool_selected_content {
+    padding:20px 22px 22px;border:1.5px solid var(--tool-line);border-radius:20px;
+    background:linear-gradient(130deg,var(--tool-bg),light-dark(#FFFFFFE0,#FFFFFF05));
+    box-shadow:0 3px 0 color-mix(in srgb,var(--tool-line) 35%,transparent);
+}
+.st-key-pastel_tools .st-key-tool_selected_content h4 {
+    color:var(--tool-ink);padding-top:2px;font-size:1.25rem;font-weight:800;
+}
+.tool-content-eyebrow {display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.tool-content-eyebrow span:first-child {
+    display:inline-flex;align-items:center;gap:7px;color:var(--tool-accent);
+    font-size:.76rem;font-weight:750;letter-spacing:.01em;
+}
+.tool-content-eyebrow .tool-content-selected {
+    padding:4px 9px;border:1px solid var(--tool-line);border-radius:20px;
+    background:light-dark(#FFFFFFB8,#FFFFFF0D);color:var(--tool-accent);font-size:.68rem;font-weight:750;
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_selected_content .st-key-tool_links_menu {
+    padding-top:5px;
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a {
+    position:relative;justify-content:flex-start;min-height:105px;padding:35px 16px 29px;
+    border:1.5px solid var(--tool-line);border-radius:15px;
+    background:light-dark(#FFFFFFDF,#FFFFFF08);color:var(--tool-ink);
+    box-shadow:0 3px 0 color-mix(in srgb,var(--tool-line) 45%,transparent);
+    text-align:left;text-decoration:none;transition:transform .15s ease,box-shadow .15s ease;
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a::before {
+    content:"수업 도구";position:absolute;top:10px;left:16px;
+    color:var(--tool-accent);font-size:.66rem;font-weight:650;letter-spacing:.04em;
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a::after {
+    content:"도구 열기 ↗";position:absolute;bottom:9px;right:14px;
+    color:var(--tool-accent);font-size:.7rem;font-weight:750;
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a p {
+    color:var(--tool-ink);font-size:1rem;font-weight:800;line-height:1.4;word-break:keep-all;
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a:hover {
+    border-color:var(--tool-accent);background:var(--tool-bg);transform:translateY(-2px);
+    box-shadow:0 5px 12px color-mix(in srgb,var(--tool-accent) 16%,transparent);
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a:focus-visible {
+    outline:3px solid var(--tool-accent);outline-offset:3px;
+}
+.tool-gallery-meta {display:flex;align-items:center;gap:7px;margin:2px 0 5px;color:var(--tool-accent);font-size:.76rem;font-weight:650;}
+.tool-gallery-meta span {padding:2px 8px;border:1px solid var(--tool-line);border-radius:20px;background:light-dark(#FFFFFFB8,#FFFFFF10);font-size:.7rem;}
+.st-key-pastel_tools .st-key-tool_preparing {
+    padding:17px 18px;border:1.5px dashed light-dark(#D7C081,#8F7A43);border-radius:14px;
+    background:light-dark(#FFF8DD,#37311E);
+}
+.st-key-pastel_tools .st-key-tool_preparing strong {color:light-dark(#82692D,#EFDB9C);font-size:.95rem;}
+.st-key-pastel_tools .st-key-tool_preparing p {margin:5px 0 0;color:light-dark(#7D7258,#CFC5A7);font-size:.8rem;line-height:1.55;}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_selected_content .st-key-tool_inline_calculator [data-testid="stExpander"] details {
+    border:1.5px solid var(--tool-line);border-radius:14px;background:light-dark(#FFFFFFC9,#FFFFFF06);
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_selected_content .st-key-tool_inline_calculator [data-testid="stExpander"] summary {
+    background:var(--tool-bg);color:var(--tool-ink);
+}
+.st-key-pastel_tools .st-key-tool_link_editor {margin-top:2px;}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_link_editor [data-testid="stExpander"] details {
+    border:1.5px solid light-dark(#CCBAE4,#715A89);border-radius:15px;background:light-dark(#FAF7FE,#2A2436);
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_link_editor [data-testid="stExpander"] summary {
+    background:light-dark(#EEE6F9,#342943);color:light-dark(#64467F,#E5D1F6);
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_link_editor textarea {
+    border:1.5px solid light-dark(#CDBBE6,#715A89);border-radius:12px;background:light-dark(#FFFFFF,#231F2C);
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_link_editor button {
+    border:1.5px solid light-dark(#A88BCB,#9F80BD);border-radius:11px;
+    background:light-dark(#E8DDF5,#473454);color:light-dark(#5B3C7B,#EFDEFE);font-weight:750;
+}
+@media(max-width:1050px) {
+    [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker [role="radiogroup"] {grid-template-columns:repeat(3,minmax(0,1fr));}
+}
+@media(max-width:650px) {
+    [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker [role="radiogroup"] {grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;}
+    [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker [role="radiogroup"] > :last-child {grid-column:1/-1;}
+    [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]) {min-height:151px;}
+    .st-key-pastel_tools .st-key-tool_selected_content {padding:17px 13px;border-radius:17px;}
+}
+@media(prefers-reduced-motion:reduce) {
+    [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]),
+    [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a {transition:none;transform:none;}
+}
+</style>
+"""
+
 APP_CARD_COLORS = (
     ("#EAF6EF", "#BBDDCB", "#36735B", "#192F29"),
     ("#F1EDFC", "#D7CCEE", "#7960A8", "#2B2540"),
@@ -193,6 +355,33 @@ def apps_panel(links):
 
 
 def page(user):
+    # Page-local injection also styles direct entrypoints and embedded render paths.
+    st.markdown(TOOLS_PAGE_CSS + _tool_color_rules(), unsafe_allow_html=True)
+    with st.container(key="pastel_tools"):
+        _page(user)
+
+
+def _tool_color_rules():
+    rules = []
+    for index, ((key, _, _), (icon, description, _)) in enumerate(zip(TOOLS, TOOL_PRESENTATION), start=1):
+        bg, line, accent, dark = APP_CARD_COLORS[index - 1]
+        variables = (
+            f'--tool-bg:light-dark({bg},{dark});--tool-line:light-dark({line},{accent});'
+            f'--tool-accent:light-dark({accent},{line});--tool-ink:light-dark(#28344B,#F1F3FA);'
+            f'--tool-icon:"{icon}";--tool-description:"{description}";'
+        )
+        rules.append(
+            '[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker '
+            f'[role="radiogroup"] > :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):nth-child({index}),'
+            '[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker '
+            f'[role="radiogroup"] > div:nth-child({index}) > label[data-testid="stRadioOption"],'
+            f'.st-key-pastel_tools .st-key-tool_selected_content:has(.st-key-tool_content_{key})'
+            '{' + variables + '}'
+        )
+    return '<style>' + ''.join(rules) + '</style>'
+
+
+def _page(user):
     is_t = user["role"] == "teacher"
     ui.page_title("수업도구", "메뉴를 선택하면 해당 도구의 내용이 보여요.")
 
@@ -200,41 +389,64 @@ def page(user):
     if st.session_state.get(ACTIVE_TOOL) not in tools:
         st.session_state[ACTIVE_TOOL] = TOOLS[0][0]
     # 공유 수업 링크도 같은 선택값을 사용하므로 수행평가가 바로 열립니다.
-    key = st.radio(
-        "수업도구 메뉴", list(tools), format_func=lambda tool: tools[tool][0],
-        key=ACTIVE_TOOL, horizontal=True, label_visibility="collapsed",
-        on_change=clear_link, args=(st.session_state, st.query_params),
-    )
+    with st.container(key="tool_menu_picker"):
+        key = st.radio(
+            "수업도구 메뉴", list(tools), format_func=lambda tool: tools[tool][0],
+            key=ACTIVE_TOOL, horizontal=True, label_visibility="collapsed",
+            on_change=clear_link, args=(st.session_state, st.query_params),
+        )
     title, desc = tools[key]
-    st.markdown(f"#### {title}")
-    if desc:
-        st.caption(desc)
+    icon, _, category = TOOL_PRESENTATION[list(tools).index(key)]
+    with st.container(key="tool_selected_content", gap="small"):
+        with st.container(key=f"tool_content_{key}", gap="small"):
+            st.markdown(
+                '<div class="tool-content-eyebrow">'
+                f'<span>{icon} &nbsp; {category}</span>'
+                '<span class="tool-content-selected">✓ 선택한 도구</span></div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(f"#### {title}")
+            if desc:
+                st.caption(desc)
 
-    if key == "snorkl":
-        from views import snorkl
-        snorkl.page(user)
-        return
+            if key == "snorkl":
+                from views import snorkl
+                snorkl.page(user)
+                return
 
-    raw = db.get_setting(key)
-    if key == "tool_apps" and not raw.strip():
-        raw = DEFAULT_SETTINGS["tool_apps"]
-    links = ui.parse_links(raw)
-    if not links:
-        st.caption("선생님이 링크를 준비 중이에요.")
-    elif key == "tool_apps":
-        apps_panel(links)
-    else:
-        with st.container(key="tool_links_menu"):
-            cols = st.columns(min(len(links), 3))
-            for i, (name, url) in enumerate(links):
-                cols[i % len(cols)].link_button(name, url, width="stretch")
-    if key == "tool_desmos" and links:
-        with st.expander("이 화면에서 바로 계산기 열기"):
-            ui.embed(links[0][1], height=560)
+            raw = db.get_setting(key)
+            if key == "tool_apps" and not raw.strip():
+                raw = DEFAULT_SETTINGS["tool_apps"]
+            links = ui.parse_links(raw)
+            if not links:
+                with st.container(key="tool_preparing"):
+                    st.markdown(
+                        '<strong>✦ 수업을 준비하고 있어요</strong>',
+                        unsafe_allow_html=True,
+                    )
+                    st.caption("선생님이 링크를 준비 중이에요.")
+            elif key == "tool_apps":
+                if st.session_state.get(ACTIVE_APP) not in links:
+                    st.markdown(
+                        '<div class="tool-gallery-meta">마음에 드는 앱을 눌러 시작해요'
+                        f'<span>{len(links)}개 앱</span></div>',
+                        unsafe_allow_html=True,
+                    )
+                apps_panel(links)
+            else:
+                with st.container(key="tool_links_menu"):
+                    cols = st.columns(min(len(links), 3))
+                    for i, (name, url) in enumerate(links):
+                        cols[i % len(cols)].link_button(name, url, width="stretch")
+            if key == "tool_desmos" and links:
+                with st.container(key="tool_inline_calculator"):
+                    with st.expander("이 화면에서 바로 계산기 열기"):
+                        ui.embed(links[0][1], height=560)
     if is_t:
-        with st.expander(f"⚙️ {title} 링크 고치기"):
-            st.caption("한 줄에 하나씩 `이름|주소` 형식으로 적어 주세요.")
-            new = st.text_area("링크", value=db.get_setting(key), key=f"edit_{key}", height=100)
-            if st.button("저장", key=f"save_{key}"):
-                db.set_setting(key, new)
-                st.rerun()
+        with st.container(key="tool_link_editor"):
+            with st.expander(f"⚙️ {title} 링크 고치기"):
+                st.caption("한 줄에 하나씩 `이름|주소` 형식으로 적어 주세요.")
+                new = st.text_area("링크", value=db.get_setting(key), key=f"edit_{key}", height=100)
+                if st.button("저장", key=f"save_{key}"):
+                    db.set_setting(key, new)
+                    st.rerun()
