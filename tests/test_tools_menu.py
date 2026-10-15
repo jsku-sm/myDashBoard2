@@ -219,9 +219,9 @@ def test_empty_apps_setting_uses_default_links(menu_app):
     app = menu_app.make("student", active="tool_apps")
     assert headings(app) == ["#### 5. 앱 (by Good쌤)"]
     assert app_names(app) == [name for name, _ in parse_links(DEFAULT_SETTINGS["tool_apps"])]
-    assert [element.value for element in app.caption if element.value.isdigit()] == [
-        "01", "02", "03", "04", "05", "06"
-    ]
+    gallery = "".join(element.value for element in app.markdown)
+    for number in ("01", "02", "03", "04", "05", "06"):
+        assert f'<span class="app-card-number">{number}</span>' in gallery
     assert not table_links(app) and not buttons(app)
 
 
