@@ -109,8 +109,135 @@ h1,h2,h3,h4{font-family:'Jua','Pretendard',sans-serif !important; font-weight:40
 """
 
 
+NAVIGATION_CSS = """
+<style>
+/* Native menus keep their keyboard and screen-reader behavior. */
+[data-testid="stMain"] :is([role="tab"], label[data-baseweb="radio"]) {
+  --menu-bg:light-dark(#E8F5ED, #1C332A);
+  --menu-line:light-dark(#AFD0BD, #496F5D);
+  --menu-accent:light-dark(#397357, #A1D9B8);
+  --menu-ink:light-dark(#28583F, #D1EEDB);
+}
+[data-testid="stMain"] :is([role="tab"], label[data-baseweb="radio"]):nth-of-type(6n+2) {
+  --menu-bg:light-dark(#F1EBFB, #30283F);
+  --menu-line:light-dark(#CEBCE5, #6A547F);
+  --menu-accent:light-dark(#78539A, #CDAEEB);
+  --menu-ink:light-dark(#61427E, #E9D9F8);
+}
+[data-testid="stMain"] :is([role="tab"], label[data-baseweb="radio"]):nth-of-type(6n+3) {
+  --menu-bg:light-dark(#E9F2FE, #1F3045);
+  --menu-line:light-dark(#BAD0EC, #47688E);
+  --menu-accent:light-dark(#3C6FA5, #A1C9F3);
+  --menu-ink:light-dark(#315D8D, #D0E6FD);
+}
+[data-testid="stMain"] :is([role="tab"], label[data-baseweb="radio"]):nth-of-type(6n+4) {
+  --menu-bg:light-dark(#FFF0E4, #3A2B24);
+  --menu-line:light-dark(#E9C5A8, #866044);
+  --menu-accent:light-dark(#9C6036, #EDBB93);
+  --menu-ink:light-dark(#84502C, #F5DDC8);
+}
+[data-testid="stMain"] :is([role="tab"], label[data-baseweb="radio"]):nth-of-type(6n+5) {
+  --menu-bg:light-dark(#FCEBF0, #3B2631);
+  --menu-line:light-dark(#E6BDC9, #855568);
+  --menu-accent:light-dark(#A25270, #EEADC4);
+  --menu-ink:light-dark(#89435D, #F9D8E4);
+}
+[data-testid="stMain"] :is([role="tab"], label[data-baseweb="radio"]):nth-of-type(6n+6) {
+  --menu-bg:light-dark(#FBF5DD, #36311D);
+  --menu-line:light-dark(#DDCF9E, #7D7041);
+  --menu-accent:light-dark(#88702A, #E6D186);
+  --menu-ink:light-dark(#705C23, #F2E6B8);
+}
+
+/* Wrap instead of hiding menus behind the tab bar's horizontal scroller. */
+[data-testid="stMain"] [data-testid="stTabs"] [data-baseweb="tab-list"] {
+  display:flex; flex-wrap:wrap; gap:.5rem; height:auto; overflow:visible;
+  padding:.35rem .15rem .65rem; border-bottom:1px solid var(--line);
+}
+[data-testid="stMain"] [data-testid="stTabs"] [data-baseweb="tab-list"] > [data-baseweb="tab-highlight"],
+[data-testid="stMain"] [data-testid="stTabs"] [data-baseweb="tab-border"] { display:none; }
+[data-testid="stMain"] [data-testid="stTabs"] [role="tab"] {
+  flex:0 1 auto; min-height:46px; height:auto; max-width:100%; margin:0;
+  padding:.65rem 1rem; border:1.5px solid var(--menu-line); border-radius:13px;
+  background:var(--menu-bg); color:var(--menu-ink); font-weight:650;
+  box-shadow:0 2px 0 color-mix(in srgb, var(--menu-line) 45%, transparent);
+  cursor:pointer; transition:box-shadow .15s ease, border-color .15s ease, background .15s ease;
+}
+[data-testid="stMain"] [data-testid="stTabs"] [role="tab"] p {
+  color:inherit; font-size:.96rem; font-weight:inherit; white-space:normal;
+  word-break:keep-all; overflow-wrap:anywhere; line-height:1.4;
+}
+[data-testid="stMain"] [data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+  color:var(--menu-ink); font-weight:800; border-color:var(--menu-accent);
+  background:color-mix(in srgb, var(--menu-bg), var(--menu-accent) 9%);
+  box-shadow:inset 0 -3px 0 var(--menu-accent), 0 2px 0 var(--menu-line);
+}
+[data-testid="stMain"] [data-testid="stTabs"] [role="tab"]:hover {
+  border-color:var(--menu-accent); box-shadow:0 3px 9px color-mix(in srgb, var(--menu-accent) 18%, transparent);
+}
+[data-testid="stMain"] [data-testid="stTabs"] [role="tab"]:focus-visible {
+  outline:3px solid var(--menu-accent); outline-offset:3px;
+}
+
+/* Explicit navigation/filter keys exclude sidebar, quiz answers and form actions. */
+[data-testid="stMain"] :is(.st-key-_tools_active, .st-key-snt_view, .st-key-pt_cls,
+  [class*="st-key-qf_"], [class*="st-key-tb_cls_"]) [role="radiogroup"] {
+  display:flex; flex-wrap:wrap; gap:.5rem; padding:.3rem .15rem .5rem;
+}
+[data-testid="stMain"] :is(.st-key-_tools_active, .st-key-snt_view, .st-key-pt_cls,
+  [class*="st-key-qf_"], [class*="st-key-tb_cls_"]) label[data-baseweb="radio"] {
+  flex:0 1 auto; gap:.45rem; min-height:44px; max-width:100%; margin:0;
+  padding:.6rem .85rem; border:1.5px solid var(--menu-line); border-radius:13px;
+  background:var(--menu-bg); color:var(--menu-ink);
+  box-shadow:0 2px 0 color-mix(in srgb, var(--menu-line) 45%, transparent);
+  cursor:pointer; transition:box-shadow .15s ease, border-color .15s ease;
+}
+[data-testid="stMain"] :is(.st-key-_tools_active, .st-key-snt_view, .st-key-pt_cls,
+  [class*="st-key-qf_"], [class*="st-key-tb_cls_"]) label[data-baseweb="radio"] p {
+  color:inherit; font-size:.94rem; font-weight:650; line-height:1.4;
+  white-space:normal; word-break:keep-all; overflow-wrap:anywhere;
+}
+[data-testid="stMain"] :is(.st-key-_tools_active, .st-key-snt_view, .st-key-pt_cls,
+  [class*="st-key-qf_"], [class*="st-key-tb_cls_"]) label[data-baseweb="radio"]:has(input:checked) {
+  border-color:var(--menu-accent);
+  background:color-mix(in srgb, var(--menu-bg), var(--menu-accent) 9%);
+  box-shadow:inset 0 -3px 0 var(--menu-accent), 0 2px 0 var(--menu-line);
+}
+[data-testid="stMain"] :is(.st-key-_tools_active, .st-key-snt_view, .st-key-pt_cls,
+  [class*="st-key-qf_"], [class*="st-key-tb_cls_"]) label[data-baseweb="radio"]:has(input:checked) p { font-weight:800; }
+[data-testid="stMain"] :is(.st-key-_tools_active, .st-key-snt_view, .st-key-pt_cls,
+  [class*="st-key-qf_"], [class*="st-key-tb_cls_"]) label[data-baseweb="radio"]:hover {
+  border-color:var(--menu-accent); box-shadow:0 3px 9px color-mix(in srgb, var(--menu-accent) 18%, transparent);
+}
+[data-testid="stMain"] :is(.st-key-_tools_active, .st-key-snt_view, .st-key-pt_cls,
+  [class*="st-key-qf_"], [class*="st-key-tb_cls_"]) label[data-baseweb="radio"]:has(input:focus-visible) {
+  outline:3px solid var(--menu-accent); outline-offset:3px;
+}
+
+/* Subject/class dropdowns stay recognizably editable, with a soft mint surface. */
+[data-testid="stMain"] :is(.st-key-sn_subject, .st-key-snt_cls, .st-key-snt_subj,
+  .st-key-snt_stu, [class*="st-key-tb_unit_"]) [data-baseweb="select"] > div {
+  min-height:44px; border:1.5px solid light-dark(#AFD0BD, #496F5D); border-radius:12px;
+  background:light-dark(#EAF6EF, #1C332A); color:var(--ink);
+}
+[data-testid="stMain"] :is(.st-key-sn_subject, .st-key-snt_cls, .st-key-snt_subj,
+  .st-key-snt_stu, [class*="st-key-tb_unit_"]) [data-baseweb="select"]:focus-within > div {
+  border-color:light-dark(#397357, #A1D9B8); outline:2px solid light-dark(#AFD0BD, #496F5D);
+}
+@media (max-width:640px) {
+  [data-testid="stMain"] [data-testid="stTabs"] [data-baseweb="tab-list"] { gap:.4rem; }
+  [data-testid="stMain"] [data-testid="stTabs"] [role="tab"] { flex:1 1 auto; padding:.6rem .7rem; }
+}
+@media (prefers-reduced-motion:reduce) {
+  [data-testid="stMain"] [data-testid="stTabs"] [role="tab"],
+  [data-testid="stMain"] [data-testid="stRadio"] label[data-baseweb="radio"] { transition:none; }
+}
+</style>
+"""
+
+
 def inject_css():
-    st.markdown(CSS, unsafe_allow_html=True)
+    st.markdown(CSS + NAVIGATION_CSS, unsafe_allow_html=True)
 
 
 def page_title(title: str, sub: str = ""):

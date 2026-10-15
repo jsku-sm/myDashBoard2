@@ -21,9 +21,7 @@ CSS = """
   padding:.32rem .8rem; margin:.15rem .3rem .3rem 0; font-size:.88rem; }
 .pf-quote { margin:.9rem .15rem 0; padding:.85rem .9rem; border-top:1px solid var(--line); color:var(--muted);
   font-size:.94rem; font-style:italic; line-height:1.8; text-align:center; word-break:keep-all; }
-.st-key-pf_tabs .stTabs [data-baseweb="tab-list"] { gap:.65rem; margin-top:1rem; }
-.st-key-pf_tabs .stTabs [data-baseweb="tab"] { color:var(--muted); font-weight:600; }
-.st-key-pf_tabs .stTabs [aria-selected="true"] { color:light-dark(#75578d, #C9B2EA) !important; }
+.st-key-pf_tabs .stTabs [data-baseweb="tab-list"] { margin-top:.6rem; }
 .pf-card { box-sizing:border-box; background:var(--card); border:1px solid var(--line);
   border-top:4px solid #98b29b; border-radius:18px; padding:1.35rem 1.45rem; margin-bottom:1rem;
   box-shadow:0 5px 18px rgba(41,57,43,.035); }

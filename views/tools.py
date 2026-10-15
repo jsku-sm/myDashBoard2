@@ -224,9 +224,10 @@ def page(user):
     elif key == "tool_apps":
         apps_panel(links)
     else:
-        cols = st.columns(min(len(links), 3))
-        for i, (name, url) in enumerate(links):
-            cols[i % len(cols)].link_button(name, url, width="stretch")
+        with st.container(key="tool_links_menu"):
+            cols = st.columns(min(len(links), 3))
+            for i, (name, url) in enumerate(links):
+                cols[i % len(cols)].link_button(name, url, width="stretch")
     if key == "tool_desmos" and links:
         with st.expander("이 화면에서 바로 계산기 열기"):
             ui.embed(links[0][1], height=560)
