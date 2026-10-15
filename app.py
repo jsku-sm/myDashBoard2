@@ -159,16 +159,12 @@ def menu_for(role):
 def sidebar(user):
     is_t = user["role"] == "teacher"
     with st.sidebar:
-        st.markdown(f"## {APP_TITLE}")
-        if is_t:
-            st.markdown(f"**{user['name']}** · 교사")
-        else:
-            st.markdown(f"**{user['name']}** ({user['class']} · {user['id']})")
+        ui.sidebar_header(APP_TITLE, user)
         items = menu_for(user["role"])
         if st.session_state.get("nav") not in items:
             st.session_state.pop("nav", None)
         page = st.radio("메뉴", list(items), format_func=items.get, key="nav",
-                        label_visibility="collapsed", on_change=main_menu_changed,
+                        label_visibility="collapsed", width="stretch", on_change=main_menu_changed,
                         args=(st.session_state, st.query_params))
         st.divider()
         if is_t:
@@ -179,11 +175,12 @@ def sidebar(user):
                     rt.set_lock(locked, False)
                     st.rerun()
             st.caption(db.backend_status())
-        if st.button("로그아웃", width="stretch"):
-            if not is_t:
-                rt.leave(user["id"])
-            st.session_state.clear()
-            st.rerun()
+        with st.container(key="sidebar_logout"):
+            if st.button("로그아웃", width="stretch"):
+                if not is_t:
+                    rt.leave(user["id"])
+                st.session_state.clear()
+                st.rerun()
     return page
 
 

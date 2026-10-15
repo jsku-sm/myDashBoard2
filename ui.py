@@ -1,6 +1,7 @@
 """화면 꾸미기와 공용 위젯."""
 import html
 import random
+from urllib.parse import quote
 
 import streamlit as st
 
@@ -391,8 +392,146 @@ body:has(:is(.st-key-pastel_math1,.st-key-pastel_math2,.st-key-pastel_sudanote,.
 """
 
 
+_SIDEBAR_MATH = """<svg xmlns="http://www.w3.org/2000/svg" width="280" height="320" viewBox="0 0 280 320">
+<g fill="none" stroke="#8492B0" stroke-width="1.2" stroke-linecap="round" opacity=".38">
+<path d="M27 258H251m-7-5 7 5-7 5M57 287V117m-5 7 5-7 5 7"/>
+<path d="M37 267C72 267 75 249 100 239S150 206 172 171 213 109 247 114" stroke-width="1.8"/>
+<path d="M108 257v-23h64v-63" stroke-dasharray="3 5"/>
+<circle cx="172" cy="171" r="4" fill="#8492B0" stroke="none"/>
+<circle cx="189" cy="61" r="33"/><path d="m149 94 72-50M35 55l44 20-33 31Z"/>
+<path d="M42 87h13l-4 12" opacity=".65"/>
+</g><g fill="#7988A9" font-family="Georgia,serif" font-size="12" opacity=".55">
+<text x="250" y="280">x</text><text x="37" y="123">y</text>
+<text x="184" y="167">(x, y)</text><text x="178" y="66" font-size="19">π</text>
+<text x="83" y="307" font-size="13">y = f(x)</text></g></svg>"""
+
+SIDEBAR_CSS = """
+<style>
+[data-testid="stSidebar"] {
+  background-color:light-dark(#EDF0F9,#151D31);
+  background-image:url("__MATH_PATTERN__"),
+    radial-gradient(ellipse at 0 0,light-dark(#E2F2ECBD,#243E343D),transparent 65%),
+    linear-gradient(light-dark(#D6DDEC66,#53658721) 1px,transparent 1px),
+    linear-gradient(90deg,light-dark(#D6DDEC66,#53658721) 1px,transparent 1px);
+  background-repeat:no-repeat,no-repeat,repeat,repeat;
+  background-position:center bottom 12px,center top,0 0,0 0;
+  background-size:260px 300px,100% 65%,24px 24px,24px 24px;
+  border-right:1.5px solid light-dark(#C8D2E6,#3A4964);
+  box-shadow:5px 0 24px light-dark(#6575940D,#03091624);
+}
+.sb-brand,.sb-user,.sb-section {
+  font-family:'Pretendard',-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+}
+.sb-brand {display:flex;align-items:center;gap:10px;padding:4px 0 13px;}
+.sb-brand-symbol {
+  display:grid;place-items:center;flex:0 0 43px;height:43px;border-radius:14px;
+  border:1px solid light-dark(#BCCFDD,#456175);background:light-dark(#FFFFFFCB,#223248);
+  box-shadow:0 3px 0 light-dark(#D1DCEB,#10192B);color:light-dark(#55758B,#B5D2E5);
+}
+.sb-brand-symbol svg {width:29px;height:29px;}
+.sb-brand small {display:block;font-size:.69rem;font-weight:750;color:light-dark(#76809A,#ADBCD2);margin-bottom:3px;}
+[data-testid="stSidebar"] .sb-brand h2 {font-size:1.22rem;margin:0;padding:0;line-height:1.35;word-break:keep-all;}
+.sb-user {
+  display:flex;align-items:center;gap:10px;padding:12px;border-radius:16px;
+  background:light-dark(#FFFFFFD9,#233047DB);border:1px solid light-dark(#D0D8E8,#40516D);
+  color:var(--ink);margin-bottom:3px;
+}
+.sb-avatar {
+  display:grid;place-items:center;flex:0 0 34px;height:34px;border-radius:11px;
+  background:light-dark(#E9E3F6,#3D3454);color:light-dark(#75578F,#DCC4F2);font-size:.95rem;font-weight:800;
+}
+.sb-user-detail {min-width:0;flex:1;}
+.sb-user-name {display:block;font-size:.9rem;font-weight:800;line-height:1.4;overflow-wrap:anywhere;}
+.sb-user-meta {display:block;margin-top:3px;font-size:.71rem;line-height:1.45;color:var(--muted);overflow-wrap:anywhere;}
+.sb-role {flex-shrink:0;padding:3px 6px;border:1px solid light-dark(#BCD8C9,#587566);border-radius:7px;
+  font-size:.64rem;font-weight:750;color:light-dark(#426E58,#BDE0CD);background:light-dark(#E9F5ED,#283F34);}
+.sb-section {display:flex;align-items:center;gap:7px;margin:9px 1px 3px;font-size:.74rem;font-weight:800;color:light-dark(#697890,#A9BCD8);}
+.sb-section::before {content:"";width:5px;height:13px;border-radius:4px;background:light-dark(#9EB7D3,#7090B6);}
+[data-testid="stSidebar"] .st-key-nav [role="radiogroup"] {display:flex;flex-direction:column;gap:7px;width:100%;}
+[data-testid="stSidebar"] .st-key-nav [role="radiogroup"] > div {display:flex;min-width:0;width:100%;}
+[data-testid="stSidebar"] .st-key-nav :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]) {
+  --sb-bg:light-dark(#E7F3ED,#203B31);--sb-line:light-dark(#B0CEBE,#527462);--sb-accent:light-dark(#3D7359,#ACDCC0);
+  display:flex;align-items:center;width:100%;min-height:43px;margin:0;padding:9px 11px;
+  border:1px solid light-dark(#D0D9E8,#3A4C67);border-left:3px solid var(--sb-line);border-radius:12px;
+  background:light-dark(#FFFFFFD6,#223047C9);color:var(--ink);cursor:pointer;
+  transition:background .15s ease,border-color .15s ease,box-shadow .15s ease;
+}
+[data-testid="stSidebar"] .st-key-nav :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]) p {
+  font-size:.88rem;line-height:1.45;font-weight:650;color:inherit;white-space:normal;word-break:keep-all;overflow-wrap:anywhere;
+}
+[data-testid="stSidebar"] .st-key-nav label[data-baseweb="radio"]:nth-child(6n+2),
+[data-testid="stSidebar"] .st-key-nav [role="radiogroup"] > div:nth-child(6n+2) > label {
+  --sb-bg:light-dark(#F0EAF9,#342C45);--sb-line:light-dark(#CCBAE2,#74618B);--sb-accent:light-dark(#765496,#D6B9EF);
+}
+[data-testid="stSidebar"] .st-key-nav label[data-baseweb="radio"]:nth-child(6n+3),
+[data-testid="stSidebar"] .st-key-nav [role="radiogroup"] > div:nth-child(6n+3) > label {
+  --sb-bg:light-dark(#E8F1FC,#24374C);--sb-line:light-dark(#B5CDE8,#587B9F);--sb-accent:light-dark(#3E6D9E,#B2D5F8);
+}
+[data-testid="stSidebar"] .st-key-nav label[data-baseweb="radio"]:nth-child(6n+4),
+[data-testid="stSidebar"] .st-key-nav [role="radiogroup"] > div:nth-child(6n+4) > label {
+  --sb-bg:light-dark(#FFF0E5,#3F3027);--sb-line:light-dark(#E6C2A4,#94704F);--sb-accent:light-dark(#98633B,#EFCAA5);
+}
+[data-testid="stSidebar"] .st-key-nav label[data-baseweb="radio"]:nth-child(6n+5),
+[data-testid="stSidebar"] .st-key-nav [role="radiogroup"] > div:nth-child(6n+5) > label {
+  --sb-bg:light-dark(#FAEAF0,#402C36);--sb-line:light-dark(#E3B8C8,#936477);--sb-accent:light-dark(#9B5471,#F0BCD0);
+}
+[data-testid="stSidebar"] .st-key-nav label[data-baseweb="radio"]:nth-child(6n+6),
+[data-testid="stSidebar"] .st-key-nav [role="radiogroup"] > div:nth-child(6n+6) > label {
+  --sb-bg:light-dark(#F8F2DA,#39331F);--sb-line:light-dark(#DCCB98,#8B7C49);--sb-accent:light-dark(#8B712A,#EBD794);
+}
+[data-testid="stSidebar"] .st-key-nav :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):hover {
+  background:var(--sb-bg);border-color:var(--sb-line);box-shadow:0 2px 7px light-dark(#68789313,#00000021);
+}
+[data-testid="stSidebar"] .st-key-nav :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):has(input:checked) {
+  background:var(--sb-bg);border-color:var(--sb-accent);border-left-width:4px;padding-left:10px;
+  box-shadow:inset 0 -2px 0 var(--sb-line),0 2px 0 light-dark(#D7DFEB,#101C2D);color:var(--sb-accent);
+}
+[data-testid="stSidebar"] .st-key-nav :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):has(input:checked) p {
+  font-weight:800;
+}
+[data-testid="stSidebar"] .st-key-nav :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):has(input:checked) p::after {
+  content:" ✓";font-size:.8rem;font-weight:800;
+}
+[data-testid="stSidebar"] .st-key-nav :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):has(input:focus-visible) {
+  outline:3px solid var(--sb-accent);outline-offset:2px;
+}
+[data-testid="stSidebar"] .st-key-sidebar_logout button {
+  width:100%;min-height:41px;border:1px solid light-dark(#DABBC9,#755769);border-radius:12px;
+  background:light-dark(#FFF7FADB,#352A3BD1);color:light-dark(#8C5D74,#E1BBD0);font-weight:700;
+}
+[data-testid="stSidebar"] .st-key-sidebar_logout button:hover {background:light-dark(#F8E8EF,#443046);}
+@media(prefers-reduced-motion:reduce) {
+  [data-testid="stSidebar"] .st-key-nav :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]) {transition:none;}
+}
+</style>
+""".replace("__MATH_PATTERN__", "data:image/svg+xml," + quote(_SIDEBAR_MATH, safe=""))
+
+
 def inject_css():
-    st.markdown(CSS + NAVIGATION_CSS + PAGE_CONTROLS_CSS, unsafe_allow_html=True)
+    st.markdown(CSS + NAVIGATION_CSS + PAGE_CONTROLS_CSS + SIDEBAR_CSS, unsafe_allow_html=True)
+
+
+def sidebar_header(title: str, user: dict):
+    name = str(user.get("name") or "")
+    role = "교사" if user.get("role") == "teacher" else "학생"
+    detail = "함께하는 수학 수업" if role == "교사" else " · ".join(
+        str(value) for value in (user.get("class"), user.get("id")) if value
+    )
+    st.markdown(
+        '<div class="sb-brand"><span class="sb-brand-symbol" aria-hidden="true">'
+        '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">'
+        '<path d="M5 25h23M8 28V4M6 20c8 0 9-12 20-12"/>'
+        '<circle cx="19" cy="11" r="2.3" fill="currentColor" stroke="none"/></svg></span>'
+        '<div><small>함께 생각하는 수학</small>'
+        f'<h2>{html.escape(title)}</h2></div></div>'
+        '<div class="sb-user">'
+        f'<span class="sb-avatar" aria-hidden="true">{html.escape(name[:1] or role[:1])}</span>'
+        f'<div class="sb-user-detail"><strong class="sb-user-name">{html.escape(name)}</strong>'
+        f'<span class="sb-user-meta">{html.escape(detail)}</span></div>'
+        f'<span class="sb-role">{role}</span></div>'
+        '<div class="sb-section">수업 메뉴</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def page_title(title: str, sub: str = ""):
