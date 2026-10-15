@@ -59,7 +59,8 @@ DEFAULT_SETTINGS = {
         "집합 개념 퀴즈|https://jsku-sm.github.io/math_setQuiz/\n"
         "좌표평면|https://js-math.streamlit.app/?embed=true\n"
         "집합의 연산 · 벤다이어그램|https://jsku-sm.github.io/math_quiz/\n"
-        "직선의 방정식 · 퀴즈|https://jsku-sm.github.io/line_mathQuiz/"
+        "직선의 방정식 · 퀴즈|https://jsku-sm.github.io/line_mathQuiz/\n"
+        "점과 도형의 이동|https://jsku-sm.github.io/Moving/"
     ),
     "feedback_messages": (
         "{name}님, 오늘 생각을 끝까지 정리해 낸 것 자체가 멋진 일이에요! 👏\n"
