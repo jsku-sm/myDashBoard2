@@ -284,13 +284,14 @@ def tab_questions(user, subject):
 
 
 def page(user, subject):
-    ui.page_title(subject, "평가계획 · 단원별 학습지 · 학급 게시판 · 질문 게시판")
-    t1, t2, t3, t4 = st.tabs(["📋 평가계획", "📚 학습지", "📤 학급 게시판", "❓ 질문 게시판"])
-    with t1:
-        tab_plan(user, subject)
-    with t2:
-        tab_sheets(user, subject)
-    with t3:
-        tab_board(user, subject)
-    with t4:
-        tab_questions(user, subject)
+    with st.container(key="pastel_math1" if subject == "공통수학1" else "pastel_math2"):
+        ui.page_title(subject, "평가계획 · 단원별 학습지 · 학급 게시판 · 질문 게시판")
+        t1, t2, t3, t4 = st.tabs(["📋 평가계획", "📚 학습지", "📤 학급 게시판", "❓ 질문 게시판"])
+        with t1:
+            tab_plan(user, subject)
+        with t2:
+            tab_sheets(user, subject)
+        with t3:
+            tab_board(user, subject)
+        with t4:
+            tab_questions(user, subject)

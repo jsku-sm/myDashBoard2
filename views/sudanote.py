@@ -127,11 +127,12 @@ def _teacher():
 
 
 def page(user):
-    ui.page_title("수다노트", "오늘 수업을 나의 언어로 정리하는 시간")
-    st.markdown(CSS, unsafe_allow_html=True)
-    with st.container(border=True):
-        st.markdown(SUDANOTE_GUIDE)
-    if user["role"] == "teacher":
-        _teacher()
-    else:
-        _student(user)
+    with st.container(key="pastel_sudanote"):
+        ui.page_title("수다노트", "오늘 수업을 나의 언어로 정리하는 시간")
+        st.markdown(CSS, unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown(SUDANOTE_GUIDE)
+        if user["role"] == "teacher":
+            _teacher()
+        else:
+            _student(user)
