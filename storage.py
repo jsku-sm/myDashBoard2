@@ -517,8 +517,31 @@ def delete(table: str, row_id: str):
 
 
 # 설정값
+def _app_links_setting():
+    from app_catalog import UPDATE_SETTING, updated_app_links
+    from config import DEFAULT_SETTINGS
+
+    backend = _ready_backend()
+    # Use the store's shared lock and current rows so simultaneous first visits
+    # cannot replace a teacher's newer list with a cached copy.
+    with backend.lock:
+        settings = {}
+        for row in backend.read("settings"):
+            settings.setdefault(row["id"], row["value"])
+        raw = settings.get("tool_apps", DEFAULT_SETTINGS["tool_apps"])
+        if settings.get(UPDATE_SETTING) != "1":
+            updated = updated_app_links(raw)
+            if updated != raw:
+                set_setting("tool_apps", updated)
+            set_setting(UPDATE_SETTING, "1")
+            raw = updated
+        return raw
+
+
 def get_setting(key: str) -> str:
     from config import DEFAULT_SETTINGS
+    if key == "tool_apps":
+        return _app_links_setting()
     for r in read("settings"):
         if r["id"] == key:
             return r["value"]

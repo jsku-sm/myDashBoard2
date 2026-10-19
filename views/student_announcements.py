@@ -14,8 +14,7 @@ def _current_student(user):
         return None
     db.invalidate("users")
     current = auth.get_user(user["id"])
-    if (not current or current.get("role") != "student" or not current.get("class") or
-            current.get("must_change") == "1"):
+    if (not current or current.get("role") != "student" or current.get("must_change") == "1"):
         return None
     return current
 
@@ -31,9 +30,13 @@ def _revision(item):
     return hashlib.sha256(json.dumps(values, ensure_ascii=False).encode()).hexdigest()
 
 
+def _displayed_key(user):
+    return "_student_announcement_displayed_" + user["id"]
+
+
 def pending_announcements(user):
     current = _current_student(user)
-    if current is None:
+    if current is None or not current.get("class"):
         return []
     read = {(row["announcement_id"], row["revision"]) for row in db.read("announcement_reads")
             if row["student_id"] == current["id"]}
@@ -44,7 +47,7 @@ def pending_announcements(user):
 def acknowledge_announcements(user, items):
     """Acknowledge only the revisions still visible to this current account."""
     current = _current_student(user)
-    if current is None:
+    if current is None or not current.get("class"):
         return
     visible = {item["id"]: item for item in _visible_announcements(current)}
     for item in items:
@@ -68,6 +71,7 @@ def _announcement_dialog(user, displayed):
             [(item["id"], _revision(item)) for item in pending] !=
             [(item["id"], _revision(item)) for item in displayed]):
         # A click on an older dialog must not acknowledge a newly edited post.
+        st.session_state[_displayed_key(user)] = pending
         st.rerun(scope="app")
         return
     st.caption("우리 반에 새로 올라온 공지예요. 내용을 읽고 확인해 주세요.")
@@ -79,17 +83,28 @@ def _announcement_dialog(user, displayed):
         st.write(item["content"])
     if st.button("확인했어요", key="acknowledge_announcements", type="primary", width="stretch"):
         acknowledge_announcements(user, displayed)
+        st.session_state.pop(_displayed_key(user), None)
         st.rerun(scope="app")
 
 
 def show_announcement_popup(user):
     pending = pending_announcements(user)
     if pending:
-        _announcement_dialog(user, pending)
+        key = _displayed_key(user)
+        # Retain what was shown even if a click triggers a full app rerun.
+        displayed = st.session_state.setdefault(key, pending)
+        _announcement_dialog(user, displayed)
+    elif isinstance(user, dict) and user.get("id"):
+        st.session_state.pop(_displayed_key(user), None)
 
 
 def poll_announcements(user):
     """Used by the global student poller, including outside the home page."""
+    current = _current_student(user)
+    if current is None or any(current.get(field) != user.get(field) for field in ("role", "class")):
+        # Reapply account/password and class lock checks even with no notices.
+        st.rerun(scope="app")
+        return
     pending = pending_announcements(user)
     signature = tuple((item["id"], _revision(item)) for item in pending)
     key = "_student_announcement_signature_" + user["id"]

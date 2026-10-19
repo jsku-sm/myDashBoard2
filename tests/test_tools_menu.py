@@ -277,12 +277,12 @@ def test_selected_app_survives_other_tool_menu_selection(menu_app):
     assert app.button(key="tool_apps_back").label == "← 앱 목록으로 돌아가기"
 
 
-@pytest.mark.parametrize("index", range(1, 7))
+@pytest.mark.parametrize("index", range(1, 11))
 def test_each_default_app_opens_its_exact_url_inside_dashboard(menu_app, index):
     menu_app.settings["tool_apps"] = ""
     links = parse_links(DEFAULT_SETTINGS["tool_apps"])
-    assert len(links) == 6
-    assert links[5] == ("점과 도형의 이동", "https://jsku-sm.github.io/Moving/")
+    assert len(links) == 10
+    assert links[6] == ("점과 도형의 평행이동", "https://jsku-sm.github.io/Moving/")
     app = menu_app.make("student", active="tool_apps")
     name, url = links[index - 1]
 

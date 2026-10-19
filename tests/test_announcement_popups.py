@@ -1,11 +1,13 @@
 """Announcement dialogs persist each student's acknowledgement of visible revisions."""
 import copy
+from dataclasses import replace
 from pathlib import Path
 import threading
 
 import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
+from streamlit.testing.v1.local_script_runner import LocalScriptRunner
 
 import storage as db
 from views import announcements
@@ -188,6 +190,37 @@ def test_polling_refreshes_only_when_an_existing_pending_signature_changes(popup
     assert reruns == [{"scope": "app"}] * 3
 
 
+def test_polling_a_student_with_no_assigned_class_does_not_repeat_app_reruns(popup_store, monkeypatch):
+    notice()
+    db.update("users", STUDENT["id"], {"class": ""})
+    user = dict(STUDENT, **{"class": ""})
+    reruns = []
+    monkeypatch.setattr(popups.st, "session_state", {})
+    monkeypatch.setattr(popups.st, "rerun", lambda **kwargs: reruns.append(kwargs))
+    popups.poll_announcements(user)
+    popups.poll_announcements(user)
+    assert not reruns
+    assert popups.pending_announcements(user) == []
+
+
+@pytest.mark.parametrize("change", ["role", "password", "class", "deleted"])
+def test_polling_rechecks_current_account_even_when_no_notices_are_pending(popup_store, monkeypatch, change):
+    reruns = []
+    monkeypatch.setattr(popups.st, "session_state", {})
+    monkeypatch.setattr(popups.st, "rerun", lambda **kwargs: reruns.append(kwargs))
+    popups.poll_announcements(STUDENT)
+    assert reruns == []
+    if change == "deleted":
+        db.delete("users", STUDENT["id"])
+    else:
+        changes = {"role": {"role": "teacher"}, "password": {"must_change": "1"},
+                   "class": {"class": "1-2"}}[change]
+        db.update("users", STUDENT["id"], changes)
+    assert popups.pending_announcements(STUDENT) == []
+    popups.poll_announcements(STUDENT)
+    assert reruns == [{"scope": "app"}]
+
+
 def test_popup_shows_all_full_notices_on_another_menu_and_does_not_repeat_after_confirmation(popup_store):
     long_body = "공지 본문의 첫 부분\n" + "자세한 안내를 확인하세요. " * 100 + "\n공지 본문의 마지막 부분"
     aid = notice(content=long_body)
@@ -215,12 +248,25 @@ def test_popup_shows_all_full_notices_on_another_menu_and_does_not_repeat_after_
     assert restarted.button(key="acknowledge_announcements").label == "확인했어요"
 
 
-def test_popup_confirmation_does_not_mark_a_revision_edited_after_dialog_open_as_read(popup_store):
+@pytest.mark.parametrize("scope", ["app", "fragment"])
+def test_popup_confirmation_does_not_mark_a_revision_edited_after_dialog_open_as_read(popup_store, monkeypatch, scope):
     aid = notice()
     app = popup_app()
     assert "교과서와 필기도구를 챙기세요." in displayed(app)
     notice(content="확인 버튼을 누르기 전에 교사가 수정한 공지", aid=aid)
-    app.button(key="acknowledge_announcements").click().run()
+    if scope == "fragment":
+        # AppTest normally reruns the full script on clicks. Supply the dialog's
+        # fragment id to reproduce the browser preserving its displayed snapshot.
+        fragment_ids = app._fragment_storage.ids_registered_after(0)
+        assert len(fragment_ids) == 1
+        request = LocalScriptRunner.request_rerun
+        def dialog_request(runner, data):
+            return request(runner, replace(data, fragment_id=next(iter(fragment_ids))))
+        with monkeypatch.context() as fragment_run:
+            fragment_run.setattr(LocalScriptRunner, "request_rerun", dialog_request)
+            app.button(key="acknowledge_announcements").click().run()
+    else:
+        app.button(key="acknowledge_announcements").click().run()
     assert not app.exception and not app.error
     assert db.read("announcement_reads") == []
     assert "확인 버튼을 누르기 전에 교사가 수정한 공지" in displayed(app)

@@ -49,6 +49,14 @@ EMOTIONS = [
 EMOTION_MAP = {e[0]: e for e in EMOTIONS}
 CARE_EMOTIONS = {"tired", "worried", "sad", "angry"}  # 교사 대시보드 '관심 필요' 표시
 
+APP_LINK_UPDATES = (
+    ("라텍스 수식변환기", "https://latexhangultool.streamlit.app/"),
+    ("점과 도형의 평행이동", "https://jsku-sm.github.io/Moving/"),
+    ("대칭을 이용한 최단거리 찾기 시뮬레이션", "https://jsku-sm.github.io/shortcut/"),
+    ("몬티홀 딜레마 탐구", "https://js-math900.my.canva.site/"),
+    ("별똥별 잡기 게임", "https://catchikjs.github.io/starcatchinggame/"),
+)
+
 DEFAULT_SETTINGS = {
     "tool_snorkl": "스노클 (Snorkl)|https://snorkl.app",
     "tool_desmos": "데스모스 그래핑 계산기|https://www.desmos.com/calculator\n데스모스 기하|https://www.desmos.com/geometry",
@@ -60,7 +68,7 @@ DEFAULT_SETTINGS = {
         "좌표평면|https://js-math.streamlit.app/?embed=true\n"
         "집합의 연산 · 벤다이어그램|https://jsku-sm.github.io/math_quiz/\n"
         "직선의 방정식 · 퀴즈|https://jsku-sm.github.io/line_mathQuiz/\n"
-        "점과 도형의 이동|https://jsku-sm.github.io/Moving/"
+        + "\n".join(f"{name}|{url}" for name, url in APP_LINK_UPDATES)
     ),
     "feedback_messages": (
         "{name}님, 오늘 생각을 끝까지 정리해 낸 것 자체가 멋진 일이에요! 👏\n"
