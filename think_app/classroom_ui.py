@@ -369,6 +369,8 @@ def student_preview(room, course, task, ai, identity=None, editor_key=None, comp
                                    help="PNG/JPG 이미지 또는 PDF를 올리세요. PDF는 10MB 이하, 1~200쪽, 암호가 없는 파일을 지원합니다. 학번과 이름을 입력한 파일은 업로드 즉시 저장됩니다.")
         upload_ids, uploads_saved = answer_uploads(room, task, student_id, name, class_id, preview, key, uploads,
                                                    restored_ids=draft.get("upload_ids", ()))
+        if upload_ids and uploads_saved:
+            st.warning("파일 저장 완료 · 아직 제출 전입니다. 아래 ‘답안 제출’을 눌러야 제출이 완료되고 자동채점할 수 있습니다.")
         text = st.text_area("나의 답안", max_chars=12000, key=key + "_text")
         audio = st.audio_input("목소리로 설명하기 · 2분 이내", sample_rate=16000, key=key + "_audio")
         raw_audio = audio.getvalue() if audio else draft.get("raw_audio")
@@ -426,7 +428,8 @@ def student_preview(room, course, task, ai, identity=None, editor_key=None, comp
                                 graph={"mode": "embed"} if embedded_graph else graph, quiz_answer=quiz_answer,
                                 upload_ids=upload_ids)
                 forget_draft(task, draft_identity, preview, len(previous), editor_key)
-                st.session_state[notice_key] = "체험 답안이 저장되었습니다." if preview else "선생님에게 답안을 제출했습니다. 제출한 작업과 녹음을 아래에서 확인할 수 있습니다."
+                st.session_state[notice_key] = ("체험 답안이 저장되었습니다." if preview else
+                    "제출 완료 · 교사의 학생 제출함에 접수되었습니다. 제출한 작업과 녹음은 아래에서 확인할 수 있습니다.")
             except AppError as error:
                 if st.session_state.get(notice_key):
                     st.session_state.preview_error = str(error)
@@ -535,6 +538,52 @@ def shared_student(store, course, settings):
     student_preview(room, course, mapping[aid], AI(settings), identity)
 
 
+@st.fragment(run_every="5s")
+def teacher_submission_watch(room, task, class_id=None):
+    """Refresh an open inbox once when a real student saves or submits work."""
+    state = room.store.read()
+    aid, course_id = task["id"], task["course_id"]
+
+    def in_scope(record):
+        return (record.get("activity_id") == aid and record.get("course_id") == course_id and
+                not record.get("preview") and (class_id is None or record.get("class_id") == class_id))
+
+    signature = (
+        tuple(sorted(record["id"] for record in state.get("course_uploads", {}).values()
+                     if record.get("saved") and in_scope(record))),
+        tuple(sorted(record["id"] for record in state.get("course_attempts", {}).values() if in_scope(record))),
+    )
+    key = "teacher_submission_watch_" + aid + "_" + (class_id or "all")
+    previous = st.session_state.get(key)
+    st.session_state[key] = signature
+    st.empty()
+    if previous is not None and previous != signature:
+        st.rerun(scope="app")
+
+
+def pending_uploads_view(room, task, class_id=None):
+    """Keep already saved files visible while awaiting the student's submission."""
+    files = UploadedFiles(room.store)
+    pending = files.pending_for_activity(task["id"], class_id)
+    if not pending:
+        return
+    st.subheader(f"업로드된 답안 파일 · 제출 대기 {len(pending)}개")
+    st.info("학생이 파일을 업로드했지만 아직 답안 제출을 완료하지 않았습니다. 학생 화면에서 ‘답안 제출’을 누르면 아래 제출 답안에 접수되고 자동채점할 수 있습니다.")
+    for saved in pending:
+        with st.container(border=True):
+            st.write(saved["name"] + " · " + saved["student_id"] + " · " + saved["class_id"])
+            st.write(saved["filename"])
+            st.caption("업로드됨 · 제출 완료 대기")
+            st.caption(saved["created"][:16].replace("T", " "))
+            try:
+                original = files.read(saved, task["id"], saved["student_id"], saved["class_id"], original=True)
+                st.download_button("업로드 파일 내려받기 · " + saved["filename"], original,
+                                   file_name=saved["filename"], mime=saved["original_mime"],
+                                   key="pending_upload_original_" + saved["id"])
+            except AppError as error:
+                st.error(saved["filename"] + " · " + str(error))
+
+
 def response_gallery(room, course, task, ai):
     teacher_distribution_controls(room, course, task)
     toolbar, export = st.columns([4, 1])
@@ -561,6 +610,9 @@ def response_gallery(room, course, task, ai):
     selection = st.radio("시도 선택", ["최고 시도", "첫 시도", "최근 시도", "전체"], horizontal=True,
                          key="attempt_filter_" + task["id"])
     classes = st.selectbox("학급", ["전체"] + course["classes"], key="class_filter_" + task["id"])
+    class_id = None if classes == "전체" else classes
+    teacher_submission_watch(room, task, class_id)
+    pending_uploads_view(room, task, class_id)
     groups = {}
     for attempt in attempts:
         if classes == "전체" or attempt["class_id"] == classes:
@@ -588,7 +640,7 @@ def response_gallery(room, course, task, ai):
         st.caption(f"제출 학생 {len(groups)}명 · 제출 시도 {sum(len(v) for v in groups.values())}회")
     st.caption("점수 구분: 탁월 90점 이상, 성취 75점 이상, 발전 중 50점 이상, 성장 중 50점 미만. 불확실한 답안은 교사 확인 필요로 표시됩니다.")
     if not visible:
-        st.info("아직 제출된 학생 답안이 없습니다. 학생 모드에서 활동을 체험할 수 있습니다.")
+        st.info("아직 제출 완료된 학생 답안이 없습니다. 업로드한 파일은 학생이 ‘답안 제출’을 누르면 자동채점할 수 있습니다.")
     for label in GRADES + ["교사 확인 필요", "평가 대기"]:
         values = [a for a in visible if grade(a) == label]
         if not values:
@@ -600,8 +652,11 @@ def response_gallery(room, course, task, ai):
                 with st.container(border=True):
                     if attempt["images"]:
                         st.image(room.store.get_blob(attempt["images"][0]), use_container_width=True)
-                    else:
+                    elif attempt["text"]:
                         st.write(attempt["text"][:220])
+                    elif attempt.get("documents"):
+                        for document in attempt["documents"]:
+                            st.write("PDF 답안 · " + document["filename"])
                     if st.button(f"{attempt['name']} · {attempt['number']}번째 시도", key="open_answer_" + attempt["id"]):
                         st.session_state["answer_" + task["id"]] = (attempt["class_id"], attempt["student_id"])
                     st.caption(attempt["class_id"] + " · " + attempt["created"][:16].replace("T", " "))

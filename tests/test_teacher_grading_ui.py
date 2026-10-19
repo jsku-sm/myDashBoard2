@@ -14,7 +14,6 @@ from think_app.config import Settings
 from think_app.courses import CourseManager, now
 from think_app.grading import public_score
 from think_app.storage import MemoryStore
-from think_app.teacher_grading_ui import REVIEW, PUBLISH
 
 
 USER = dict(id="10101", name="시험학생", role="student", **{"class": "1-1"})
@@ -99,7 +98,8 @@ def test_teacher_reviews_corrects_and_releases_score_student_can_check_after_end
     student = make_student()
     request = submit(student, room, aid)
     teacher = make_teacher()
-    assert teacher.radio(key="grading_publication_" + aid).value == REVIEW
+    assert not any(item.label == "채점 결과 배포" for item in teacher.radio)
+    assert "자동채점 → 결과 분석 → 교사 확인 → 학생 피드백 배포" in content(teacher)
     assert not teacher.button(key="grade_pending_" + aid).disabled
     teacher.button(key="grade_pending_" + aid).click().run()
     assert not teacher.exception and not teacher.error
@@ -129,29 +129,44 @@ def test_teacher_reviews_corrects_and_releases_score_student_can_check_after_end
     assert "PRIVATE" not in content(student)
 
 
-def test_teacher_can_publish_automatic_score_immediately(grading_ui):
+@pytest.mark.parametrize("action", ["batch", "individual"])
+def test_automatic_grading_requires_review_even_with_stale_immediate_release_state(grading_ui, action):
     room, aid, calls, _, make_student, make_teacher = grading_ui
     student = make_student()
-    submit(student, room, aid)
+    request = submit(student, room, aid)
     teacher = make_teacher()
-    teacher.radio(key="grading_publication_" + aid).set_value(PUBLISH).run()
-    teacher.button(key="grade_pending_" + aid).click().run()
+    teacher.session_state["grading_publication_" + aid] = "학생에게 바로 배포"
+    teacher.run()
+    if action == "individual":
+        teacher.button(key="open_answer_" + request).click().run()
+        teacher.button(key="grade_attempt_" + request).click().run()
+    else:
+        teacher.button(key="grade_pending_" + aid).click().run()
     assert not teacher.exception and not teacher.error
-    assert len(calls) == 1 and public_score(room.attempts(aid)[0]) == 88
+    value = room.attempts(aid)[0]
+    assert len(calls) == 1 and value["assessment_result"]["score"] == 88
+    assert value["assessment_result"]["status"] == "review" and public_score(value) is None
     student.run()
     open_scores(student)
+    assert not student.metric
+    assert "각 단계의 식을 확인했어요." not in content(student)
+    teacher.button(key="publish_scores_" + aid).click().run()
+    assert not teacher.exception and not teacher.error
+    assert public_score(room.attempts(aid)[0]) == 88
+    student.run()
     assert any("88" in item.value for item in student.metric)
     assert "각 단계의 식을 확인했어요." in content(student)
     assert "PRIVATE" not in content(student)
 
 
-def test_uncertain_automatic_score_waits_for_review_even_when_immediate_release_is_selected(grading_ui):
+def test_uncertain_automatic_score_requires_teacher_correction_before_release(grading_ui):
     room, aid, _, behavior, make_student, make_teacher = grading_ui
     student = make_student()
     submit(student, room, aid)
     behavior["uncertain"] = True
     teacher = make_teacher()
-    teacher.radio(key="grading_publication_" + aid).set_value(PUBLISH).run()
+    teacher.session_state["grading_publication_" + aid] = "학생에게 바로 배포"
+    teacher.run()
     teacher.button(key="grade_pending_" + aid).click().run()
     assert not teacher.exception and not teacher.error
     assert public_score(room.attempts(aid)[0]) is None
@@ -216,8 +231,10 @@ def test_failed_individual_regrade_removes_the_old_published_score_from_both_vie
     student = make_student()
     request = submit(student, room, aid)
     teacher = make_teacher()
-    teacher.radio(key="grading_publication_" + aid).set_value(PUBLISH).run()
+    teacher.session_state["grading_publication_" + aid] = "학생에게 바로 배포"
+    teacher.run()
     teacher.button(key="grade_pending_" + aid).click().run()
+    teacher.button(key="publish_scores_" + aid).click().run()
     assert public_score(room.attempts(aid)[0]) == 88
     teacher.button(key="open_answer_" + request).click().run()
     behavior["error"] = True

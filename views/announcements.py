@@ -94,7 +94,7 @@ def tab_announcements(user):
             st.session_state.pop("announcement_new_" + suffix, None)
     if "_announcement_notice" in st.session_state:
         st.success(st.session_state.pop("_announcement_notice"))
-    st.caption("선택한 학급의 학생 홈에 공지를 표시합니다.")
+    st.caption("공개한 공지는 선택한 학급의 학생 화면에 팝업으로 안내하고, 학생 홈에도 표시합니다.")
     with st.form("announcement_create_form"):
         title = st.text_input("공지 제목", max_chars=MAX_TITLE_CHARS, key="announcement_new_title")
         content = st.text_area("공지 내용", height=150, max_chars=MAX_CONTENT_CHARS,
@@ -109,7 +109,7 @@ def tab_announcements(user):
         except (PermissionError, ValueError) as error:
             st.error(str(error))
         else:
-            st.session_state["_announcement_notice"] = "공지를 저장했어요. 선택한 학급의 학생 홈에서 확인할 수 있어요." if active else "공지를 비공개로 저장했어요."
+            st.session_state["_announcement_notice"] = "공지를 저장했어요. 선택한 학급의 학생 화면에 팝업으로 안내합니다." if active else "공지를 비공개로 저장했어요."
             st.session_state["_announcement_clear_new"] = True
             st.rerun()
     st.markdown("#### 공지 목록")

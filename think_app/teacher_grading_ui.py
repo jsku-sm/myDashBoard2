@@ -11,10 +11,6 @@ from .grading import assessment_score_published
 from .storage import AppError
 
 
-REVIEW = "교사가 검토 후 배포"
-PUBLISH = "학생에게 바로 배포"
-
-
 def grading_ai(ai, api_key=""):
     """Teacher grading uses the existing connection independently of student AI."""
     if ai is not None and ai.available:
@@ -53,9 +49,8 @@ def grading_controls(room, task, attempts, ai):
     with st.container(border=True):
         st.markdown("#### 자동채점")
         st.caption("모범답안과 평가 기준을 바탕으로 제출한 글·이미지·PDF를 100점 만점으로 채점합니다.")
-        mode = st.radio("채점 결과 배포", [REVIEW, PUBLISH], horizontal=True,
-                        key="grading_publication_" + aid)
-        st.caption("판독이나 판단이 불확실한 답안은 바로 배포를 선택해도 교사 검토 대기로 남습니다.")
+        st.caption("자동채점 → 결과 분석 → 교사 확인 → 학생 피드백 배포 순서로 진행합니다.")
+        st.caption("자동채점 결과는 교사 검토 대기로 저장됩니다. 답안별 점수와 피드백을 확인한 뒤 학생에게 배포하세요.")
         connection = _connection(ai, aid)
         pending = [attempt for attempt in attempts if not attempt.get("preview") and
                    (not attempt.get("assessment_result") or attempt.get("grading_error"))]
@@ -65,7 +60,7 @@ def grading_controls(room, task, attempts, ai):
             progress = st.progress(0.0, text="제출 답안을 채점하고 있습니다…")
             for index, attempt in enumerate(pending):
                 try:
-                    room.grade_attempt(attempt["id"], connection, publish=mode == PUBLISH)
+                    room.grade_attempt(attempt["id"], connection, publish=False)
                     completed += 1
                     current = room.store.read().get("course_attempts", {}).get(attempt["id"], {})
                     published += int(assessment_score_published(current))
@@ -106,17 +101,16 @@ def attempt_grading_controls(room, attempt, ai):
     if error := st.session_state.pop("grading_attempt_error_" + attempt_id, None):
         st.error(error)
     connection = grading_ai(ai, st.session_state.get("grading_api_key_" + aid, ""))
-    mode = st.session_state.get("grading_publication_" + aid, REVIEW)
     if st.button("자동채점 다시 실행" if attempt.get("assessment_result") else "이 답안 자동채점",
                  disabled=connection is None, key="grade_attempt_" + attempt_id, type="primary"):
         try:
             with st.spinner("모범답안과 평가 기준으로 채점하고 있습니다…"):
-                room.grade_attempt(attempt_id, connection, publish=mode == PUBLISH)
+                room.grade_attempt(attempt_id, connection, publish=False)
         except AppError as error:
             st.session_state["grading_attempt_error_" + attempt_id] = str(error)
             st.rerun()
         else:
-            st.session_state["grading_notice_" + aid] = "답안을 채점했습니다."
+            st.session_state["grading_notice_" + aid] = "답안을 채점했습니다. 점수와 분석을 확인한 뒤 학생에게 배포하세요."
             st.rerun()
     result = attempt.get("assessment_result") or {}
     feedback = result.get("feedback") or {}

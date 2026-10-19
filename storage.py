@@ -30,6 +30,7 @@ SCHEMAS: dict[str, list[str]] = {
                   "file_id", "file_name", "file_url", "mime"],
     "announcements": ["id", "created_at", "updated_at", "title", "content", "classes",
                       "author_id", "author_name", "active"],
+    "announcement_reads": ["id", "student_id", "announcement_id", "revision", "read_at"],
     "submissions": ["id", "created_at", "subject", "class", "student_id", "name", "unit", "title",
                     "content", "file_id", "file_name", "file_url", "mime", "feedback", "teacher_comment",
                     "teacher_comment_at"],

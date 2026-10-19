@@ -84,7 +84,7 @@ def home_ui(tmp_path, monkeypatch):
             "else:\n"
             "    st.write('선택한 메뉴: '+st.session_state['nav'])\n")
         result.session_state["user"] = dict(USER)
-        return result.run()
+        return result.run(timeout=10)
     try:
         yield backend, room, cid, aid, own_notice, clock, app
     finally:
@@ -102,7 +102,7 @@ def test_home_shows_all_four_update_types_before_recent_feedback_and_keeps_exist
     app = make()
     assert not app.exception and not app.error
     text = displayed(app)
-    for value in ("배포 문서", "선생님 피드백", "수행평가 배포 현황", "공지글", "교사가 배포한 문서",
+    for value in ("배포 문서", "선생님 피드백", "수행평가 배포 현황", "공지글",
                   "게시판의 설명을 잘 썼어요.", "질문의 식을 먼저 정리해 보세요.", "수행평가의 풀이 근거가 좋아요.",
                   "답안의 식을 바르게 정리했어요.", "각 단계의 이유도 설명해 보세요.",
                   "우리 반 준비물 공지", "설명하는 풀이", "기존 최근 피드백"):
@@ -112,7 +112,43 @@ def test_home_shows_all_four_update_types_before_recent_feedback_and_keeps_exist
     assert "PRIVATE" not in text
     assert "#### 오늘의 기분" in text and "#### 나의 상점·벌점" in text
     assert any(item.value == "3점" for item in app.metric)
-    assert any(item.label == "📥 활동지.pdf" for item in app.get("download_button"))
+    assert any(item.label == "활동지.pdf" for item in app.get("download_button"))
+    assert "교사가 배포한 문서" not in text and "수업 전에 읽어 보세요." not in text
+
+
+@pytest.mark.parametrize("is_local", [True, False])
+def test_documents_show_only_five_latest_filenames_as_direct_downloads(home_ui, monkeypatch, is_local):
+    backend, _, _, _, _, clock, make = home_ui
+    monkeypatch.setattr(backend, "is_local", is_local)
+    files = {}
+    for index in (3, 7, 1, 5, 2, 6, 4):
+        filename = f"학습지_{index}.pdf"
+        raw = f"worksheet {index}".encode()
+        fid, _ = backend.save_file(raw, filename, "application/pdf", True)
+        files[filename] = raw
+        db.append("materials", dict(id=f"document-{index}", subject="공통수학2", category="학습지",
+                                    title=f"단원 제목 {index}", description="표시하지 않을 설명", file_id=fid,
+                                    file_name=filename, mime="application/pdf",
+                                    uploaded_at=(clock["instant"] + timedelta(minutes=index)).isoformat()))
+    downloads = []
+    original_download = updates.st.download_button
+    def download(label, **kwargs):
+        downloads.append((label, kwargs["data"], kwargs["file_name"], kwargs["mime"]))
+        return original_download(label, **kwargs)
+    monkeypatch.setattr(updates.st, "download_button", download)
+
+    app = make()
+
+    assert not app.exception and not app.error
+    expected = [f"학습지_{index}.pdf" for index in (7, 6, 5, 4, 3)]
+    buttons = app.get("download_button")
+    assert [item.label for item in buttons] == expected
+    assert all(not item.disabled and item.proto.url for item in buttons)
+    assert downloads == [(name, files[name], name, "application/pdf") for name in expected]
+    assert not app.columns[0].expander
+    text = displayed(app)
+    assert "단원 제목" not in text and "표시하지 않을 설명" not in text
+    assert not any("열기" in item.label and "학습지" in item.label for item in app.button)
 
 
 def test_teacher_new_notice_and_edited_feedback_appear_on_the_student_home(home_ui):
@@ -176,7 +212,8 @@ def test_assessment_connection_error_does_not_hide_documents_feedback_or_notices
     assert not app.exception and not app.error
     text = displayed(app)
     assert "수행평가 소식을 불러오지 못했어요." in text
-    assert "교사가 배포한 문서" in text and "우리 반 준비물 공지" in text
+    assert any(item.label == "활동지.pdf" for item in app.get("download_button"))
+    assert "우리 반 준비물 공지" in text
     assert "게시판의 설명을 잘 썼어요." in text and "PRIVATE" not in text
 
 

@@ -14,6 +14,7 @@ import ui
 from config import APP_TITLE, POLL_SEC
 from snorkl_navigation import main_menu_changed, sync_shared_link
 from views import account, dashboard, emotion, home, intro, math_class, sudanote, teacher, tools
+from views.student_announcements import poll_announcements, show_announcement_popup
 
 st.set_page_config(page_title=APP_TITLE, page_icon="📐", layout="wide")
 ui.inject_css()
@@ -100,6 +101,7 @@ def student_poller():
     if rt.has_pending(user["id"]):
         st.session_state.setdefault("_popups", []).extend(rt.pop_all(user["id"]))
         st.rerun(scope="app")
+    poll_announcements(user)
 
 
 @st.dialog("⚠️ 벌점 안내")
@@ -127,6 +129,8 @@ def show_popups():
         ui.fireworks(f"🎉 상점 +{total}점!", reasons)
     if bad:
         penalty_dialog(bad)
+        return True
+    return False
 
 
 # ------------------------------------------------------------ 사이드바 ---
@@ -208,7 +212,8 @@ if user["role"] == "student":
     if st.session_state["_locked"]:
         ui.lock_screen(db.get_setting("lock_message"))
         st.stop()
-    show_popups()
+    if not show_popups():
+        show_announcement_popup(user)
 
 
 if user["role"] == "student" and not emotion.done_today(user):

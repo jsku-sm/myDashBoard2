@@ -59,13 +59,14 @@ def _content(text):
 
 
 def _document(item):
-    with st.container(border=True):
-        ui.note(f"<b>{ui.esc(item['title'] or item['file_name'])}</b>")
-        st.caption(" · ".join(value for value in
-                             (item["subject"], item["category"], _date_label(item["uploaded_at"])) if value))
-        if item["description"]:
-            _content(item["description"])
-        ui.file_widget(item, "home_document_" + item["id"])
+    if not item["file_id"]:
+        return
+    name = item["file_name"] or "파일"
+    data = db.load_file_cached(item["file_id"])
+    st.download_button(name, data=data if data is not None else b"", file_name=name,
+                       mime=item["mime"] or None, key="home_document_" + item["id"],
+                       type="tertiary", width="stretch", on_click="ignore", disabled=data is None,
+                       help="파일을 찾을 수 없어요. 선생님께 문의해 주세요." if data is None else None)
 
 
 def _feedback(item):
@@ -165,7 +166,10 @@ def render_student_updates(user):
     documents, feedback = st.columns(2, gap="large")
     with documents:
         st.markdown("##### 📄 배포 문서")
-        _items(updates["documents"], _document, "아직 배포된 문서가 없어요.")
+        if not updates["documents"]:
+            st.caption("아직 배포된 문서가 없어요.")
+        for item in updates["documents"][:5]:
+            _document(item)
     with feedback:
         st.markdown("##### 💬 선생님 피드백")
         _items(updates["feedback"], _feedback, "아직 선생님이 남긴 피드백이 없어요.")

@@ -179,6 +179,24 @@ class UploadedFiles:
                        upload.get("class_id") == class_id.strip() and
                        bool(upload.get("preview")) == bool(preview)], key=lambda upload: upload["created"])
 
+    def pending_for_activity(self, aid, class_id=None):
+        """List real saved files which have not been attached to any submission."""
+        state = self.store.read()
+        task = state.get("course_activities", {}).get(aid)
+        if not task or task.get("course_id") not in state.get("courses", {}):
+            return []
+        course_id = task["course_id"]
+        submitted = {upload_id for attempt in state.get("course_attempts", {}).values()
+                     if attempt.get("activity_id") == aid and attempt.get("course_id") == course_id and
+                     not attempt.get("preview")
+                     for upload_id in attempt.get("upload_ids", [])}
+        return sorted([upload.copy() for upload in state.get("course_uploads", {}).values()
+                       if upload.get("saved") and not upload.get("preview") and
+                       upload.get("activity_id") == aid and upload.get("course_id") == course_id and
+                       (class_id is None or upload.get("class_id") == class_id) and
+                       upload.get("id") not in submitted],
+                      key=lambda upload: (upload.get("created", ""), upload["id"]))
+
     def get(self, upload_id, aid, student_id, class_id, preview=False):
         return owned_uploads(self.store.read(), [upload_id], aid, student_id, class_id, preview)[0]
 

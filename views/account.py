@@ -11,22 +11,42 @@ _CSS = """
   --account-ink:var(--ink,light-dark(#263553,#E6ECF7));
   --account-muted:light-dark(#65758A,#B8C5D5);
   --account-surface:light-dark(#FFFFFF,#1C263C);
+  gap:1rem;
 }
 .st-key-account_page [data-testid="stMarkdownContainer"] {
   color:var(--account-ink);
   font-family:'Pretendard',-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
 }
+.st-key-account_page .account-hero {
+  display:flex;align-items:center;justify-content:space-between;gap:20px;
+  padding:24px 28px;margin-bottom:8px;border:1.5px solid light-dark(#E5BE98,#8D6B4E);border-radius:23px;
+  background:linear-gradient(115deg,light-dark(#FFE9D8,#3F3029),light-dark(#FFF4D0,#393325));
+  box-shadow:0 4px 0 light-dark(#F1DFBF,#29241D);overflow:hidden;
+}
+.st-key-account_page .account-hero-copy {min-width:0;}
+.st-key-account_page .account-hero-label {
+  margin:0 0 7px;color:light-dark(#94643D,#E6C19C);font-size:.78rem;font-weight:800;letter-spacing:.05em;
+}
+.st-key-account_page .account-hero h1 {
+  padding:0;margin:0 0 8px;font-size:2rem;line-height:1.3;color:light-dark(#65482F,#F5E5CC);
+}
+.st-key-account_page .account-hero-sub {
+  margin:0;color:light-dark(#80664F,#D9C8B4);font-size:.95rem;line-height:1.65;word-break:keep-all;
+}
+.st-key-account_page .account-hero-art {
+  display:block;flex:0 0 145px;width:145px;height:100px;color:light-dark(#9076AB,#D0B9E7);
+}
 .st-key-account_page :is(.st-key-account_profile,.st-key-account_password,.st-key-account_force_password) {
-  border:1.5px solid light-dark(#B5D7CA,#587B6C);border-radius:22px;
-  padding:24px;box-shadow:0 5px 0 light-dark(#DDEAE6,#152A24);overflow:hidden;
+  border:1.5px solid light-dark(#9DC8B6,#587B6C);border-top:5px solid light-dark(#8BBDA7,#78A38A);border-radius:22px;
+  padding:22px;box-shadow:0 5px 0 light-dark(#D2E7DC,#152A24);overflow:hidden;
 }
 .st-key-account_page .st-key-account_profile {
-  background:linear-gradient(145deg,light-dark(#E9F7F0,#223B32),light-dark(#ECF4FD,#24364A));
+  background:linear-gradient(145deg,light-dark(#DEF2E7,#223B32),light-dark(#E5EFFC,#24364A));
 }
 .st-key-account_page :is(.st-key-account_password,.st-key-account_force_password) {
-  border-color:light-dark(#CAB7E4,#775E91);
-  background:linear-gradient(135deg,light-dark(#F4EEFC,#312940),light-dark(#FCFAFF,#272337));
-  box-shadow:0 5px 0 light-dark(#E7DFF1,#1D1928);
+  border-color:light-dark(#BEA4DB,#775E91);border-top-color:light-dark(#AC8DCC,#A78BC0);
+  background:linear-gradient(135deg,light-dark(#EDE1F8,#312940),light-dark(#F5EEFC,#272337));
+  box-shadow:0 5px 0 light-dark(#DFD1EC,#1D1928);
 }
 .st-key-account_page .account-kicker {
   display:flex;align-items:center;gap:8px;margin:0 0 14px;
@@ -53,9 +73,11 @@ _CSS = """
 .st-key-account_page .account-details {display:grid;gap:9px;margin:0;}
 .st-key-account_page .account-detail {
   display:flex;align-items:baseline;justify-content:space-between;gap:15px;
-  padding:13px 14px;border:1px solid light-dark(#C9DED8,#4C655C);border-radius:12px;
-  background:light-dark(#FFFFFFBB,#FFFFFF08);
+  padding:13px 14px;border:1px solid light-dark(#AFD2BE,#4C655C);border-radius:12px;
+  background:light-dark(#F0FBF4,#284237);
 }
+.st-key-account_page .account-detail:nth-child(2) {background:light-dark(#EDF4FF,#29394D);border-color:light-dark(#B9CEE9,#58708E);}
+.st-key-account_page .account-detail:nth-child(3) {background:light-dark(#FFF0E4,#403229);border-color:light-dark(#E8C7AA,#8E7157);}
 .st-key-account_page .account-detail dt {color:var(--account-muted);font-size:.8rem;white-space:nowrap;}
 .st-key-account_page .account-detail dd {margin:0;text-align:right;font-size:.9rem;font-weight:750;overflow-wrap:anywhere;min-width:0;}
 .st-key-account_page .account-security-heading {display:flex;align-items:center;gap:11px;margin-bottom:7px;}
@@ -64,7 +86,7 @@ _CSS = """
   border-radius:13px;background:light-dark(#E7DAF5,#443354);color:light-dark(#71518F,#E0C7F4);
 }
 .st-key-account_page .account-lock svg {width:23px;height:23px;}
-.st-key-account_page .account-security-heading h4 {margin:0!important;font-size:1.18rem!important;}
+.st-key-account_page .account-security-heading h4 {margin:0!important;font-size:1.18rem!important;color:light-dark(#63477F,#E4CFF6);}
 .st-key-account_page .account-password-sub {margin:0 0 6px;color:var(--account-muted);font-size:.82rem;line-height:1.6;}
 .st-key-account_page :is(.st-key-account_password,.st-key-account_force_password) [data-testid="stForm"] {
   padding:0;border:0;background:transparent;
@@ -84,7 +106,7 @@ _CSS = """
 }
 .st-key-account_page :is(.st-key-account_password,.st-key-account_force_password) [data-testid="stFormSubmitButton"] button {
   width:100%;min-height:46px;margin-top:5px;border:1.5px solid light-dark(#76A88B,#7CB794);
-  border-radius:12px;background:light-dark(#D7EFDF,#2C503D);color:light-dark(#2D6244,#D8F4E2);
+  border-radius:12px;background:light-dark(#C8E8D5,#2C503D);color:light-dark(#2D6244,#D8F4E2);
   font-weight:800;box-shadow:0 3px 0 light-dark(#B6D8C2,#1A3225);
 }
 .st-key-account_page :is(.st-key-account_password,.st-key-account_force_password) [data-testid="stFormSubmitButton"] button:hover {
@@ -96,11 +118,15 @@ _CSS = """
 .st-key-account_page .account-help {
   display:flex;align-items:flex-start;gap:9px;margin-top:7px;padding:13px 16px;
   border:1px solid light-dark(#E3D099,#8D7A48);border-radius:13px;
-  background:light-dark(#FFF9E7,#373122);color:light-dark(#826E40,#E5D5AB);font-size:.79rem;line-height:1.7;
+  background:light-dark(#FFF4D2,#373122);color:light-dark(#826E40,#E5D5AB);font-size:.79rem;line-height:1.7;
 }
 .st-key-account_page .account-help b {flex:0 0 auto;font-weight:800;}
 .st-key-account_page .st-key-account_force_password {max-width:530px;margin:0 auto;}
 @media(max-width:640px) {
+  .st-key-account_page .account-hero {gap:8px;padding:19px 17px;border-radius:18px;}
+  .st-key-account_page .account-hero h1 {font-size:1.7rem;}
+  .st-key-account_page .account-hero-sub {font-size:.86rem;}
+  .st-key-account_page .account-hero-art {flex-basis:76px;width:76px;height:84px;}
   .st-key-account_page [data-testid="stHorizontalBlock"] {gap:1.1rem;}
   .st-key-account_page :is(.st-key-account_profile,.st-key-account_password,.st-key-account_force_password) {padding:18px 16px;border-radius:18px;}
   .st-key-account_page .account-person {gap:11px;margin-bottom:16px;}
@@ -113,6 +139,18 @@ _CSS = """
 </style>
 """
 
+_ACCOUNT_ART = (
+    '<svg class="account-hero-art" viewBox="0 0 145 100" fill="none" aria-hidden="true">'
+    '<rect x="14" y="17" width="57" height="57" rx="14" fill="currentColor" fill-opacity=".12" '
+    'stroke="currentColor" stroke-width="1.5" transform="rotate(-12 42 45)"/>'
+    '<circle cx="101" cy="37" r="25" fill="currentColor" fill-opacity=".08" stroke="currentColor" stroke-width="1.5"/>'
+    '<path d="M72 86h59L102 36 72 86Z" fill="currentColor" fill-opacity=".1" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>'
+    '<path d="M30 43h23M41.5 31.5v23M117 12v9M112.5 16.5h9M16 87h7" '
+    'stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>'
+    '<circle cx="59" cy="85" r="2" fill="currentColor"/>'
+    '</svg>'
+)
+
 _PERSON = ('<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">'
            '<circle cx="24" cy="16" r="7" stroke="currentColor" stroke-width="2.2"/>'
            '<path d="M10 39c0-7.7 6.3-14 14-14s14 6.3 14 14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>'
@@ -123,6 +161,16 @@ _LOCK = ('<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">'
          '<path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="1.7"/>'
          '<circle cx="12" cy="15" r="1.2" fill="currentColor"/><path d="M12 16v2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>'
          '</svg>')
+
+
+def _page_heading(title, subtitle):
+    st.markdown(
+        '<div class="account-hero"><div class="account-hero-copy">'
+        '<p class="account-hero-label">나의 계정</p><h1>' + ui.esc(title)
+        + '</h1><p class="account-hero-sub">' + ui.esc(subtitle)
+        + '</p></div>' + _ACCOUNT_ART + '</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _password_heading():
@@ -139,7 +187,7 @@ def _pw_form(user, require_current: bool, key: str):
         cur = st.text_input("지금 비밀번호", type="password") if require_current else None
         new = st.text_input("새 비밀번호 (4자 이상)", type="password")
         new2 = st.text_input("새 비밀번호 확인", type="password")
-        ok = st.form_submit_button("비밀번호 바꾸기", type="primary")
+        ok = st.form_submit_button("비밀번호 바꾸기", type="primary", width="stretch")
     if not ok:
         return False
     if require_current and not auth.check_pw(cur, auth.get_user(user["id"])["pw_hash"]):
@@ -158,8 +206,8 @@ def _pw_form(user, require_current: bool, key: str):
 
 def force_change(user):
     st.markdown(_CSS, unsafe_allow_html=True)
-    ui.page_title("새 비밀번호를 정해 주세요", "처음 로그인했거나 비밀번호가 초기화되었어요. 나만 아는 비밀번호로 바꿔야 들어갈 수 있어요.")
     with st.container(key="account_page"):
+        _page_heading("새 비밀번호를 정해 주세요", "처음 로그인했거나 비밀번호가 초기화되었어요. 나만 아는 비밀번호로 바꿔야 들어갈 수 있어요.")
         with st.container(key="account_force_password"):
             _password_heading()
             if _pw_form(user, require_current=False, key="force_pw"):
@@ -169,8 +217,8 @@ def force_change(user):
 
 def page(user):
     st.markdown(_CSS, unsafe_allow_html=True)
-    ui.page_title("내 정보", "비밀번호를 바꿀 수 있어요.")
     with st.container(key="account_page"):
+        _page_heading("내 정보", "내 계정을 확인하고, 나만의 비밀번호로 학습 기록을 지켜요.")
         profile, password = st.columns([.95, 1.2], gap="medium")
         with profile:
             with st.container(key="account_profile"):
