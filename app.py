@@ -14,7 +14,6 @@ import ui
 from config import APP_TITLE, POLL_SEC
 from snorkl_navigation import main_menu_changed, preserve_tool_drafts, sync_shared_link
 from views import account, dashboard, emotion, home, intro, math_class, sudanote, teacher, tools
-from classroom_navigation import apply_pending_navigation as classroom_navigation
 from views.student_announcements import poll_announcements, show_announcement_popup
 
 st.set_page_config(page_title=APP_TITLE, page_icon="📐", layout="wide")
@@ -141,7 +140,6 @@ def show_popups():
 # ------------------------------------------------------------ 사이드바 ---
 # 메뉴 (id, 이름, 번호 붙임 여부, 보이는 사람). 번호는 보이는 메뉴 순서대로 자동으로 붙어요.
 MENU = [
-    ("classroom", "🏫 클래스룸", False, "all"),
     ("home", "🏠 홈", False, "student"),
     ("dashboard", "📊 대시보드", False, "teacher"),
     ("intro", "👋 선생님 소개", True, "all"),
@@ -172,7 +170,8 @@ def sidebar(user):
         ui.sidebar_header(APP_TITLE, user)
         items = menu_for(user["role"])
         if st.session_state.get("nav") not in items:
-            st.session_state.pop("nav", None)
+            # 이전 세션의 메뉴가 더 이상 없으면 역할별 기본 화면으로 이동합니다.
+            st.session_state["nav"] = "dashboard" if is_t else "home"
         page = st.radio("메뉴", list(items), format_func=items.get, key="nav",
                         label_visibility="collapsed", width="stretch", on_change=main_menu_changed,
                         args=(st.session_state, st.query_params))
@@ -230,16 +229,10 @@ if user["role"] == "student" and not emotion.done_today(user):
 # A share link chooses a view only; all login/password/emotion/lock checks run first.
 sync_shared_link(st.session_state, st.query_params)
 home.apply_pending_navigation(user)
-classroom_navigation(st.session_state, user)
 page = sidebar(user)
 
 
-def classroom_page():
-    from views.classroom import page as render_classroom
-    render_classroom(user)
-
 ROUTES = {
-    "classroom": classroom_page,
     "home": lambda: home.page(user),
     "dashboard": lambda: dashboard.page(user),
     "intro": lambda: intro.intro_page(user),
