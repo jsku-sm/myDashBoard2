@@ -66,6 +66,11 @@ def tab_plan(user, subject):
 
 
 def _material_card(user, m):
+    # 공통수학2 평가계획만 교사 전용 수정 + 읽기 전용 시각화 카드로 표시합니다.
+    # 학습지·공통수학1의 기존 화면과 저장 형식은 변경하지 않습니다.
+    if m.get("subject") == "공통수학2" and m.get("category") == "평가계획":
+        from views.evaluation_plans import render_evaluation_plan_card
+        return render_evaluation_plan_card(user, m)
     with st.container(border=True):
         st.markdown(f"**{m['title']}**  \n<span class='meta'>{m['uploaded_at'][:10]}</span>",
                     unsafe_allow_html=True)
