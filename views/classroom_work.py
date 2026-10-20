@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import csv
+import re
 import uuid
 from zoneinfo import ZoneInfo
 
@@ -106,11 +107,75 @@ def _targets(work, course, key, selected=()):
     return targets
 
 
+def _reset_announcement_distribution(prefix):
+    for key in list(st.session_state):
+        if key == prefix or key.startswith(prefix + "_"):
+            del st.session_state[key]
+
+
+def render_announcement_distribution(service, courses, user=None):
+    work = _work(service)
+    actor = _user(work)
+    if actor.get("role") != "teacher":
+        return
+    candidates = [course for course in courses if not course.get("archived")
+                  and actor["id"] in course.get("teacher_ids", []) and str(course.get("class_name", "")).strip()]
+    prefix = _key("announcement_distribution", actor["id"])
+    draft = prefix + "_draft"
+    message = st.session_state.pop(prefix + "_flash", None)
+    if message:
+        st.success(message)
+    with st.container(border=True):
+        st.markdown("#### 여러 학급에 공지 게시")
+        if not candidates:
+            st.caption("공지를 게시할 담당 학급이 없습니다. 수업 설정에서 대상 학급을 지정해 주세요.")
+            return
+        classes = sorted({str(course["class_name"]).strip() for course in candidates},
+                         key=lambda name: tuple((0, int(part)) if part.isdigit() else (1, part.casefold())
+                                                for part in re.split(r"([0-9]+)", name)))
+        scope = st.radio("공지 배포 범위", ["전체 담당 학급", "선택 학급"], horizontal=True, key=prefix + "_scope")
+        selected = classes if scope == "전체 담당 학급" else st.multiselect("공지를 게시할 학급", classes, key=prefix + "_classes")
+        targets = [course for course in candidates if str(course["class_name"]).strip() in selected]
+        st.caption("게시 대상 학급: " + (", ".join(selected) if selected else "선택해 주세요"))
+        st.caption(f"{len(selected)}개 학급 · {len(targets)}개 수업 게시판. 선택한 학급의 현재 담당 정규·방과후 수업에 게시됩니다.")
+        with st.expander("게시할 수업 확인"):
+            for course in targets:
+                kind = "방과후 수업" if course.get("kind") == "after_school" else "정규 수업"
+                st.write(f"{course['class_name']} · {course.get('title', '')} · {course.get('subject', '')} · {course.get('term', '')} · {kind}")
+        title = st.text_input("일괄 공지 제목", max_chars=160, key=draft + "_title")
+        body = st.text_area("일괄 공지 내용", max_chars=10000, key=draft + "_body")
+        pinned = st.checkbox("일괄 공지 상단 고정", key=draft + "_pinned")
+        comments = st.checkbox("일괄 공지 댓글 허용", value=True, key=draft + "_comments")
+        _, instant = _publication(draft, choose_published=False)
+        submit, reset = st.columns(2)
+        clicked = submit.button("선택한 학급에 공지 게시", type="primary", width="stretch", key=draft + "_publish")
+        reset.button("새 공지 작성", width="stretch", key=prefix + "_reset",
+                     on_click=_reset_announcement_distribution, args=(draft,))
+        if clicked:
+            if not targets:
+                st.warning("공지를 게시할 학급을 한 곳 이상 선택해 주세요.")
+                return
+            request_id = st.session_state.setdefault(draft + "_request", uuid.uuid4().hex)
+            try:
+                work.distribute_post([course["id"] for course in targets], title, body,
+                                     request_id=request_id, published=True, pinned=pinned,
+                                     comments_allowed=comments, publish_at=instant)
+            except ClassroomError as error:
+                _notice_error(error)
+            else:
+                scheduled = instant and datetime.fromisoformat(instant) > datetime.now(TZ)
+                st.session_state[prefix + "_flash"] = (f"{len(selected)}개 학급의 {len(targets)}개 수업 게시판에 공지를 예약했습니다. 지정한 시각부터 표시됩니다."
+                                                      if scheduled else f"{len(selected)}개 학급의 {len(targets)}개 수업 게시판에 공지를 게시했습니다.")
+                _reset_announcement_distribution(draft)
+                st.rerun()
+
+
 def render_stream(service, course, user=None):
     work = _work(service)
     teacher = _teacher(work, course)
     archived = course.get("archived", False)
-    st.subheader("스트림" if teacher else "공지")
+    st.subheader("공지")
+    st.caption(f"게시 대상 학급: {course.get('class_name') or '미지정'} · 현재 선택한 수업에만 게시됩니다.")
     if teacher and not archived:
         with st.expander("공지 작성"):
             _post_form(work, course)
@@ -121,6 +186,8 @@ def render_stream(service, course, user=None):
         key = _key("post", course["id"], post["id"], _user(work)["id"])
         with st.container(border=True):
             st.markdown(("📌 " if post.get("pinned") else "") + "**" + post["title"] + "**")
+            if post.get("distribution_id"):
+                st.caption("여러 학급에 함께 게시한 공지입니다. 수정·공개 설정은 현재 수업 게시판에만 적용됩니다.")
             st.write(post["body"])
             st.caption(("공개" if post.get("published") else "비공개 초안") + " · 공개 시작 " + _when(post.get("publish_at")))
             for comment in post.get("comments", []):

@@ -27,7 +27,8 @@ if "test_store" not in st.session_state:
     plan = teacher.create_curriculum("기하 수업안", "수학", [
         {"id":"one", "unit":"기하", "title":"직선", "objective":"직선을 이해한다"},
         {"id":"two", "unit":"기하", "title":"원"}])
-    course = teacher.create_course("수학 수업", "2026-2", "수학", class_name="1-1", curriculum_id=plan["id"], student_ids=["s"])
+    course = teacher.create_course("수학 수업", "2026-2", "수학", class_name="1-1", curriculum_id=plan["id"],
+                                   student_ids=[] if st.session_state.get("test_unjoined") else ["s"])
     after = teacher.create_course("방과후", "2026-2", "수학", kind="after_school", class_name="1-1")
     # Preserve an old approval request without relying on the retired UUID join flow.
     after["pending_student_ids"] = ["s"]
@@ -39,7 +40,7 @@ store = st.session_state.test_store
 mode = st.session_state.get("test_mode", "editor")
 user = users["s"] if mode.startswith("student") else users["t"]
 service = ClassroomService(store, user, users.get, lock_checker=lambda _:False)
-course = service.get_course(st.session_state.test_course)
+course = service.get_course(st.session_state.test_course) if not mode.startswith("student") else None
 if mode == "editor":
     view._lesson_editor(service, course, course["lessons"][0], user, key="test")
 elif mode == "dashboard":
@@ -162,19 +163,24 @@ def test_pending_student_course_is_not_opened_or_exposed():
     assert not app.error
 
 
-def student_app(mode="student"):
+def student_app(mode="student", *, joined=False):
     app = AppTest.from_string(SCRIPT)
     app.session_state["test_mode"] = mode
+    app.session_state["test_unjoined"] = not joined
     return app.run()
 
 
 @pytest.mark.parametrize("mode", ["student", "student_today"])
-def test_student_join_form_is_visible_on_both_student_screens(mode):
+def test_student_join_form_only_shown_without_active_membership(mode):
     app = student_app(mode)
     assert not app.exception
     assert element(app.text_input, "6자리 승인코드").value == ""
     assert element(app.button, "수업 참여하기")
     assert not any("참여 코드로" in item.label for item in app.expander)
+    joined = student_app(mode, joined=True)
+    assert not joined.exception and not joined.error
+    assert not any(item.label == "6자리 승인코드" for item in joined.text_input)
+    assert not any(item.label == "수업 참여하기" for item in joined.button)
 
 
 @pytest.mark.parametrize("code", ["", "12345", "abc123", "１２３４５６"])
@@ -185,7 +191,7 @@ def test_student_join_code_requires_six_ascii_digits(code):
     assert not app.exception
     assert any("숫자 6자리" in item.value for item in app.warning)
     assert element(app.text_input, "6자리 승인코드").value == code
-    assert len(element(app.selectbox, "수업 선택").options) == 1
+    assert not any(item.label == "수업 선택" for item in app.selectbox)
 
 
 def test_student_join_code_joins_immediately_and_selects_course():
@@ -204,7 +210,7 @@ def test_student_join_code_joins_immediately_and_selects_course():
     assert element(app.selectbox, "수업 선택").value == after_id
     assert "s" in store.get("courses", after_id)["student_ids"]
     assert "s" not in store.get("courses", after_id)["pending_student_ids"]
-    assert element(app.text_input, "6자리 승인코드").value == ""
+    assert not any(item.label == "6자리 승인코드" for item in app.text_input)
     assert app.session_state["classroom_s_next_section"] == "내 수업"
     assert "수업에 참여했어요" in app.session_state["classroom_s_flash"]
 

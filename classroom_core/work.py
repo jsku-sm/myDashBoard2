@@ -34,6 +34,8 @@ MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_TOTAL_BYTES = 2 * 1024 * 1024
 MAX_VERSIONS = 10
 MAX_SHARD_BYTES = 12 * 1024 * 1024
+MAX_ANNOUNCEMENT_COURSES = 500
+_DISTRIBUTION_POST_PREFIX = "distribution:"
 ALLOWED_FILE_TYPES = {
     ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg", ".txt": "text/plain", ".docx":
@@ -190,6 +192,14 @@ class WorkService:
         return list(records.values())
 
     def _embedded(self, namespace, course_id, record_id):
+        if namespace == "stream":
+            # A distribution is published by one durable CAS write. Each board
+            # gets its own identity; its first edit/comment materializes only
+            # that board's override in the ordinary stream namespace.
+            if not record_id.startswith(_DISTRIBUTION_POST_PREFIX):
+                return None
+            return next((row for row in self._distribution_posts(course_id)
+                         if row["id"] == record_id), None)
         if namespace not in ("materials", "assignments"):
             return None
         course = self._course(course_id)
@@ -229,7 +239,101 @@ class WorkService:
         if self._teacher(course):
             return True
         actor = self._actor()
+        if (record.get("distribution_id") or str(record.get("id", "")).startswith(_DISTRIBUTION_POST_PREFIX)):
+            # Reassigning a classroom to another class must not redistribute
+            # an earlier multi-class notice to the new class's students.
+            original_class = str(record.get("distribution_class") or "").strip()
+            if not original_class or original_class != str(course.get("class_name") or "").strip():
+                return False
         return _released(record) and (not record.get("target_student_ids") or actor["id"] in record["target_student_ids"])
+
+    def _public_post(self, record):
+        result = self._safe(record)
+        if self._actor()["role"] == "student":
+            result.pop("distribution_id", None)
+            result.pop("distribution_class", None)
+        return result
+
+    @staticmethod
+    def _distribution_post(distribution, course_id):
+        # Explicit projection excludes every sibling course, its class, and the
+        # request/audit metadata even when this becomes a comment CAS shard.
+        fields = ("title", "body", "published", "pinned", "comments_allowed", "publish_at",
+                  "created_at", "updated_at", "author_id")
+        post = {field: copy.deepcopy(distribution.get(field)) for field in fields}
+        post.update(id=_DISTRIBUTION_POST_PREFIX + _identity(distribution["id"], course_id),
+                    course_id=course_id, distribution_id=distribution["id"],
+                    distribution_class=distribution.get("target_class_names", {}).get(course_id, ""),
+                    comments=[])
+        return post
+
+    def _distribution_posts(self, course_id):
+        self._course(course_id)
+        result = []
+        # Discover new distributions and re-read their current scope before
+        # projection, including when another app process populated our cache.
+        for discovered in self.store.list("stream_distributions", fresh=True):
+            current = self.store.get("stream_distributions", discovered["id"], fresh=True)
+            if current and course_id in current.get("target_course_ids", []):
+                result.append(self._distribution_post(current, course_id))
+        return result
+
+    def distribute_post(self, course_ids, title, body, *, request_id, published=True,
+                        pinned=False, comments_allowed=True, publish_at=None):
+        """Publish one immutable notice to an explicit snapshot of class boards.
+
+        One record makes publication atomic across every selected board. A
+        stable teacher/request identity makes a lost-response retry harmless;
+        later course-specific edits and comments remain independent stream
+        records and never change the other classes' copies.
+        """
+        actor = self.service.require_teacher()
+        request_id = _text(request_id, "작업 번호", 128)
+        if (not isinstance(course_ids, (list, tuple)) or not course_ids
+                or len(course_ids) > MAX_ANNOUNCEMENT_COURSES
+                or any(not isinstance(cid, str) or not cid.strip() or len(cid) > 300 for cid in course_ids)):
+            raise ValidationError(f"공지 대상 수업을 1~{MAX_ANNOUNCEMENT_COURSES}개 선택하세요.")
+        selected = sorted(set(course_ids))
+        fields = dict(title=_text(title, "공지 제목", 160), body=_text(body, "공지 내용"),
+                      published=bool(published), pinned=bool(pinned), comments_allowed=bool(comments_allowed),
+                      publish_at=_instant(publish_at, "공개 시각"))
+        distribution_id = _identity("stream-distribution", actor["id"], request_id)
+
+        def authorized_classes():
+            classes = {}
+            for course_id in selected:
+                course = self._course(course_id, teacher=True, write=True)
+                class_name = str(course.get("class_name") or "").strip()
+                if not class_name:
+                    raise ValidationError("대상 학급이 지정된 수업에만 공지를 함께 게시할 수 있습니다.")
+                classes[course_id] = class_name
+            return classes
+
+        classes = authorized_classes()
+        for attempt in range(5):
+            current = self.store.get("stream_distributions", distribution_id, fresh=True)
+            if current:
+                expected = dict(fields, author_id=actor["id"], request_id=request_id,
+                                target_course_ids=selected)
+                if any(current.get(key) != value for key, value in expected.items()):
+                    raise ValidationError("같은 작업 번호의 공지 내용이나 대상 수업이 다릅니다. 새 공지로 작성하세요.")
+                # The original snapshot remains immutable on retries, including
+                # a class rename or a teacher's individual edit/withdrawal.
+                authorized_classes()
+                return dict(distribution_id=distribution_id, request_id=request_id,
+                            target_course_ids=list(current["target_course_ids"]), complete=True)
+            record = dict(fields, id=distribution_id, author_id=actor["id"], request_id=request_id,
+                          target_course_ids=selected, target_class_names=classes, created_at=now())
+            try:
+                fresh_classes = authorized_classes()
+                if fresh_classes != classes:
+                    raise ConflictError("대상 학급이 변경되었습니다. 수업 목록을 다시 확인하고 게시하세요.")
+                self.service._write("stream_distributions", distribution_id, record, None, "stream.distribute")
+                return dict(distribution_id=distribution_id, request_id=request_id,
+                            target_course_ids=selected, complete=True)
+            except ConflictError:
+                if attempt == 4:
+                    raise ConflictError("다른 저장과 충돌했습니다. 입력은 유지됩니다. 다시 저장하세요.") from None
 
     def save_post(self, course_id, title, body, *, post_id=None, published=False,
                   pinned=False, comments_allowed=True, publish_at=None):
@@ -241,13 +345,19 @@ class WorkService:
         def change(old):
             if old and old.get("course_id") != course_id:
                 raise PermissionDenied("다른 수업의 공지를 수정할 수 없습니다.")
+            if not old and post_id.startswith(_DISTRIBUTION_POST_PREFIX):
+                raise PermissionDenied("이 수업의 공지가 아닙니다.")
             return dict(old or {}, **fields, created_at=(old or {}).get("created_at", now()), updated_at=now(),
                         author_id=(old or {}).get("author_id", self._actor()["id"]))
-        return self._safe(self._write("stream", post_id, change, "stream.save", course_id, teacher=True))
+        return self._public_post(self._write("stream", post_id, change, "stream.save", course_id, teacher=True))
 
     def posts(self, course_id):
         course = self._course(course_id)
-        return sorted([self._safe(r) for r in self._records("stream", course_id) if self._visible(r, course)],
+        # Other app workers can publish after this worker cached the tree.
+        # Discover new IDs while keeping every result scoped to this course.
+        records = {row["id"]: row for row in self._distribution_posts(course_id)}
+        records.update({row["id"]: row for row in self._records("stream", course_id, fresh=True)})
+        return sorted([self._public_post(r) for r in records.values() if self._visible(r, course)],
                       key=lambda r: (r.get("pinned", False), r.get("created_at", "")), reverse=True)
 
     def add_comment(self, course_id, post_id, body, request_id):
@@ -270,7 +380,7 @@ class WorkService:
                 raise ValidationError("이 공지의 댓글 한도에 도달했습니다.")
             comments.append(dict(id=uuid.uuid4().hex, request_id=request_id, author_id=actor_id, body=text, created_at=now()))
             return old
-        return self._safe(self._write("stream", post_id, change, "stream.comment", course_id))
+        return self._public_post(self._write("stream", post_id, change, "stream.comment", course_id))
 
     def save_material(self, course_id, title, *, body="", unit="", url="", files=None,
                       activity_id="", material_id=None, published=False, publish_at=None,

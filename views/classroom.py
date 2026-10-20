@@ -9,6 +9,7 @@ import copy
 import csv
 from datetime import date, datetime, timedelta
 import io
+import re
 from time import monotonic
 from urllib.parse import urlparse
 
@@ -51,6 +52,13 @@ def _name(course):
     parts = [str(part).strip() for part in (name, KINDS.get(course.get("kind"), course.get("kind")))
              if part and str(part).strip()]
     return " · ".join(dict.fromkeys(parts))
+
+
+def _course_sort_key(course):
+    name = str(course.get("title") or course.get("class_name") or "").strip()
+    natural = tuple((0, int(part)) if part.isdigit() else (1, part.casefold())
+                    for part in re.split(r"([0-9]+)", name))
+    return course.get("kind") == "after_school", natural, str(course.get("id", ""))
 
 
 def _lesson_name(lesson):
@@ -704,7 +712,9 @@ def _create_course(service, user):
                       "수업을 GitHub에 개설했어요. 구성원 탭의 6자리 승인코드를 해당 학급 학생에게 안내해 주세요.")
 
 
-def _join_course(service, user):
+def _join_course(service, user, courses):
+    if any(course.get("membership_status") == "approved" and not course.get("archived") for course in courses):
+        return
     with st.container(border=True):
         st.markdown("### 수업 참여하기")
         st.caption("담당 교사가 알려 준 6자리 승인코드를 입력하면 본인 학급의 수업에 참여할 수 있어요.")
@@ -745,7 +755,7 @@ def _my_courses(service, courses, user):
     if _teacher(user):
         _create_course(service, user)
     else:
-        _join_course(service, user)
+        _join_course(service, user, courses)
     include_archive = st.checkbox("학기 보관 수업 보기", key=_key(user, "my_archive"))
     pending_courses = [course for course in courses if course.get("membership_status") == "pending"]
     for course in pending_courses:
@@ -756,7 +766,10 @@ def _my_courses(service, courses, user):
     regular.metric("정규 수업", sum(course.get("kind") == "regular" for course in current))
     after.metric("방과후 수업", sum(course.get("kind") == "after_school" for course in current))
     kind = st.segmented_control("수업 구분", ["전체", "regular", "after_school"], format_func=lambda value: KINDS.get(value, value), default="전체", key=_key(user, "my_kind")) or "전체"
-    current = [course for course in current if kind == "전체" or course.get("kind") == kind]
+    if _teacher(user) and kind == "전체":
+        from views.classroom_work import render_announcement_distribution
+        render_announcement_distribution(service, sorted(current, key=_course_sort_key), user)
+    current = sorted((course for course in current if kind == "전체" or course.get("kind") == kind), key=_course_sort_key)
     if not current:
         st.info("표시할 수업이 없어요. 교사는 수업을 개설하고, 학생은 담당 교사에게 6자리 승인코드를 받아 수업에 참여해 주세요.")
         return
@@ -792,7 +805,7 @@ def _course_detail(service, course, user):
                     _lesson_editor(service, course, lesson, user, key="focused")
     teacher = _teacher(user)
     tabs = st.tabs([
-        "스트림" if teacher else "공지", "수업·자료", "과제·퀴즈·수행평가", "수업 달력·진도",
+        "공지", "수업·자료", "과제·퀴즈·수행평가", "수업 달력·진도",
         *(["구성원", "수업 설정"] if teacher else [])])
     stream, materials, assignments, calendar = tabs[:4]
     with stream:
@@ -1065,7 +1078,7 @@ def page(user):
         elif selected == "공통 수업안":
             _curricula(service, user)
         elif selected == "오늘 할 일":
-            _join_course(service, user)
+            _join_course(service, user, courses)
             approved = [course for course in courses if course.get("membership_status") != "pending"]
             try:
                 from views.classroom_work import render_today
