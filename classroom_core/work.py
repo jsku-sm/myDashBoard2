@@ -174,7 +174,7 @@ class WorkService:
                 if attempt == 4:
                     raise ConflictError("다른 저장과 충돌했습니다. 입력은 유지됩니다. 다시 저장하세요.") from None
 
-    def _records(self, namespace, course_id):
+    def _records(self, namespace, course_id, *, fresh=False):
         course = self._course(course_id)
         records = {r["id"]: r for r in course.get("copied_" + namespace[:-1] + "_templates", [])}
         # Core uses plural namespace names in the embedded field.
@@ -182,7 +182,7 @@ class WorkService:
         # The shared tree/body cache is a discovery aid only. Re-read the
         # selected course's records before evaluating publication, recipients,
         # question privacy or observation sharing changed by another process.
-        for discovered in self.store.list(namespace):
+        for discovered in self.store.list(namespace, fresh=fresh):
             if discovered.get("course_id") == course_id:
                 current = self.store.get(namespace, discovered["id"], fresh=True)
                 if current and current.get("course_id") == course_id:
@@ -299,9 +299,24 @@ class WorkService:
 
     def materials(self, course_id):
         course = self._course(course_id)
-        return [self._public_record(r) for r in self._records("materials", course_id) if self._visible(r, course)]
+        # Another app worker may have distributed a new material since this
+        # worker last cached the repository tree. Discover its ID immediately.
+        return [self._public_record(r) for r in self._records("materials", course_id, fresh=True) if self._visible(r, course)]
 
     list_materials = materials
+
+    def publish_material(self, course_id, material_id):
+        """Distribute an existing draft without replacing its files or targets."""
+        def change(old):
+            if not old or old.get("course_id") != course_id:
+                raise PermissionDenied("자료가 없거나 접근 권한이 없습니다.")
+            if _disabled_activity(old):
+                raise ValidationError(DISABLED_ACTIVITY_MESSAGE)
+            if old.get("published"):
+                return None
+            old.update(published=True, updated_at=now())
+            return old
+        return self._safe(self._write("materials", material_id, change, "material.publish", course_id, teacher=True))
 
     def save_assignment(self, course_id, title, instructions, *, assignment_id=None, kind="assignment",
                         methods=("text",), max_points=None, rubric=(), due_at=None, publish_at=None,

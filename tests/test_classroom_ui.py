@@ -397,9 +397,10 @@ def test_material_form_has_no_external_activity_selector_and_saves():
     assert not app.exception
     element(app.text_input, "자료 제목").set_value("새 자료")
     element(app.text_area, "자료 설명").set_value("수업 설명")
-    element(app.button, "배부 대상 확인 후 자료 저장").click().run()
+    element(app.button, "학생에게 배포").click().run()
     assert not app.exception
     saved = next(row for row in app.session_state["work_store"].list("materials") if row["title"] == "새 자료")
+    assert saved["published"]
     assert not saved.get("activity_id")
     assert_no_activity_widgets(app)
 

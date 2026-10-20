@@ -47,8 +47,8 @@ def _iso(value):
 
 
 def _name(course):
-    parts = [str(part).strip() for part in (course.get("class_name"), course.get("title"),
-                                          KINDS.get(course.get("kind"), course.get("kind")))
+    name = str(course.get("title") or "").strip() or str(course.get("class_name") or "").strip()
+    parts = [str(part).strip() for part in (name, KINDS.get(course.get("kind"), course.get("kind")))
              if part and str(part).strip()]
     return " · ".join(dict.fromkeys(parts))
 
@@ -438,15 +438,15 @@ def _calendar_resources(service, course, user):
         return []
 
 
-def _calendar(service, courses, user, anchor, unit="전체", *, key):
-    from views.classroom_calendar import render_week
-    prefix = _key(user, "calendar_" + key)
-    anchor = st.date_input("주간 달력 기준일", value=anchor, key=prefix + "_anchor")
-    monday = anchor - timedelta(days=anchor.weekday())
-    days = [{"date": _iso(monday + timedelta(days=index)),
-             "label": f"{(monday + timedelta(days=index)):%m/%d} {'월화수목금토일'[index]}"} for index in range(7)]
+def _calendar_data(service, courses, user, unit):
+    """Build the same agenda with each actor's permitted resources only."""
     items, tray, resources = [], [], []
     for course in courses:
+        visible = _calendar_resources(service, course, user)
+        resource_map = {(resource["kind"], resource["id"]): resource for resource in visible}
+        for resource in visible:
+            resources.append({**resource, "resource_kind": resource["kind"], "item_kind": "resource",
+                              "course_id": course["id"], "movable": _editable(user, course), "expected_version": course["version"]})
         for lesson in course.get("lessons", []):
             if unit != "전체" and lesson.get("unit") != unit:
                 continue
@@ -456,35 +456,106 @@ def _calendar(service, courses, user, anchor, unit="전체", *, key):
             status = PROGRESS.get(record.get("progress", "unassigned"), "미배정")
             if record.get("schedule_status") in ("changed", "cancelled"):
                 status += " · " + SCHEDULE[record["schedule_status"]]
+            titles = []
+            for reference in record.get("resources", lesson.get("resources", [])):
+                if reference.get("kind") in {"material", "assignment"}:
+                    allowed = resource_map.get((reference["kind"], reference.get("id")))
+                    if allowed:
+                        titles.append(allowed["title"])
+                elif not reference.get("activity_id") and reference.get("kind") not in {"snorkl", "activity"}:
+                    titles.append(reference.get("title", "자료"))
             item = {"id": lesson["id"], "course_id": course["id"], "title": _lesson_name(lesson),
                     "date": record.get("planned_date", ""), "progress": record.get("progress", "unassigned"),
                     "schedule_status": record.get("schedule_status", "normal"),
                     "subtitle": f"{course.get('class_name', '')} {record.get('period', '')} · {status}",
-                    "detail": " · ".join(resource.get("title", "자료") for resource in record.get("resources", lesson.get("resources", [])))}
+                    "detail": " · ".join(titles), "movable": _editable(user, course), "expected_version": course["version"]}
             (items if item["date"] else tray).append(item)
             for session in record.get("sessions", []):
                 label = {"makeup": "보충 수업", "repeat": "재수업", "split": "분할 수업"}.get(session.get("kind"), "추가 수업")
                 items.append({**item, "date": session.get("planned_date", ""), "movable": False,
                               "subtitle": f"{course.get('class_name', '')} · {label}",
                               "detail": f"실제 수업일: {session.get('actual_date') or '미입력'}"})
-        if _editable(user, course):
-            for resource in _calendar_resources(service, course, user):
-                resources.append({**resource, "course_id": course["id"]})
+        for entry in course.get("calendar_resources", {}).values():
+            allowed = resource_map.get((entry.get("kind"), entry.get("id")))
+            if allowed:
+                label = "수업 자료" if entry["kind"] == "material" else "과제"
+                items.append({**allowed, "course_id": course["id"], "date": entry["date"],
+                              "item_kind": "resource", "resource_kind": entry["kind"],
+                              "subtitle": f"{_name(course)} · {label}", "movable": _editable(user, course), "expected_version": course["version"]})
+        for day, note in course.get("calendar_notes", {}).items():
+            items.append({"id": day, "course_id": course["id"], "date": day, "title": "메모",
+                          "subtitle": _name(course), "detail": note, "item_kind": "note", "movable": False,
+                          "editable": _editable(user, course)})
+    return items, tray, resources
+
+
+def _save_calendar_drop(service, course, event):
+    """A drop changes the plan only; resource deadlines and progress stay intact."""
+    if event["kind"] == "resource":
+        return service.place_calendar_resource(course["id"], event["resource_kind"], event["id"],
+                                               event["date"], event["expected_version"])
+    record = _record(course, event["id"])
+    changes = {"planned_date": event["date"]}
+    if record.get("planned_date") and record["planned_date"] != event["date"]:
+        changes["schedule_status"] = "changed"
+    if record.get("progress", "unassigned") == "unassigned":
+        changes["progress"] = "scheduled"
+    return service.set_lesson(course["id"], event["id"], changes, event["expected_version"], "달력에서 차시 날짜 배치")
+
+
+def _calendar(service, courses, user, anchor, unit="전체", *, key):
+    from views.classroom_calendar import render_week
+    prefix = _key(user, "calendar_" + key)
+    anchor = st.date_input("주간 달력 기준일", value=anchor, key=prefix + "_anchor")
+    monday = anchor - timedelta(days=anchor.weekday())
+    days = [{"date": _iso(monday + timedelta(days=index)),
+             "label": f"{(monday + timedelta(days=index)):%m/%d} {'월화수목금토일'[index]}"} for index in range(7)]
+    items, tray, resources = _calendar_data(service, courses, user, unit)
     editable = any(_editable(user, course) for course in courses)
     event = render_week(days=days, items=items, tray=tray, resources=resources, editable=editable, key=prefix + "_week")
     course_map = {course["id"]: course for course in courses}
     if event and event.get("course_id") in course_map:
         course = course_map[event["course_id"]]
-        valid_lesson = any(lesson["id"] == event.get("id") for lesson in course.get("lessons", []))
+        valid_lesson = any(lesson["id"] == event.get("id") and _record(course, lesson["id"]).get("applied", True)
+                           for lesson in course.get("lessons", []))
+        valid_resource = any(resource["id"] == event.get("id") and resource["course_id"] == course["id"]
+                             and resource["kind"] == event.get("resource_kind") for resource in resources)
         if event.get("kind") == "open" and valid_lesson:
             st.session_state[prefix + "_focus"] = {"course_id": course["id"], "lesson_id": event["id"]}
+        elif event.get("kind") == "open_resource" and valid_resource:
+            st.session_state[prefix + "_resource_focus"] = event
         elif _editable(user, course) and event.get("date") in {day["date"] for day in days}:
-            valid_resource = any(resource["id"] == event.get("id") and resource["course_id"] == course["id"] for resource in resources)
-            if (event.get("kind") == "lesson" and valid_lesson) or (event.get("kind") == "resource" and valid_resource):
-                st.session_state[prefix + "_pending"] = event
-    st.caption("실제 수업일·자료 공개 시각·과제 마감은 계획 수업일과 별도로 보관돼요. 날짜 배치 후 변경 이유를 확인하고 저장해 주세요.")
+            if type(event.get("expected_version")) is int and ((event.get("kind") == "lesson" and valid_lesson)
+                                                               or (event.get("kind") == "resource" and valid_resource)):
+                current_date = (_record(course, event["id"]).get("planned_date") if event["kind"] == "lesson" else
+                                course.get("calendar_resources", {}).get(event["resource_kind"] + ":" + event["id"], {}).get("date"))
+                if current_date != event["date"]:
+                    st.session_state[prefix + "_pending"] = event
+                    _save(user, lambda: _save_calendar_drop(service, course, event),
+                          "달력에 배치하고 저장했어요.", clear_prefix=prefix + "_pending")
+    if (event and event.get("kind") == "note" and editable and event.get("date") in {day["date"] for day in days}
+            and (not event.get("course_id") or (event["course_id"] in course_map and _editable(user, course_map[event["course_id"]])))):
+        st.session_state[prefix + "_note_target"] = event
+    st.caption("차시·자료·과제를 날짜에 끌어 놓으면 저장됩니다. 실제 수업일·자료 공개 시각·과제 마감은 따로 유지됩니다."
+               if editable else "수업 일정과 메모를 확인할 수 있어요. 일정 편집은 담당 교사가 합니다.")
     if editable:
+        pending = st.session_state.get(prefix + "_pending")
+        if pending and pending.get("course_id") in course_map:
+            st.warning("달력 배치를 저장하지 못했습니다. 다시 시도하거나 아래 날짜 배치를 이용해 주세요.")
+            st.caption("달력의 최신 일정을 확인한 뒤 다시 저장해 주세요.")
+            if st.button("달력 배치 다시 저장", key=prefix + "_retry"):
+                _save(user, lambda: _save_calendar_drop(service, course_map[pending["course_id"]],
+                                                       {**pending, "expected_version": course_map[pending["course_id"]]["version"]}),
+                      "달력에 배치하고 저장했어요.", clear_prefix=prefix + "_pending")
         _place_date(service, courses, user, prefix, resources)
+        _calendar_note_editor(service, courses, user, prefix, anchor)
+    resource_focus = st.session_state.get(prefix + "_resource_focus", {})
+    resource_course = course_map.get(resource_focus.get("course_id"))
+    if resource_course and any(resource["id"] == resource_focus.get("id") and resource["kind"] == resource_focus.get("resource_kind")
+                               and resource["course_id"] == resource_course["id"] for resource in resources):
+        _resources(service, resource_course,
+                   {"id": "calendar_resource", "resources": [{"kind": resource_focus["resource_kind"], "id": resource_focus["id"]}]},
+                   user, prefix + "_resource_detail")
     focus = st.session_state.get(prefix + "_focus")
     if focus and focus["course_id"] in course_map:
         course = course_map[focus["course_id"]]
@@ -499,7 +570,31 @@ def _calendar(service, courses, user, anchor, unit="전체", *, key):
             _lesson_editor(service, course, lesson, user, key=key + "_calendar_detail")
 
 
+def _calendar_note_editor(service, courses, user, prefix, anchor):
+    owned = [course for course in courses if _editable(user, course)]
+    if not owned:
+        return
+    target = st.session_state.get(prefix + "_note_target", {})
+    with st.expander("날짜별 메모 · 학생에게도 표시", expanded=bool(target)):
+        selected = next((index for index, course in enumerate(owned) if course["id"] == target.get("course_id")), 0)
+        nkey = prefix + "_notes_" + str(target.get("course_id", "")) + "_" + str(target.get("date", ""))
+        course = st.selectbox("메모할 수업", owned, index=selected, format_func=_name, key=nkey + "_course")
+        day = st.date_input("메모 날짜", value=_date(target.get("date")) or anchor, key=nkey + "_date")
+        day_text = _iso(day)
+        note = course.get("calendar_notes", {}).get(day_text, "")
+        form_key = nkey + "_" + course["id"] + "_" + day_text
+        expected = _expected_version(course, form_key, details={day_text: note})
+        with st.form(form_key):
+            body = st.text_area("날짜 메모", value=note, max_chars=1000, key=form_key + "_text", placeholder="예: 학습지 지참, 3교시 보충 설명")
+            st.caption("이 메모는 해당 수업의 학생에게도 보입니다. 내용을 비워 저장하면 삭제됩니다.")
+            save = st.form_submit_button("메모 저장", type="primary")
+        if save:
+            _save(user, lambda: service.set_calendar_note(course["id"], day_text, body, expected),
+                  "날짜 메모를 저장했어요.", clear_prefix=form_key)
+
+
 def _place_date(service, courses, user, prefix, resources):
+    _place_resource_date(service, courses, user, prefix, resources)
     owned = [course for course in courses if _editable(user, course) and course.get("lessons")]
     if not owned:
         st.info("날짜에 배치하려면 수업에 공통 수업안을 적용해 주세요.")
@@ -507,9 +602,9 @@ def _place_date(service, courses, user, prefix, resources):
     pending = st.session_state.get(prefix + "_pending", {})
     # Changing the key for each drag proposal refreshes defaults without
     # overwriting an already rendered widget or a failed-save draft.
-    proposal = "_".join(str(pending.get(part, "")) for part in ("course_id", "id", "date"))
+    proposal = "_".join(str(pending.get(part, "")) for part in ("kind", "resource_kind", "course_id", "id", "date"))
     pkey = prefix + "_place_" + proposal
-    with st.expander("날짜에 배치 · 터치·버튼 방식", expanded=bool(pending)):
+    with st.expander("날짜에 배치 · 터치·버튼 방식", expanded=pending.get("kind") == "lesson"):
         selected_index = next((index for index, course in enumerate(owned) if course["id"] == pending.get("course_id")), 0)
         course = st.selectbox("배치할 수업", owned, index=selected_index, format_func=_name, key=pkey + "_course")
         lessons = course["lessons"]
@@ -519,7 +614,8 @@ def _place_date(service, courses, user, prefix, resources):
         form_key = pkey + "_" + course["id"] + "_" + lesson["id"]
         expected_version = _expected_version(course, form_key, details=record)
         linked = [resource for resource in resources if resource["course_id"] == course["id"]]
-        defaults = [resource for resource in linked if pending.get("kind") == "resource" and resource["id"] == pending.get("id")]
+        defaults = [resource for resource in linked if pending.get("kind") == "resource" and resource["id"] == pending.get("id")
+                    and resource["kind"] == pending.get("resource_kind")]
         with st.form(form_key + "_form", clear_on_submit=False):
             a, b = st.columns(2)
             planned = a.date_input("계획 수업일", value=_date(pending.get("date")) or _date(record.get("planned_date")) or _today(), key=form_key + "_date")
@@ -548,6 +644,31 @@ def _place_date(service, courses, user, prefix, resources):
                 _save(user, lambda: service.set_lesson(course["id"], lesson["id"], changes,
                                                      expected_version=expected_version, reason=reason),
                       "수업 날짜를 GitHub에 저장했어요. 과제 마감과 다른 반 일정은 유지됩니다.", clear_prefix=pkey)
+
+
+def _place_resource_date(service, courses, user, prefix, resources):
+    owned = [course for course in courses if _editable(user, course)]
+    available = [resource for resource in resources if any(course["id"] == resource["course_id"] for course in owned)]
+    if not available:
+        return
+    pending = st.session_state.get(prefix + "_pending", {})
+    pending = pending if pending.get("kind") == "resource" else {}
+    proposal = "_".join(str(pending.get(part, "")) for part in ("course_id", "resource_kind", "id", "date"))
+    with st.expander("자료·과제 날짜 배치 · 터치·버튼 방식", expanded=bool(pending)):
+        pkey = prefix + "_resource_place_" + proposal
+        selected = next((index for index, item in enumerate(available) if item["course_id"] == pending.get("course_id")
+                         and item["id"] == pending.get("id") and item["kind"] == pending.get("resource_kind")), 0)
+        resource = st.selectbox("배치할 자료·과제", available,
+                                index=selected, format_func=lambda item: ("자료 · " if item["kind"] == "material" else "과제 · ") + item["title"], key=pkey + "_resource")
+        course = next(course for course in owned if course["id"] == resource["course_id"])
+        current = course.get("calendar_resources", {}).get(resource["kind"] + ":" + resource["id"], {})
+        expected = _expected_version(course, pkey + "_" + course["id"] + "_" + resource["kind"] + "_" + resource["id"], details=current)
+        with st.form(pkey + "_form"):
+            day = st.date_input("자료·과제 배치일", value=_date(pending.get("date")) or _date(current.get("date")) or _today(), key=pkey + "_date_" + course["id"] + resource["kind"] + resource["id"])
+            save = st.form_submit_button("자료·과제 날짜 저장", type="primary")
+        if save:
+            _save(user, lambda: service.place_calendar_resource(course["id"], resource["kind"], resource["id"], _iso(day), expected),
+                  "자료·과제를 달력에 배치했어요.", clear_prefix=pkey)
 
 
 def _create_course(service, user):
@@ -669,8 +790,11 @@ def _course_detail(service, course, user):
                     st.session_state[_key(user, "show_focus_editor")] = True
                 if st.session_state.get(_key(user, "show_focus_editor")):
                     _lesson_editor(service, course, lesson, user, key="focused")
-    stream, materials, assignments, calendar, members, settings = st.tabs([
-        "스트림", "수업·자료", "과제·퀴즈·수행평가", "수업 달력·진도", "구성원", "수업 설정"])
+    teacher = _teacher(user)
+    tabs = st.tabs([
+        "스트림" if teacher else "공지", "수업·자료", "과제·퀴즈·수행평가", "수업 달력·진도",
+        *(["구성원", "수업 설정"] if teacher else [])])
+    stream, materials, assignments, calendar = tabs[:4]
     with stream:
         _work_tab("render_stream", service, course, user)
     with materials:
@@ -686,10 +810,11 @@ def _course_detail(service, course, user):
         _work_tab("render_assignments", service, course, user)
     with calendar:
         _calendar(service, [course], user, _today(), key="course_" + course["id"])
-    with members:
-        _members(service, course, user)
-    with settings:
-        _settings(service, course, user)
+    if teacher:
+        with tabs[4]:
+            _members(service, course, user)
+        with tabs[5]:
+            _settings(service, course, user)
 
 
 def _work_tab(function, service, course, user):
@@ -913,7 +1038,7 @@ def _storage_notice(store, user):
 
 def page(user):
     """Entry point used by app.py; login and existing navigation stay shared."""
-    ui.page_title("클래스룸", "수업의 계획부터 활동·제출·피드백까지 한곳에서 이어가요.")
+    ui.page_title("클래스룸", "수업의 계획부터 활동·제출·피드백까지 한곳에서 이어가요." if _teacher(user) else "")
     try:
         from classroom_core import ClassroomService, get_store
         service = ClassroomService(get_store(), user)

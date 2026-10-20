@@ -15,6 +15,7 @@ from .store import ClassroomError, ConflictError
 TZ = ZoneInfo("Asia/Seoul")
 PROGRESS_STATES = {"unassigned", "scheduled", "in_progress", "completed"}
 SCHEDULE_STATES = {"normal", "changed", "cancelled"}
+MAX_CALENDAR_NOTE_LENGTH = 1000
 
 
 class PermissionDenied(ClassroomError):
@@ -196,6 +197,9 @@ class ClassroomService:
 
     def _write(self, namespace, record_id, record, expected_version, action, reason=""):
         actor = self.actor()
+        if action in {"calendar_note_update", "calendar_resource_place"} and (
+                actor["role"] != "teacher" or actor["id"] not in record.get("teacher_ids", [])):
+            raise PermissionDenied("담당 교사만 수업 달력을 수정할 수 있습니다.")
         if action == "member_joined" and (actor["role"] != "student" or not _same_class(actor, record)):
             raise PermissionDenied("학생 계정과 수업의 학급을 다시 확인하세요.")
         if actor["role"] == "student":
@@ -222,6 +226,13 @@ class ClassroomService:
                                        for key, value in after_records.items() if before_records.get(key) != value}
         if "lessons" in changed:
             entry["curriculum_change"] = {"before": old.get("lessons", []), "after": result["lessons"]}
+        for field in ("calendar_notes", "calendar_resources"):
+            if field in changed:
+                before, after = old.get(field, {}), result.get(field, {})
+                entry[field + "_changes"] = {
+                    key: {"before": before.get(key), "after": after.get(key)}
+                    for key in before.keys() | after.keys() if before.get(key) != after.get(key)
+                }
         settings = {key: {"before": old.get(key), "after": result.get(key)} for key in changed
                     if key in {"title", "term", "subject", "class_name", "kind", "archived", "teacher_ids", "student_ids", "pending_student_ids", "comments_enabled"}}
         if settings:
@@ -280,8 +291,20 @@ class ClassroomService:
             result.pop(key, None)
         # Operating notes and support reasons are teacher-only observations.
         for record in result.get("lesson_records", {}).values():
-            for key in ("memo", "next_note", "makeup_reason", "sessions"):
+            for key in ("memo", "next_note", "makeup_reason"):
                 record.pop(key, None)
+            if "sessions" in record:
+                record["sessions"] = [
+                    {key: item[key] for key in ("id", "kind", "planned_date", "actual_date") if key in item}
+                    for item in record["sessions"]
+                ]
+        # Calendar entries are shared schedule references, never embedded
+        # resource content. WorkService checks publication and recipients when
+        # the screen resolves each reference to its current title and content.
+        result["calendar_resources"] = {
+            key: {field: item[field] for field in ("kind", "id", "date") if field in item}
+            for key, item in result.get("calendar_resources", {}).items()
+        }
         result["membership_status"] = "approved"
         return result
 
@@ -358,7 +381,8 @@ class ClassroomService:
                   "subject": _text(subject, "과목"), "kind": kind, "class_name": str(class_name),
                   "teacher_ids": list(dict.fromkeys([actor["id"]] + self._people(teacher_ids, "teacher"))),
                   "student_ids": self._people(student_ids, "student"), "pending_student_ids": [], "archived": False,
-                  "comments_enabled": True, "curriculum_id": "", "curriculum_title": "", "lessons": [], "lesson_records": {}}
+                  "comments_enabled": True, "curriculum_id": "", "curriculum_title": "", "lessons": [], "lesson_records": {},
+                  "calendar_notes": {}, "calendar_resources": {}}
         if any(not _same_class(self._lookup(uid) or {}, course) for uid in course["student_ids"]):
             raise ValidationError("수업과 같은 학급의 학생만 구성원으로 추가할 수 있습니다.")
         if curriculum_id:
@@ -533,6 +557,46 @@ class ClassroomService:
         record["updated_at"] = now()
         return self._write("courses", course_id, course, expected_version, "lesson_update", reason)
 
+    def set_calendar_note(self, course_id, day, text, expected_version):
+        """A shared, plain-text date note; lesson observations stay private."""
+        course = self._course(course_id, teacher=True, write=True)
+        day = _date(day)
+        if not day:
+            raise ValidationError("메모를 표시할 날짜를 선택하세요.")
+        if not isinstance(text, str) or len(text) > MAX_CALENDAR_NOTE_LENGTH:
+            raise ValidationError(f"달력 메모는 {MAX_CALENDAR_NOTE_LENGTH:,}자 이내의 텍스트로 입력하세요.")
+        notes = course.setdefault("calendar_notes", {})
+        if text.strip():
+            notes[day] = text.strip()
+        else:
+            notes.pop(day, None)
+        return self._write("courses", course_id, course, expected_version,
+                           "calendar_note_update", "날짜별 수업 메모 수정")
+
+    def place_calendar_resource(self, course_id, kind, resource_id, day, expected_version,
+                                reason="달력에서 자료 일정 배치"):
+        """Place a resource card independently of lessons and release dates."""
+        course = self._course(course_id, teacher=True, write=True)
+        if not isinstance(kind, str) or kind not in {"material", "assignment"}:
+            raise ValidationError("달력에 배치할 자료 또는 과제를 선택하세요.")
+        if not isinstance(resource_id, str) or not resource_id.strip():
+            raise ValidationError("달력에 배치할 자료 또는 과제를 선택하세요.")
+        day = _date(day)
+        if not day:
+            raise ValidationError("자료를 배치할 날짜를 선택하세요.")
+        reason = _text(reason, "변경 사유")
+        # Import here because WorkService uses the same authorized course API.
+        # This also resolves embedded next-term templates with identical rules.
+        from .work import WorkService, _disabled_activity
+        resource = WorkService(self)._owned_record(kind + "s", resource_id, course_id)
+        if _disabled_activity(resource):
+            raise ValidationError("비활성화된 외부 활동은 달력에 배치할 수 없습니다.")
+        course.setdefault("calendar_resources", {})[f"{kind}:{resource_id}"] = {
+            "kind": kind, "id": resource_id, "date": day,
+        }
+        return self._write("courses", course_id, course, expected_version,
+                           "calendar_resource_place", reason)
+
     def add_session(self, course_id, lesson_id, planned_date, actual_date="", kind="makeup", note="", expected_version=None):
         """Split/repeat/makeup meetings never create a second completed lesson."""
         course = self._course(course_id, teacher=True, write=True)
@@ -574,7 +638,8 @@ class ClassroomService:
                   "teacher_ids": [actor["id"]], "student_ids": [], "pending_student_ids": [], "archived": False,
                   "comments_enabled": source.get("comments_enabled", True), "curriculum_id": source.get("curriculum_id", ""),
                   "curriculum_title": source.get("curriculum_title", ""), "curriculum_version": source.get("curriculum_version"),
-                  "lessons": copy.deepcopy(source["lessons"]), "lesson_records": {}}
+                  "lessons": copy.deepcopy(source["lessons"]), "lesson_records": {},
+                  "calendar_notes": {}, "calendar_resources": {}}
         # Template copies and ID remapping are part of the same new course CAS
         # record. Oversized/failed writes create no partly copied classroom.
         copies = {"material": {}, "assignment": {}}

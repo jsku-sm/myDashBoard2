@@ -68,9 +68,17 @@ def _notice_error(error):
     st.caption("입력 내용을 유지했습니다. 연결과 권한을 확인한 뒤 같은 저장 버튼으로 다시 시도하세요.")
 
 
-def _publication(key, record=None):
+def _material_distribution_notice(material):
+    instant = material.get("publish_at")
+    if instant and datetime.fromisoformat(instant) > datetime.now(TZ):
+        return "자료의 예약 배포를 GitHub에 저장했습니다. " + _when(instant) + "부터 학생에게 보입니다."
+    return "자료를 GitHub에 저장하고 학생에게 배포했습니다."
+
+
+def _publication(key, record=None, *, choose_published=True):
     record = record or {}
-    published = st.checkbox("학생에게 공개", value=record.get("published", False), key=key + "_published")
+    published = (st.checkbox("학생에게 공개", value=record.get("published", False), key=key + "_published")
+                 if choose_published else record.get("published", False))
     scheduled = st.checkbox("공개 시작 시각 지정", value=bool(record.get("publish_at")), key=key + "_scheduled")
     instant = None
     if scheduled:
@@ -102,7 +110,7 @@ def render_stream(service, course, user=None):
     work = _work(service)
     teacher = _teacher(work, course)
     archived = course.get("archived", False)
-    st.subheader("스트림")
+    st.subheader("스트림" if teacher else "공지")
     if teacher and not archived:
         with st.expander("공지 작성"):
             _post_form(work, course)
@@ -213,13 +221,28 @@ def render_materials(service, course, user=None):
         with st.container(border=True):
             _material_body(work, course, material, _key("material", material["id"], _user(work)["id"]))
             if teacher and not course.get("archived") and not material.get("disabled"):
+                if not material.get("published"):
+                    if st.button("학생에게 배포", key=_key("material_publish", course["id"], material["id"], _user(work)["id"]),
+                                 width="stretch"):
+                        try:
+                            saved = work.publish_material(course["id"], material["id"])
+                        except ClassroomError as error:
+                            _notice_error(error)
+                        else:
+                            st.success(_material_distribution_notice(saved))
+                            st.rerun()
                 with st.expander("자료 수정·공개 설정"):
                     _material_form(work, course, material)
 
 
 def _material_body(work, course, material, key):
     st.markdown("**" + material["title"] + "**")
-    st.caption(material.get("unit", "") + " · " + ("공개" if material.get("published") else "비공개 초안"))
+    state = "공개" if material.get("published") else "비공개 초안"
+    if material.get("published") and material.get("publish_at") and datetime.fromisoformat(material["publish_at"]) > datetime.now(TZ):
+        state = "공개 예약"
+    st.caption(material.get("unit", "") + " · " + state)
+    if material.get("publish_at"):
+        st.caption("공개 시작 · " + _when(material["publish_at"]))
     if material.get("body"):
         st.write(material["body"])
     if material.get("url"):
@@ -250,17 +273,21 @@ def _material_form(work, course, material=None):
                                type=["pdf", "png", "jpg", "jpeg", "txt", "docx", "hwp", "hwpx"], key=key + "_files")
     keep_files = st.checkbox("기존 첨부 유지", value=True, key=key + "_keep") if material.get("attachments") else False
     targets = _targets(work, course, key, material.get("target_student_ids", []))
-    published, instant = _publication(key, material)
-    if st.button("배부 대상 확인 후 자료 저장", key=key + "_save", width="stretch"):
+    _, instant = _publication(key, material, choose_published=False)
+    st.caption("학생에게 배포하면 선택한 참여 학생에게 공개됩니다. 공개 시작 시각을 지정하면 해당 시각부터 보입니다. 비공개 초안은 학생에게 보이지 않습니다.")
+    distribute, draft = st.columns(2)
+    publish_clicked = distribute.button("학생에게 배포", key=key + "_publish", type="primary", width="stretch")
+    draft_clicked = draft.button("비공개 초안 저장", key=key + "_save", width="stretch")
+    if publish_clicked or draft_clicked:
         files = _dedup_files((material.get("attachments", []) if keep_files else []) + _uploads(uploads))
         try:
-            work.save_material(course["id"], title, body=body, unit=unit, url=url, files=files,
-                               material_id=material.get("id"), published=published,
-                               publish_at=instant, target_student_ids=targets)
+            saved = work.save_material(course["id"], title, body=body, unit=unit, url=url, files=files,
+                                       material_id=material.get("id"), published=publish_clicked,
+                                       publish_at=instant, target_student_ids=targets)
         except ClassroomError as error:
             _notice_error(error)
         else:
-            st.success("자료와 배부 설정을 GitHub에 저장했습니다.")
+            st.success(_material_distribution_notice(saved) if publish_clicked else "비공개 초안을 GitHub에 저장했습니다. 학생에게 보이지 않습니다.")
             st.rerun()
 
 
