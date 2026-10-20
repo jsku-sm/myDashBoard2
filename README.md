@@ -278,4 +278,6 @@ streamlit run app.py
 - [자동·모의 테스트 결과와 실제 기기 검증 범위](CLASSROOM_TEST_RESULTS.md)
 - [비밀값 없는 Secrets 예시](.streamlit/classroom.secrets.toml.example)
 
-운영 데이터 대상은 사용자가 확인한 `[github] repo = "jsku-sm/class-dashboard-data"`, `branch = "main"`입니다. 암호화 키는 `[classroom] encryption_key`로 따로 설정합니다. 기존 클래스룸 암호화 기록이 있으면 원래 키를 유지합니다. 운영 저장소 변경·이전·배포는 별도 승인 후 수행합니다.
+운영 데이터 대상은 사용자가 확인한 `[github] repo = "jsku-sm/class-dashboard-data"`, `branch = "main"`입니다. 기존 GitHub 토큰을 그대로 사용하며 클래스룸용 암호화 키는 필요하지 않습니다. `[classroom] storage_format = "json"`이 기본값이며 새 기록과 base64 첨부를 `data/classroom/v2/` 아래 JSON으로 저장합니다. 클래스룸 저장은 위의 기존 CSV 일괄 저장과 달리 GitHub의 저장 성공을 확인하며 파일 SHA를 사용해 충돌을 검사합니다.
+
+JSON 내용은 암호화하지 않아 비공개 저장소의 접근 권한자가 답안·평가·첨부를 읽을 수 있습니다. 앱의 로그인·교사·학생 권한 검사와 저장소 비공개 확인은 유지합니다. 기존 `data/classroom/v1/` 암호문은 자동으로 읽거나 이전·덮어쓰지 않습니다. 원래 암호화 기록에 접근해야 할 때만 `storage_format = "encrypted"`와 원래 키를 사용합니다. 다른 기능의 기존 키가 Secrets에 남아 있어도 기본 JSON 모드에 영향을 주지 않으며 독립 소노클의 Secrets는 그대로 유지합니다. 운영 저장소 변경·이전·배포는 수행하지 않았습니다.

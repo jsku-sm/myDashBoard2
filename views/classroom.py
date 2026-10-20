@@ -856,6 +856,17 @@ def _curricula(service, user):
                       "새 공통 수업안을 GitHub에 저장했어요. 내 수업에서 적용할 수 있습니다.", clear_prefix=prefix)
 
 
+def _storage_notice(store, user):
+    if not _teacher(user):
+        return
+    if getattr(store, "storage_format", "") == "json":
+        st.caption("저장 방식 · 비공개 GitHub에 JSON으로 저장 · 내용 암호화 없음")
+        legacy = getattr(store, "legacy_data_present", None)
+        if callable(legacy) and legacy() is True:
+            st.info("이전 암호화 기록이 별도로 보존되어 있습니다. 현재는 새 JSON 저장 공간을 표시합니다. "
+                    "이전 기록을 열려면 적용 안내의 기존 기록 열기 절차를 확인하세요.")
+
+
 def page(user):
     """Entry point used by app.py; login and existing navigation stay shared."""
     ui.page_title("클래스룸", "수업의 계획부터 활동·제출·피드백까지 한곳에서 이어가요.")
@@ -871,6 +882,7 @@ def page(user):
                 invalidate()
             st.rerun()
         courses = service.list_courses()
+        _storage_notice(service.store, user)
         sections = ["전체 학급 진도", "내 수업", "공통 수업안"] if _teacher(user) else ["오늘 할 일", "내 수업"]
         section_key = _key(user, "section")
         pending = st.session_state.pop(_key(user, "next_section"), None)
