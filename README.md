@@ -1,3 +1,9 @@
+## 퀴즈 v2 업데이트
+
+학생 JSON 버튼 제거, 유형별 1회·최대 10문항, 학생 문제 카드, 교사 출제 문항 다운로드를 추가했습니다.
+적용 방법: [QUIZ_V2_UPDATE.md](QUIZ_V2_UPDATE.md) · 검증: [QUIZ_V2_TEST_RESULTS.md](QUIZ_V2_TEST_RESULTS.md).
+`requirements.txt`와 `quiz_core/`, `views/quiz.py`를 함께 적용하세요. 기존 데이터·Secrets는 유지합니다.
+
 # 📐 구쌤의 수학 교실 — 소노클 통합 대시보드
 
 > **수업도구 메뉴:** 1. 데스모스 → 2. 데스모스 액티비티 → 3. 수행평가 → 4. 퀴즈 → 5. 앱 (by Good쌤) 순서입니다. 선택한 메뉴의 내용만 표시하며, `3. 수행평가`에서 기존 소노클 앱을 내부 실행합니다.

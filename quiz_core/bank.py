@@ -1,7 +1,7 @@
 """Parameterized, locally generated common-math concept questions.
 
 This is a curated template generator, NOT an AI response. Every paper is a
-teacher-reviewable draft. Four unique choices, one answer, exactly ten items.
+teacher-reviewable draft. Four choices, one answer, 1-10 unique question types.
 No network calls or eval/exec. The generation seed never goes to students.
 """
 from __future__ import annotations
@@ -13,7 +13,54 @@ import re
 from fractions import Fraction
 from config import DEFAULT_UNITS, SUBJECTS
 
-VERSION = "concept-templates-1"
+VERSION = "concept-templates-2-unique-types"
+MAX_QUESTIONS = 10
+
+# A question type denotes the mathematical operation, not its wording/numbers.
+# Different x/y coordinates, signs or story contexts are grouped conservatively.
+TYPE_ALIASES = {
+    "상수항과 나머지": "나머지정리",
+    "항등식": "항등식의 계수 비교",
+    "인수분해와 부호": "이차식 인수분해",
+    "이차함수의 최댓값": "이차함수의 최솟값",
+    "이차부등식과 구간": "절댓값 부등식",
+    "조합의 대칭": "조합",
+    "두 점과 기울기": "기울기",
+    "반지름과 지름": "반지름",
+    "합성함수의 순서": "합성함수",
+    "함수와 대응": "역함수",
+}
+
+def question_type(question):
+    """Stable, hidden grouping identity. Presentation changes don't create types."""
+    concept = re.sub(r"\\s+", " ", str(question.get("concept", "")).strip())
+    canonical = TYPE_ALIASES.get(concept, concept)
+    return str(question.get("type_id") or ("concept:" + canonical))
+
+def concept_type(question):
+    concept = re.sub(r"\\s+", " ", str(question.get("concept", "")).strip())
+    return TYPE_ALIASES.get(concept, concept)
+
+def unique_draft_questions(questions):
+    """Explicit teacher action only. Never use on already published papers."""
+    result, seen_types, seen_concepts = [], set(), set()
+    for question in questions:
+        key, concept = question_type(question), concept_type(question)
+        if key in seen_types or (concept and concept in seen_concepts):
+            continue
+        result.append(question)
+        seen_types.add(key)
+        if concept:
+            seen_concepts.add(concept)
+    return validate_questions(result[:MAX_QUESTIONS])
+
+def available_type_count(subject, unit):
+    if subject not in SUBJECTS or unit not in units(subject):
+        return 0
+    rng = random.Random(12345)
+    idx = units(subject).index(unit)
+    return len({concept_type(_candidate(subject, idx, k, rng)) for k in range(7)})
+
 
 
 def text(v):
@@ -28,9 +75,9 @@ def fingerprint(q):
 
 
 def validate_questions(questions):
-    if not isinstance(questions, list) or len(questions) != 10:
-        raise ValueError("객관식 문제는 정확히 10문항이어야 합니다.")
-    out, seen = [], set()
+    if not isinstance(questions, list) or not 1 <= len(questions) <= MAX_QUESTIONS:
+        raise ValueError("객관식 문제는 1~10문항으로 구성해 주세요.")
+    out, seen, seen_types, seen_concepts = [], set(), set(), set()
     for i, q in enumerate(questions):
         if not isinstance(q, dict):
             raise ValueError(f"{i+1}번 문제 형식을 확인하세요.")
@@ -48,9 +95,20 @@ def validate_questions(questions):
             raise ValueError(f"{i+1}번 해설 또는 개념 이름을 확인하세요.")
         new = {"id": f"q{i+1:02}", "prompt": p.strip(), "options": [x.strip() for x in options],
                "answer": answer, "explanation": explanation.strip(), "concept": concept.strip() or "개념 확인"}
+        supplied_type = q.get("type_id")
+        if supplied_type is not None and (
+            not isinstance(supplied_type, str) or not supplied_type.strip() or len(supplied_type) > 200
+        ):
+            raise ValueError(f"{i+1}번 유형 식별자를 확인하세요.")
+        new["type_id"] = supplied_type.strip() if supplied_type else question_type(new)
+        key, concept_key = question_type(new), concept_type(new)
         fp = fingerprint(new)
-        if fp in seen: raise ValueError("같은 발문의 문제가 중복되어 있습니다.")
-        seen.add(fp); new["fingerprint"] = fp
+        if fp in seen:
+            raise ValueError("같은 발문의 문제가 중복되어 있습니다.")
+        if key in seen_types or concept_key in seen_concepts:
+            raise ValueError(f"{i+1}번과 같은 문제 유형이 중복됩니다. 한 퀴즈에서는 유형별 한 문항만 출제해 주세요.")
+        seen.add(fp); seen_types.add(key); seen_concepts.add(concept_key)
+        new["fingerprint"] = fp
         out.append(new)
     return out
 
@@ -231,26 +289,42 @@ def _candidate(subject, unit_index, k, r, span=9):
     raise ValueError("기본 출제 단원을 선택해 주세요.")
 
 
-def generate(subject, unit, seed=None, exclude=(), focus=()):
+def generate(subject, unit, seed=None, exclude=(), focus=(), max_questions=MAX_QUESTIONS):
+    """Generate at most one problem per operation, never pad a paper to ten.
+
+    Repetition across later practice rounds is allowed, but exact old prompts
+    are excluded. A finite question family exhausted by history is skipped.
+    """
     if subject not in SUBJECTS or unit not in units(subject):
         raise ValueError("공통수학1·2의 지원 단원을 선택해 주세요. 사용자 정의 단원은 기본 출제 단원을 연결하세요.")
+    if type(max_questions) is not int or not 1 <= max_questions <= MAX_QUESTIONS:
+        raise ValueError("최대 문항 수는 1~10 사이의 정수여야 합니다.")
     r = random.Random(seed)
     idx = units(subject).index(unit)
-    avoid, seen, items, usage = set(exclude), set(), [], {}
-    # A concept-first remediation paper still includes whole-unit review.
-    focus = set(focus or ())
-    for phase in ([True, False] if focus else [False]):
-        goal = 6 if phase else 10
-        for trial in range(3000):
-            k = r.randrange(7)
-            q = _candidate(subject,idx,k,r,span=min(15,9+len(avoid)//20))
+    avoid, seen, items = set(exclude or ()), set(), []
+    focus_keys = {TYPE_ALIASES.get(x, x) for x in (focus or ())}
+    groups = {}
+    for k in range(7):
+        key = concept_type(_candidate(subject, idx, k, random.Random(k)))
+        groups.setdefault(key, []).append(k)
+    ordered = list(groups)
+    r.shuffle(ordered)
+    ordered.sort(key=lambda key: key not in focus_keys)
+    for key in ordered:
+        family = list(groups[key])
+        r.shuffle(family)
+        for trial in range(300):
+            k = family[trial % len(family)]
+            q = _candidate(subject, idx, k, r, span=min(15, 9+len(avoid)//20))
             fp = fingerprint(q)
-            if fp in avoid or fp in seen or (phase and q['concept'] not in focus): continue
-            if not phase and not focus and usage.get(k,0)>=(2 if trial<250 else 4): continue
-            items.append(q); seen.add(fp); usage[k]=usage.get(k,0)+1
-            if len(items)>=goal: break
-        if len(items)>=10: break
-    if len(items)!=10:
-        raise ValueError("기존 문항과 겹치지 않는 10문항을 만들지 못했어요. 다른 단원을 선택하거나 교사가 새 문제를 입력해 주세요.")
+            if fp in avoid or fp in seen:
+                continue
+            q["type_id"] = f"{subject}:{idx}:{key}"
+            items.append(q); seen.add(fp)
+            break
+        if len(items) >= max_questions:
+            break
+    if not items:
+        raise ValueError("기존 발문과 겹치지 않는 새 문제를 만들지 못했습니다. 다른 단원으로 출제해 주세요.")
     r.shuffle(items)
     return validate_questions(items)

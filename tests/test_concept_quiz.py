@@ -56,7 +56,7 @@ class FakeST(types.ModuleType):
     def info(self,v,**kw): self._out('info',v,**kw)
     def dataframe(self,v,**kw): self._out('dataframe',v,**kw)
     def progress(self,v,**kw): self._out('progress',v,**kw)
-    def download_button(self,label,data,**kw): self._out('download',data,**kw); return False
+    def download_button(self,label,data,**kw): self._out('download',data,label=label,**kw); return False
     def container(self,*a,**kw): return nullcontext()
     expander=container
     form=container
@@ -138,23 +138,26 @@ def env(monkeypatch,tmp_path):
 
 @pytest.mark.parametrize('subject',SUBJECTS)
 @pytest.mark.parametrize('index',range(8))
-def test_every_unit_generates_valid_varied_ten_question_papers(subject,index):
+def test_every_unit_generates_unique_type_papers_within_ten(subject,index):
     unit=bank.units(subject)[index];seen=set()
     for seed in range(20):
         questions=bank.generate(subject,unit,seed,exclude=seen)
-        assert len(questions)==10 and len({q['id'] for q in questions})==10
-        assert len({q['fingerprint'] for q in questions})==10
+        assert 1<=len(questions)<=10 and len({q['id'] for q in questions})==len(questions)
+        assert len({bank.question_type(q) for q in questions})==len(questions)
+        assert len({bank.concept_type(q) for q in questions})==len(questions)
+        assert len({q['fingerprint'] for q in questions})==len(questions)
         assert bank.validate_questions(questions)==questions
-        assert len({q['concept'] for q in questions})>=3
+        assert len({q['concept'] for q in questions})==len(questions)  # Exhausted families may reduce later papers.
         assert not seen.intersection(q['fingerprint'] for q in questions)
         seen.update(q['fingerprint'] for q in questions)
 
 
-def test_focus_generation_is_new_and_still_ten_questions():
+def test_focus_generation_prioritizes_without_duplicate_types():
     unit=bank.units('공통수학2')[2]
     first=bank.generate('공통수학2',unit,17)
     second=bank.generate('공통수학2',unit,18,exclude=[q['fingerprint'] for q in first],focus=['반지름'])
-    assert len(second)==10 and sum(q['concept']=='반지름' for q in second)>=6
+    assert 1<=len(second)<=10 and sum(bank.concept_type(q)=='반지름' for q in second)==1
+    assert len({bank.question_type(q) for q in second})==len(second)
 
 
 @pytest.mark.parametrize('bad',[True,False,-1,4,None,'1',1.0])
@@ -229,7 +232,7 @@ def test_marks_no_ox_until_teacher_grades_and_no_keys_until_release(env):
     assert all(set(q)=={'id','prompt','options'} for q in student['questions'])
     assert env.db.read('quiz_sets')==[] and env.db.read('quiz_attempts')==[]
     env.actor(env.t);board=env.svc.dashboard(env.t,qid)
-    assert board['students'][0]['count']==10 and not board['students'][0]['marks']
+    assert board['students'][0]['count']==len(keys) and not board['students'][0]['marks']
     assert all(x['graded']==0 and x['wrong']==0 for x in board['stats'])
     result=env.svc.grade(env.t,qid,[u['id']]);assert result['graded']==1
     board=env.svc.dashboard(env.t,qid);assert board['students'][0]['score']==100
@@ -322,7 +325,7 @@ def test_student_cannot_export_other_person_and_teacher_owner_history(env):
 def test_close_preserves_answers_but_blocks_new_marks(env):
     qid=env.paper();u=env.students[0];env.answer(qid,u)
     env.actor(env.t);env.svc.close(env.t,qid)
-    env.actor(u);p=env.svc.student_paper(u,qid);assert len(p['answers'])==10 and not p['editable']
+    env.actor(u);p=env.svc.student_paper(u,qid);assert len(p['answers'])==len(p['questions']) and not p['editable']
     with pytest.raises(env.svc.QuizError):env.svc.save_answer(u,qid,'q01',0,p['revision'])
     env.actor(env.t);assert env.svc.grade(env.t,qid,[u['id']])['graded']==1
 
@@ -333,7 +336,7 @@ def test_25_students_concurrent_marks_and_grading(env):
     def work(u):return env.answer(qid,u)
     with ThreadPoolExecutor(max_workers=25) as pool:list(pool.map(work,people))
     env.actor(env.t);board=env.svc.dashboard(env.t,qid)
-    assert len(board['students'])==25 and all(s['count']==10 for s in board['students'])
+    assert len(board['students'])==25 and all(s['count']==len(board['questions']) for s in board['students'])
     assert env.svc.grade(env.t,qid)['graded']==25
     assert all(s['score']==100 for s in env.svc.dashboard(env.t,qid)['students'])
     assert len(env.backend.read('quiz_attempts'))==25
@@ -427,7 +430,7 @@ def test_safe_html_and_csv_formula_escape(env):
 def test_student_widget_callbacks_save_selection_without_submit(env):
     qid=env.paper();u=env.actor(env.students[0])
     env.view._student_body(u)
-    radios=[x for x in env.st.outputs if x[0]=='radio'];assert len(radios)==10
+    radios=[x for x in env.st.outputs if x[0]=='radio'];assert len(radios)==len(env.svc.student_paper(u,qid)['questions'])
     assert not any(x[0]=='success' and '정답' in x[1] for x in env.st.outputs)
     key=f'qm_{u["id"]}_{qid}_q01';env.st.session_state[key]=2
     cb,args=env.st.callbacks[key];cb(*args)
@@ -439,11 +442,12 @@ def test_teacher_controls_and_student_never_receive_key_controls(env):
     qid=env.paper();env.view._monitor_body(env.t,'test')
     buttons=[x[1] for x in env.st.outputs if x[0]=='button']
     assert '개별 채점' in buttons and any(x.startswith('일괄 채점') for x in buttons)
-    assert '추가 10문항 생성' in buttons
+    assert '추가 퀴즈 생성 (10문항 이내)' in buttons
     env.st.outputs.clear();u=env.actor(env.students[0]);env.view.page(u)
     buttons=[x[1] for x in env.st.outputs if x[0]=='button']
     assert '개별 채점' not in buttons and '학생에게 결과 공개' not in buttons
-    assert not any(x[0]=='html' for x in env.st.outputs)
+    assert any(x[0]=='html' and 'qz-hero' in x[1] for x in env.st.outputs)
+    assert not any(x[0]=='html' and 'qb-metrics' in x[1] for x in env.st.outputs)
 
 
 def test_generation_callback_selects_new_draft_and_followup_targets(env):

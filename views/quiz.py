@@ -8,6 +8,7 @@ from config import CLASSES, SUBJECTS
 from snorkl_navigation import ACTIVE_TOOL, clear_link
 from quiz_core import bank, service as svc
 from quiz_core.presentation import dashboard_html, STATE
+from quiz_core.student_view import STYLE as STUDENT_STYLE, hero_html, question_html, given_visual_html
 
 ERRORS=(svc.QuizError, svc.PendingSave, PermissionError, ValueError)
 
@@ -43,20 +44,21 @@ def _pending_line(user, qid):
     if status['error']: st.warning('마지막 GitHub 저장 시도가 실패했습니다. 입력은 대기 중이며 연결을 확인해야 합니다.')
 
 
-def _make(user,subject,unit,bank_unit):
+def _make(user,subject,unit,bank_unit,max_questions=10):
     try:
-        qid=svc.create_draft(user,subject,unit,bank_unit=bank_unit)
+        qid=svc.create_draft(user,subject,unit,bank_unit=bank_unit,max_questions=max_questions)
         st.session_state['_quiz_draft']=qid
         st.session_state['q_draft_selector']=qid
-        _notice('10문항 초안을 만들었어요. 발문·보기·정답을 검토한 뒤 배포하세요.')
+        count=len(svc.teacher_paper(user,qid)['questions'])
+        _notice(f'중복 유형 없이 {count}문항을 만들었어요. 문제·보기·정답을 검토한 뒤 배포하세요.')
     except ERRORS as e: _notice(str(e),False)
 
 
-def _followup(user,parent,student_ids,concepts):
+def _followup(user,parent,student_ids,concepts,max_questions=10):
     try:
         if not student_ids: raise svc.QuizError('추가 퀴즈를 받을 학생을 선택하세요.')
         q=svc.teacher_paper(user,parent)
-        qid=svc.create_draft(user,q['subject'],q['unit'],bank_unit=q['bank_unit'],parent_id=parent,focus=concepts)
+        qid=svc.create_draft(user,q['subject'],q['unit'],bank_unit=q['bank_unit'],parent_id=parent,focus=concepts,max_questions=max_questions)
         st.session_state['_quiz_next_draft']=(qid,list(student_ids))
         _navigate()
     except ERRORS as e: _notice(str(e),False)
@@ -75,7 +77,16 @@ def _editor(user,paper):
     expected_key=f'qedit_revision_{qid}'
     st.session_state.setdefault(expected_key,paper['revision'])
     with st.expander('✏️ 문항·보기·정답 수정',expanded=False):
-        st.caption('4지선다 10문항입니다. 한 문항당 10점이며 배포 후에는 문제를 바꿀 수 없습니다.')
+        st.caption(f'4지선다 {len(paper["questions"])}문항입니다. 점수는 정답 수 ÷ 전체 문항 수 × 100으로 환산합니다(소수 둘째 자리에서 반올림). 배포 후에는 수정할 수 없습니다.')
+        if len({bank.question_type(q) for q in paper["questions"]}) < len(paper["questions"]):
+            st.warning('이전 버전에서 만든 초안에 같은 유형이 있습니다. 아래 버튼으로 유형당 한 문항만 남기거나 새 퀴즈를 만들어 주세요.')
+            if st.button('이 초안의 중복 유형 정리', key=f'qdedup_{qid}'):
+                try:
+                    count=svc.deduplicate_draft(user,qid,paper["revision"])
+                    _reset_editor(qid)
+                    _notice(f'중복 유형을 정리해 {count}문항으로 저장했습니다.')
+                    st.rerun()
+                except ERRORS as e: st.error(str(e))
         st.button('작성 중인 수정 취소 · 최신 초안 불러오기',on_click=_reset_editor,args=(qid,),key=f'qreset_{qid}')
         with st.form(f'qedit_{qid}'):
             title=st.text_input('퀴즈 제목',value=paper['title'],max_chars=200,key=f'qtitle_{qid}')
@@ -109,7 +120,7 @@ def _preview(paper):
 
 def _create_view(user):
     st.subheader('단원별 개념확인 퀴즈 만들기')
-    st.caption('기본 문항 틀의 수치·보기를 바꾸어 4지선다 10문항을 생성합니다. AI나 새 API 키가 필요하지 않습니다.')
+    st.caption('유형별 한 문제씩, 최대 10문항을 만듭니다. 같은 풀이 방법에서 수치·좌표·상황만 바꾼 문제로 문항 수를 채우지 않습니다. AI 키는 필요하지 않습니다.')
     cols=st.columns(2)
     subject=cols[0].selectbox('과목 선택',SUBJECTS,key='qgen_subject')
     choices=svc.units(subject)
@@ -118,10 +129,13 @@ def _create_view(user):
     if unit not in bank.units(subject):
         st.info('사용자 정의 단원입니다. 출제 내용에 맞는 기본 단원을 연결하세요.')
         bank_unit=st.selectbox('기본 출제 단원',bank.units(subject),key=f'qgen_base_{subject}')
-    st.button('＋ 개념확인 10문항 만들기',type='primary',on_click=_make,args=(user,subject,unit,bank_unit))
+    max_questions=st.selectbox('최대 문항 수',list(range(1,11)),index=9,key='qgen_maximum')
+    available=bank.available_type_count(subject,bank_unit)
+    st.caption(f'이 기본 단원은 현재 {available}개 유형을 지원합니다. 최대 {min(max_questions,available)}문항을 생성하며, 새 발문이 소진된 유형은 제외될 수 있습니다.')
+    st.button('＋ 개념확인 퀴즈 만들기 (10문항 이내)',type='primary',on_click=_make,args=(user,subject,unit,bank_unit,max_questions))
     drafts=[q for q in svc.list_quizzes(user) if q['state']=='draft']
     if not drafts:
-        st.info('과목과 단원을 선택한 뒤 10문항 만들기를 눌러 주세요.'); return
+        st.info('과목과 단원을 선택한 뒤 퀴즈 만들기를 눌러 주세요.'); return
     ids=[q['id'] for q in drafts]; labels={q['id']:q['title'] for q in drafts}
     active=st.session_state.get('_quiz_draft')
     if active not in ids: active=ids[0]
@@ -189,7 +203,7 @@ def _monitor_body(user,prefix):
     _show_notice()
     quizzes=[q for q in svc.list_quizzes(user) if q['state'] in ('open','closed')]
     if not quizzes:
-        st.info('배포된 퀴즈가 없습니다. 먼저 10문항을 만들고 학생에게 배포하세요.'); return
+        st.info('배포된 퀴즈가 없습니다. 먼저 퀴즈를 만들고 학생에게 배포하세요.'); return
     ids=[q['id'] for q in quizzes]; labels={q['id']:q['title'] for q in quizzes}
     active=st.session_state.get('_quiz_open_id')
     key=f'{prefix}_quiz'
@@ -202,7 +216,7 @@ def _monitor_body(user,prefix):
     st.html(dashboard_html(board))
     st.caption('현재 화면을 열어 둔 동안 약 2초 간격으로 같은 앱 서버의 응답을 확인합니다. GitHub 영구 저장 대기와 구분해서 표시합니다.')
     _pending_line(user,qid)
-    student_labels={s['id']:f'{s["class"]}반 {s["name"]} ({s["id"]}) · {s["count"]}/10' for s in board['students']}
+    student_labels={s['id']:f'{s["class"]}반 {s["name"]} ({s["id"]}) · {s["count"]}/{len(paper["questions"])}' for s in board['students']}
     if not student_labels: return
     selected=st.selectbox('개별 채점할 학생',list(student_labels),format_func=student_labels.get,key=f'{prefix}_sid_{qid}')
     incomplete=st.checkbox('풀이 중·미응답 학생도 현재 답으로 채점합니다. 미응답은 X(0점)이며 채점 후 수정할 수 없습니다.',
@@ -212,7 +226,7 @@ def _monitor_body(user,prefix):
     cols[1].button(f'일괄 채점 · 현재 대상 {len(student_labels)}명',type='primary',on_click=_grade_action,
                    args=(user,qid,list(student_labels),incomplete),key=f'{prefix}_grade_all_{qid}',width='stretch')
     cols[2].button('저장 확인·재시도',on_click=_flush_action,args=(user,qid),key=f'{prefix}_flush_{qid}',width='stretch')
-    st.caption('기본 채점 대상은 제출한 학생 또는 10문항을 모두 선택한 학생입니다. 채점한 답안은 잠기며, 정답은 아직 학생에게 공개되지 않습니다.')
+    st.caption('기본 채점 대상은 제출한 학생 또는 해당 퀴즈의 모든 문항을 선택한 학생입니다. 채점한 답안은 잠기며, 정답은 아직 학생에게 공개되지 않습니다.')
     with st.expander('학생에게 결과 공개 · 수업 종료'):
         confirm=st.checkbox('선택 범위의 채점된 학생에게 점수·O/X·정답·해설을 공개합니다.',key=f'{prefix}_confirm_release_{qid}')
         scope=st.radio('결과 공개 범위',['현재 반 전체','선택한 학생 1명'],horizontal=True,key=f'{prefix}_release_scope_{qid}')
@@ -232,7 +246,7 @@ def _monitor_body(user,prefix):
         _history(user,selected,prefix+qid)
     st.download_button('이 퀴즈 전체 응답·채점표 CSV',svc.export_dashboard(user,qid),
                        file_name=f'quiz_{qid[:8]}_results.csv',mime='text/csv',key=f'{prefix}_csv_{qid}')
-    with st.expander('추가 10문항 만들기 · 보충 퀴즈 배포'):
+    with st.expander('추가 퀴즈 만들기 · 10문항 이내'):
         threshold=st.slider('보충 대상 추천 점수 (미만)',0,100,60,10,key=f'{prefix}_threshold_{qid}')
         recommended,concepts=svc.recommend(user,qid,threshold)
         mode=st.radio('추가 퀴즈 대상',['기준 점수 미만','직접 학생 선택','현재 반 전체'],horizontal=True,key=f'{prefix}_extra_mode_{qid}')
@@ -245,8 +259,9 @@ def _monitor_body(user,prefix):
         else: targets=list(eligible)
         tags=list(dict.fromkeys(q['concept'] for q in paper['questions']))
         focus=st.multiselect('우선 복습할 개념',tags,default=[x for x in concepts if x in tags],key=f'{prefix}_focus_{qid}')
-        st.caption('기존 문제와 동일한 발문을 피하고, 선택한 개념을 우선 포함합니다. 생성 후 문제 검토·배포 화면으로 이동합니다. 기존 점수는 그대로 남습니다.')
-        st.button('추가 10문항 생성',on_click=_followup,args=(user,qid,targets,focus),disabled=not targets,
+        extra_max=st.selectbox('추가 퀴즈 최대 문항 수',list(range(1,11)),index=9,key=f'{prefix}_extra_max_{qid}')
+        st.caption('이번 퀴즈 안에서는 같은 유형을 한 번만 출제합니다. 보충 퀴즈에서 같은 개념을 다시 연습할 수는 있지만, 기존과 완전히 같은 발문은 피합니다. 이전 점수는 그대로 남습니다.')
+        st.button('추가 퀴즈 생성 (10문항 이내)',on_click=_followup,args=(user,qid,targets,focus,extra_max),disabled=not targets,
                   key=f'{prefix}_extra_{qid}',type='primary')
 
 
@@ -274,9 +289,11 @@ def _history(user,sid,prefix):
                    '점수':f'{r["score"]}점' if r.get('score') is not None else '공개 전/미채점'} for r in records],
                   hide_index=True,width='stretch')
     if records[0].get('storage_path'): st.caption('개인 파일: '+records[0]['storage_path'])
-    digest=hashlib.sha256(sid.encode()).hexdigest()[:12]
-    st.download_button('개인 퀴즈 기록 JSON',json.dumps(records,ensure_ascii=False,indent=2).encode(),
-                       file_name=f'quiz_student_{digest}.json',mime='application/json',key=f'{prefix}_personal_json_{digest}')
+    # Students see the history table only. Teacher export remains authorized.
+    if svc.current_actor(user)['role'] == 'teacher':
+        digest=hashlib.sha256(sid.encode()).hexdigest()[:12]
+        st.download_button('개인 퀴즈 기록 JSON',json.dumps(records,ensure_ascii=False,indent=2).encode(),
+                           file_name=f'quiz_student_{digest}.json',mime='application/json',key=f'{prefix}_personal_json_{digest}')
 
 
 def _history_view(user):
@@ -286,6 +303,73 @@ def _history_view(user):
     sid=st.selectbox('개인 기록을 볼 학생',list(labels),format_func=labels.get,key='quiz_history_student')
     _history(user,sid,'quiz_history')
 
+
+
+def _question_download_view(user):
+    if svc.current_actor(user)['role'] != 'teacher':
+        raise PermissionError('교사만 출제 문항을 내려받을 수 있습니다.')
+    st.subheader('출제 문항 다운로드')
+    st.caption('배포 중·종료된 퀴즈를 모두 보관합니다. 학생 이름·답안·성적은 문항 파일에 포함하지 않습니다.')
+    quizzes=[q for q in svc.list_quizzes(user) if q['state'] in ('open','closed')]
+    if not quizzes:
+        st.info('아직 배포한 퀴즈가 없습니다. 퀴즈를 배포하면 여기에 자동으로 모입니다.')
+        return
+    cols=st.columns(2)
+    subjects=['전체']+list(dict.fromkeys(q['subject'] for q in quizzes))
+    subject=cols[0].selectbox('다운로드 과목',subjects,key='qexport_subject')
+    filtered=[q for q in quizzes if subject=='전체' or q['subject']==subject]
+    units=['전체']+list(dict.fromkeys(q['unit'] for q in filtered))
+    if st.session_state.get('qexport_unit') not in units:
+        st.session_state['qexport_unit']='전체'
+    unit=cols[1].selectbox('다운로드 단원',units,key='qexport_unit')
+    filtered=[q for q in filtered if unit=='전체' or q['unit']==unit]
+    st.caption(f'현재 목록: {len(filtered)}개 퀴즈 · {sum(q["question_count"] for q in filtered)}문항. “전체”는 위 과목·단원 필터에 해당하는 목록입니다.')
+    labels={q['id']:f'{q["created_at"][:10]} · {q["title"]} ({q["question_count"]}문항)' for q in filtered}
+    if st.session_state.get('qexport_quiz') not in labels:
+        st.session_state['qexport_quiz']=next(iter(labels))
+    qid=st.selectbox('개별 다운로드할 퀴즈',list(labels),format_func=labels.get,key='qexport_quiz')
+    paper=svc.teacher_paper(user,qid)
+    qlabels={q['id']:f'{i}번 · {q["prompt"][:75]}' for i,q in enumerate(paper['questions'],1)}
+    question=st.selectbox('개별 문항 선택',list(qlabels),format_func=qlabels.get,key=f'qexport_question_{qid}')
+    include=st.checkbox('정답·해설 포함 (교사용 파일)',value=False,key='qexport_answers')
+    fmt_label=st.radio('파일 형식',['Word (.docx)','인쇄용 HTML (.html)'],horizontal=True,key='qexport_format')
+    fmt='docx' if fmt_label.startswith('Word') else 'html'
+    st.caption('기본은 학생용 문제만입니다. Word는 편집용이며, HTML은 브라우저에서 열어 인쇄하거나 PDF로 저장할 수 있습니다.')
+    all_ids=list(labels)
+    # Include current paper revisions so stale prepared files are never reused.
+    versions=[svc.teacher_paper(user,i)['revision'] for i in all_ids]
+    signature=hashlib.sha256(json.dumps([user['id'],all_ids,versions,qid,question,include,fmt],ensure_ascii=False).encode()).hexdigest()
+    state_key='_quiz_prepared_export'
+    cached=st.session_state.get(state_key)
+    if cached and (cached.get('signature')!=signature or cached.get('owner')!=user['id']):
+        st.session_state.pop(state_key,None)
+    buttons=st.columns(3)
+    action=None
+    if buttons[0].button('선택 문항 파일 준비',key='qexport_one'): action=([qid],question,fmt)
+    if buttons[1].button('이 퀴즈 전체 파일 준비',key='qexport_paper'): action=([qid],None,fmt)
+    if buttons[2].button('전체 출제 문항 파일 준비',key='qexport_all'): action=(all_ids,None,fmt)
+    if st.button('전체 문항을 개별 Word 파일 ZIP으로 준비',key='qexport_zip'):
+        action=(all_ids,None,'zip_docx')
+    if action:
+        st.session_state.pop(state_key,None)
+        try:
+            result=svc.export_questions(user,action[0],question_id=action[1],include_answers=include,format=action[2])
+            st.session_state[state_key]=dict(result,owner=user['id'],signature=signature)
+        except ERRORS as err:
+            st.error(str(err))
+        except Exception:
+            st.error('문항 파일을 만들지 못했습니다. requirements.txt 적용 여부와 앱 로그를 확인해 주세요.')
+    prepared=st.session_state.get(state_key)
+    if prepared and prepared['signature']==signature and prepared['owner']==svc.current_actor(user)['id']:
+        st.success(f'{prepared["quiz_count"]}개 퀴즈 · {prepared["question_count"]}문항 파일이 준비되었습니다.')
+        st.download_button('준비한 문항 파일 내려받기',prepared['data'],file_name=prepared['filename'],
+                           mime=prepared['mime'],key='qexport_download',on_click='ignore',type='primary')
+    with st.expander('선택 문항 확인',expanded=True):
+        q=next(q for q in paper['questions'] if q['id']==question)
+        st.write(q['prompt'])
+        for j,option in enumerate(q['options'],1): st.write(f'{j}. {option}')
+        if include: st.caption(f'정답 {q["answer"]+1}번 · {q.get("explanation","")}')
+    st.caption('기존에 배포한 퀴즈의 문항·번호·성적은 변경하지 않습니다. 과거의 중복 문항도 당시 출제 기록 그대로 내려받습니다.')
 
 def _mark(user,qid,item,key,rev):
     try:
@@ -304,8 +388,10 @@ def _student_body(user):
         active=st.session_state.get('_quiz_open_id'); st.session_state[key]=active if active in ids else ids[0]
     qid=st.selectbox('배포된 퀴즈',ids,format_func=labels.get,key=key)
     paper=svc.student_paper(user,qid)
-    st.markdown(f'### {paper["title"]}')
-    st.progress(len(paper['answers'])/10,text=f'답 선택 {len(paper["answers"])}/10')
+    total=len(paper['questions'])
+    st.html(STUDENT_STYLE)
+    st.html(hero_html(paper))
+    st.progress(len(paper['answers'])/max(1,total),text=f'답 선택 {len(paper["answers"])}/{total}')
     _pending_line(user,qid)
     if paper['released']:
         st.success(f'채점 결과 {paper["score"]}점 / 100점')
@@ -316,13 +402,15 @@ def _student_body(user):
     if locked: st.warning('지금은 선생님 설명 시간입니다. 답은 보존되며 수정은 잠시 멈춥니다.')
     solutions={s['id']:s for s in paper.get('solutions',[])}
     for i,q in enumerate(paper['questions'],1):
-        with st.container(border=True):
-            st.markdown(f'**{i}. {q["prompt"]}**')
+        with st.container(border=True,key=f'qv_item_{qid}_{i}'):
+            st.html(question_html(q,i,total,paper['answers'].get(q['id'])))
+            visual=given_visual_html(q['prompt'])
+            if visual: st.html(visual)
             wkey=f'qm_{user["id"]}_{qid}_{q["id"]}'
             # The store is authoritative after conflicts, grading or reconnects.
             st.session_state[wkey]=paper['answers'].get(q['id'])
             st.radio(f'{i}번 답 선택',list(range(4)),index=None,
-                     format_func=lambda v,opts=q['options']:f'{v+1}. {opts[v]}',
+                     format_func=lambda v,opts=q['options']:f'{["①","②","③","④"][v]}  {opts[v]}',
                      key=wkey,on_change=_mark,args=(user,qid,q['id'],wkey,paper['revision']),
                      disabled=not paper['editable'] or locked,label_visibility='collapsed')
             if paper['released']:
@@ -332,10 +420,10 @@ def _student_body(user):
                 st.caption(sol['explanation'])
     if paper['editable'] and not locked:
         allow_blank=False
-        if len(paper['answers'])<10:
+        if len(paper['answers'])<total:
             allow_blank=st.checkbox('미응답 문항이 있는 상태로 제출합니다. 미응답은 채점 시 0점입니다.',key=f'qblank_{qid}_{user["id"]}')
         if st.button('최종 제출 · 저장 확인',type='primary',key=f'qsubmit_{qid}_{user["id"]}',
-                     disabled=len(paper['answers'])<10 and not allow_blank):
+                     disabled=len(paper['answers'])<total and not allow_blank):
             try:
                 svc.submit(user,qid,allow_blank=allow_blank)
                 _notice('최종 제출과 저장을 확인했습니다. 정답은 아직 공개되지 않습니다.'); st.rerun(scope='fragment')
@@ -370,12 +458,13 @@ def page(user):
         st.session_state['quiz_tools_quiz']=st.session_state.get('_quiz_open_id')
     if actor['role']=='teacher':
         _show_notice()
-        section=st.radio('퀴즈 관리',['퀴즈 만들기','응답·채점 대시보드','학생 개인 기록'],
+        section=st.radio('퀴즈 관리',['퀴즈 만들기','응답·채점 대시보드','학생 개인 기록','출제 문항 다운로드'],
                          horizontal=True,key='quiz_teacher_section')
         try:
             if section=='퀴즈 만들기': _create_view(user)
             elif section=='응답·채점 대시보드': render_monitor(user)
-            else: _history_view(user)
+            elif section=='학생 개인 기록': _history_view(user)
+            else: _question_download_view(user)
         except ERRORS as e: st.error(str(e))
     else:
         st.fragment(_student_guarded,run_every=3)(user)
@@ -388,7 +477,7 @@ def teacher_dashboard(user):
             st.button('퀴즈 만들러 가기',on_click=_navigate,key='dashboard_quiz_start')
             return
         st.subheader('개념퀴즈 · 학생별 응답과 채점')
-        st.button('퀴즈 만들기·개인 기록 메뉴 열기',on_click=_navigate,key='dashboard_quiz_open')
+        st.button('퀴즈 만들기·문항 다운로드·개인 기록',on_click=_navigate,key='dashboard_quiz_open')
         render_monitor(user,'quiz_dashboard')
     except ERRORS as e: st.warning(str(e))
 

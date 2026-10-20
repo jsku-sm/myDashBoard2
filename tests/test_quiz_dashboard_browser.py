@@ -35,7 +35,7 @@ def board(env):
     env.answer(qid,env.students[0])
     keys=env.answer(qid,env.students[1])
     env.actor(env.students[1])
-    env.svc.save_answer(env.students[1],qid,'q01',(keys[0]['answer']+1)%4,10)
+    env.svc.save_answer(env.students[1],qid,'q01',(keys[0]['answer']+1)%4,len(keys))
     env.actor(env.students[2]); env.svc.save_answer(env.students[2],qid,'q01',1,0)
     env.actor(env.t);env.svc.grade(env.t,qid,[s['id'] for s in env.students[:2]])
     return env.svc.dashboard(env.t,qid)
@@ -46,11 +46,11 @@ def show(page,board):
                      '<style>html{color-scheme:light dark}body{margin:16px}</style>'+dashboard_html(board)+'</html>')
 
 
-def test_ten_columns_correct_stats_and_student_rows(page,board):
+def test_variable_columns_correct_stats_and_student_rows(page,board):
     show(page,board)
     assert page.locator('tbody tr').count()==5
-    assert page.locator('thead th').count()==14
-    assert page.locator('.qb-stat').count()==10
+    assert page.locator('thead th').count()==len(board['questions'])+4
+    assert page.locator('.qb-stat').count()==len(board['questions'])
     assert page.locator('.qb-stat b').first.inner_text()=='1명'
     assert page.locator('.qb-stat b').nth(1).inner_text()=='0명'
     assert '2명' in page.locator('.qb-metric').nth(2).inner_text()
@@ -58,7 +58,7 @@ def test_ten_columns_correct_stats_and_student_rows(page,board):
 
 def test_only_graded_rows_have_ox(page,board):
     show(page,board)
-    assert page.locator('tbody tr').nth(0).locator('.qb-ok').count()==10
+    assert page.locator('tbody tr').nth(0).locator('.qb-ok').count()==len(board['questions'])
     assert page.locator('tbody tr').nth(1).locator('.qb-no').count()==1
     assert page.locator('tbody tr').nth(2).locator('.qb-ok,.qb-no').count()==0
     assert page.locator('tbody tr').nth(2).locator('.qb-wait').inner_text()=='②'
@@ -94,7 +94,7 @@ def test_no_grade_shows_dash_not_wrong_count_zero(page,board):
     for s in empty['students']:s.update(state='working',marks={},score=None)
     show(page,empty)
     assert page.locator('.qb-no,.qb-ok').count()==0
-    assert page.locator('.qb-stat b').all_inner_texts()==['—']*10
+    assert page.locator('.qb-stat b').all_inner_texts()==['—']*len(board['questions'])
 
 
 def test_dark_mode_uses_dark_cells(page,board):

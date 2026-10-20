@@ -10,3 +10,6 @@ pydantic>=2.8,<3
 Pillow>=10.4,<13
 qrcode[pil]>=8,<9
 pypdf>=6.8,<7
+
+# Teacher question handout export (no font files are bundled).
+python-docx>=1.2,<2

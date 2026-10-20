@@ -7,6 +7,7 @@ Only this module reads raw quiz tables. Student responses are allowlisted.
 from __future__ import annotations
 from copy import deepcopy
 import csv
+from decimal import Decimal, ROUND_HALF_UP
 import hashlib
 import io
 import json
@@ -30,6 +31,18 @@ def _parse(v, default): return json.loads(v) if v else deepcopy(default)
 def _stamp(): return db.now().isoformat(timespec="microseconds")
 def _id(): return uuid.uuid4().hex
 
+
+def _score(correct, total):
+    if not total:
+        raise QuizError("문항이 없는 퀴즈는 채점할 수 없습니다.")
+    value = (Decimal(correct) * 100 / Decimal(total)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+    return int(value) if value == value.to_integral() else float(value)
+
+def _read_score(value):
+    if value in (None, ""):
+        return None
+    number = Decimal(str(value))
+    return int(number) if number == number.to_integral() else float(number)
 
 def _actor(user, backend, role=None):
     session = st.session_state.get("user") or {}
@@ -119,7 +132,8 @@ def flush(user, quiz_id):
 
 
 def _metadata(row):
-    return {k: row[k] for k in ("id", "subject", "unit", "title", "state", "created_at", "parent_id", "round")}
+    return dict({k: row[k] for k in ("id", "subject", "unit", "title", "state", "created_at", "parent_id", "round")},
+                question_count=len(_parse(row.get("question_json", ""), [])))
 
 
 def list_quizzes(user):
@@ -160,7 +174,7 @@ def teacher_paper(user, quiz_id):
                     bank_unit=row["bank_unit"], revision=revision(row), generator=row["generator"])
 
 
-def create_draft(user, subject, unit, *, bank_unit=None, parent_id="", focus=()):
+def create_draft(user, subject, unit, *, bank_unit=None, parent_id="", focus=(), max_questions=bank.MAX_QUESTIONS):
     if subject not in SUBJECTS or unit not in units(subject): raise QuizError("과목과 단원을 선택하세요.")
     source_unit = bank_unit or unit
     backend = db._ready_backend()
@@ -174,7 +188,7 @@ def create_draft(user, subject, unit, *, bank_unit=None, parent_id="", focus=())
         previous = [x for x in backend.read("quiz_sets") if x["teacher_id"] == actor["id"]
                     and x["subject"] == subject and x["unit"] == unit]
         exclude = {bank.fingerprint(q) for x in previous for q in _parse(x["question_json"], [])}
-    questions = bank.generate(subject, source_unit, secrets.randbits(64), exclude=exclude, focus=focus)
+    questions = bank.generate(subject, source_unit, secrets.randbits(64), exclude=exclude, focus=focus, max_questions=max_questions)
     t, qid = _stamp(), _id()
     row = {"id": qid, "teacher_id": actor["id"], "subject": subject, "unit": unit, "bank_unit": source_unit,
            "title": f"{subject} · {unit} · {round_no}차 개념퀴즈", "state": "draft", "created_at": t, "updated_at": t,
@@ -237,7 +251,7 @@ def student_paper(user, quiz_id):
                    saved=bool(a and _durable(backend,"quiz_attempts",a)), editable=(row["state"]=="open" and (not a or a["state"]=="working")),
                    released=False, submitted_at=a["submitted_at"] if a else "")
         if a and a["state"] == "graded" and a["released_at"] and _durable(backend,"quiz_attempts",a):
-            out.update(released=True, score=int(a["score"]), marks=_parse(a["marks_json"],{}),
+            out.update(released=True, score=_read_score(a["score"]), marks=_parse(a["marks_json"],{}),
                        solutions=[{k:q[k] for k in ("id","answer","explanation")} for q in questions])
         return out
 
@@ -275,7 +289,7 @@ def submit(user, quiz_id, *, allow_blank=False):
         if a['state']=='graded': raise QuizError("이미 선생님이 채점한 답안입니다.")
         if a['state']=='working':
             if row['state']!='open': raise QuizError("퀴즈가 종료되었습니다.")
-            if len(_parse(a['answers_json'],{}))<10 and allow_blank is not True: raise QuizError("아직 선택하지 않은 문항이 있어요.")
+            if len(set(_parse(a['answers_json'],{})) & {q['id'] for q in _parse(row['question_json'],[])})<len(_parse(row['question_json'],[])) and allow_blank is not True: raise QuizError("아직 선택하지 않은 문항이 있어요.")
             a.update(state='submitted', submitted_at=_stamp(), updated_at=_stamp(), revision=str(int(a['revision'])+1))
             _put(backend,'quiz_attempts',a)
     flush(user,quiz_id)
@@ -286,10 +300,12 @@ def _grade(backend,row,target,teacher,include_incomplete):
     if a and a['state']=='graded': return 'already'
     if not a: a=_new_attempt(row,target)
     answers=_parse(a['answers_json'],{})
-    if not include_incomplete and a['state']!='submitted' and len(answers)<10: return 'skipped'
+    paper = _parse(row['question_json'], [])
+    if not include_incomplete and a['state']!='submitted' and len(set(answers) & {q['id'] for q in paper}) < len(paper):
+        return 'skipped' 
     marks={q['id']: (answers.get(q['id'])==q['answer']) for q in _parse(row['question_json'],[])}
     a.update(state='graded', graded_at=_stamp(), graded_by=teacher['id'], marks_json=_json(marks),
-             score=str(sum(marks.values())*10), updated_at=_stamp(), revision=str(int(a['revision'])+1))
+             score=str(_score(sum(marks.values()),len(marks))), updated_at=_stamp(), revision=str(int(a['revision'])+1))
     _put(backend,'quiz_attempts',a)
     return 'graded'
 
@@ -345,7 +361,7 @@ def dashboard(user, quiz_id, class_filter='전체'):
             a=attempts.get(t['id'])
             answers=_parse(a['answers_json'],{}) if a else {}
             students.append(dict(t, answers=answers, count=len(answers), state=a['state'] if a else 'not_started',
-                score=int(a['score']) if a and a['state']=='graded' else None,
+                score=_read_score(a['score']) if a and a['state']=='graded' else None,
                 marks=_parse(a['marks_json'],{}) if a and a['state']=='graded' else {},
                 released=bool(a and a['released_at']), saved=bool(a and _durable(backend,'quiz_attempts',a)),
                 updated_at=a['updated_at'] if a else '', revision=int(a['revision']) if a else 0))
@@ -388,7 +404,7 @@ def history(user, student_id):
                    submitted_at=a['submitted_at'],graded_at=a['graded_at'],released=released,
                    storage_path=db.GitHubBackend._path('quiz_attempts',a) if actor['role']=='teacher' else '')
             if actor['role']=='teacher' or released:
-                x.update(score=int(a['score']) if a['score'] else None,marks=_parse(a['marks_json'],{}))
+                x.update(score=_read_score(a['score']) if a['score'] else None,marks=_parse(a['marks_json'],{}))
             out.append(x)
         return sorted(out,key=lambda x:x['updated_at'],reverse=True)
 
@@ -401,7 +417,7 @@ def _csv_safe(v):
 def export_dashboard(user,quiz_id):
     board=dashboard(user,quiz_id)
     f=io.StringIO(newline=''); w=csv.writer(f)
-    w.writerow(['학급','학번','이름','응답수','상태','점수']+[f'{i}번' for i in range(1,11)])
+    w.writerow(['학급','학번','이름','응답수','상태','점수']+[f'{i}번' for i in range(1,len(board['questions'])+1)])
     for s in board['students']:
         cells=[]
         for q in board['questions']:
@@ -410,3 +426,50 @@ def export_dashboard(user,quiz_id):
             cells.append(label)
         w.writerow([_csv_safe(v) for v in [s['class'],s['id'],s['name'],s['count'],s['state'],s['score'] if s['score'] is not None else '',*cells]])
     return f.getvalue().encode('utf-8-sig')
+
+
+def deduplicate_draft(user, quiz_id, expected_revision):
+    paper = teacher_paper(user, quiz_id)
+    if paper["state"] != "draft":
+        raise QuizError("이미 배포한 퀴즈의 문항과 점수는 변경하지 않습니다.")
+    questions = bank.unique_draft_questions(paper["questions"])
+    edit_draft(user, quiz_id, paper["title"], questions, expected_revision)
+    return len(questions)
+
+
+def export_questions(user, quiz_ids, *, question_id=None, include_answers=False, format="docx"):
+    """Authorize before collecting any answer keys; export no student records."""
+    if not isinstance(quiz_ids, (list, tuple)) or not quiz_ids or any(not isinstance(i, str) for i in quiz_ids):
+        raise QuizError("내려받을 퀴즈를 선택하세요.")
+    if type(include_answers) is not bool:
+        raise QuizError("정답 포함 설정을 확인하세요.")
+    ids = list(dict.fromkeys(quiz_ids))
+    if question_id is not None and len(ids) != 1:
+        raise QuizError("개별 문항은 퀴즈 하나에서 선택하세요.")
+    backend = db._ready_backend()
+    snapshots = []
+    with backend.lock:
+        _actor(user, backend, "teacher")
+        for quiz_id in ids:
+            row = _quiz(backend, quiz_id)
+            _owner(user, backend, row)
+            if row["state"] not in ("open", "closed"):
+                raise QuizError("출제 문항 다운로드는 배포했거나 종료한 퀴즈를 대상으로 합니다.")
+            questions = deepcopy(_parse(row["question_json"], []))
+            selected = [(i, q) for i, q in enumerate(questions, 1)
+                        if question_id is None or q["id"] == question_id]
+            if not selected:
+                raise QuizError("내려받을 문항을 찾을 수 없습니다.")
+            # Only the fields that can appear in a question file leave storage.
+            clean = []
+            for number, q in selected:
+                item = {k: deepcopy(q.get(k, "")) for k in ("id", "prompt", "options", "concept")}
+                item["number"] = number
+                if include_answers:
+                    item.update(answer=q["answer"], explanation=q.get("explanation", ""))
+                clean.append(item)
+            snapshots.append(dict(_metadata(row), questions=clean))
+    if sum(len(p["questions"]) for p in snapshots) > 1000:
+        raise QuizError("한 번에 최대 1,000문항까지 파일로 만들 수 있습니다. 과목·단원 필터로 나누어 내려받으세요.")
+    from .exports import build_export
+    return build_export(snapshots, include_answers=include_answers, format=format)

@@ -1,0 +1,92 @@
+{
+  "base_archive": "myDashBoard2_quiz_full.zip",
+  "base_sha256": "3dd580ed5ec073a75571fddc2c68e77ec21c719690ff5f7daeb5e9b6a11cba96",
+  "data_migration": false,
+  "changed": [
+    {
+      "path": "QUIZ_TEST_RESULTS.md",
+      "previous_sha256": "d46ac1bbd55e11218e3fc7c768de13f915952caa3f0e559a4bb508bc4dbaa34f",
+      "sha256": "f5da5f5c7529d876ef1bcebb5db62aa66ba4c96d88a06b45e57bee98ea0410fd"
+    },
+    {
+      "path": "QUIZ_UPDATE.md",
+      "previous_sha256": "79293e5471efd618e5f1cc7318f7a29aed8578c5d2f0b4a41b93fca4a801e35f",
+      "sha256": "e377807e5abea860b5a45f69fa3e8c277327c36cca21596bf56414be8516b6bc"
+    },
+    {
+      "path": "QUIZ_V2_TEST_RESULTS.md",
+      "previous_sha256": null,
+      "sha256": "28d4381d23cd193e6ca27ddf67f9a02704c585d1764b9e677b6a4d1ca361d162"
+    },
+    {
+      "path": "QUIZ_V2_UPDATE.md",
+      "previous_sha256": null,
+      "sha256": "e377807e5abea860b5a45f69fa3e8c277327c36cca21596bf56414be8516b6bc"
+    },
+    {
+      "path": "README.md",
+      "previous_sha256": "f16fd96e4cdd460b8f62f384458591971f4bfc0b171f726abd15077e268f3fbb",
+      "sha256": "0b4141433de15db09708a36a4c3c715149bb77838f56127e7c335cc59b7ed7ee"
+    },
+    {
+      "path": "quiz_core/__init__.py",
+      "previous_sha256": "76c4ccac5864bef9451b3e979944b30ae3fa806ef96fcae24bda1aa5f26f0fd9",
+      "sha256": "7d97c1e5633e75442e3f91b9a4603466eaccbf4d23cdf9623dd4d04cc48376e0"
+    },
+    {
+      "path": "quiz_core/bank.py",
+      "previous_sha256": "e019260a07b65bac0170d35042d313c196f80bd691b6c4ed58577c90a78f9431",
+      "sha256": "c12234c101d9370cec9ebff05ed8eafe1030e6f6397014369a8a42b060695499"
+    },
+    {
+      "path": "quiz_core/exports.py",
+      "previous_sha256": null,
+      "sha256": "04ed84a3a6061d44be27ba7104b1f268b6098566e24b4b0fcb6a8239f9ed0ae1"
+    },
+    {
+      "path": "quiz_core/presentation.py",
+      "previous_sha256": "e35fbf6f7461b6e291233e576d8a665bdbb8cf26f80f41aba16d898f284bbff0",
+      "sha256": "4216ba3947d2dbeacb8b480f0f16e766a12f95bf7e48349a5d38fa4a141758af"
+    },
+    {
+      "path": "quiz_core/service.py",
+      "previous_sha256": "d94e1f7d8ee8ae41b27733f99d5e6f355ceb996a08f5c61bda28cc701be1e86c",
+      "sha256": "57a9c1a3778a2aec3edf1cb5e4754d5cb209ee9558c614f712dd5152be89c7ad"
+    },
+    {
+      "path": "quiz_core/student_view.py",
+      "previous_sha256": null,
+      "sha256": "b9974f70bba49bcc569803501ef15cff9b3b2bfe0ceb6e95ccc8bfb21fe02fbf"
+    },
+    {
+      "path": "requirements.txt",
+      "previous_sha256": "9d56b25f1d8a79ba93084af46035fb3c74ca3d73a9413d525c8684809964c67a",
+      "sha256": "c0cf16ff4cab6f2eaf494c5a763069f61539ead40d7ced266df095950e78cf92"
+    },
+    {
+      "path": "tests/test_concept_quiz.py",
+      "previous_sha256": "f1f1ac377d2873e65fb970d287be77405c37e2a102d355e64ae98bcba43b4cff",
+      "sha256": "5211cb5944955f4ea391b5d4f244ec113914612975f1522656f31d9496afb795"
+    },
+    {
+      "path": "tests/test_quiz_dashboard_browser.py",
+      "previous_sha256": "f76f37cef88934f76d17b81740efc98a9415b48547a56525c4e2b94cdb7041e4",
+      "sha256": "574ef53709f11f8c457e89136b432ff226334d2473cbed6bb80ebbdebab549a4"
+    },
+    {
+      "path": "tests/test_quiz_revision_v2.py",
+      "previous_sha256": null,
+      "sha256": "1a79f9008e21e658ab261a20347e058c19cddb761ead1f8606381e0fc7671053"
+    },
+    {
+      "path": "tests/test_quiz_student_visual_browser.py",
+      "previous_sha256": null,
+      "sha256": "a55646aa9742c27e3b86fda9706861a668ff0ab441a627beace968e75774871f"
+    },
+    {
+      "path": "views/quiz.py",
+      "previous_sha256": "38cbfa82016e9c01c2043e505e531fc59a5c3752ce8137bd0dce9e7144ee9f96",
+      "sha256": "fcc504fb7b0bc60271057e473711ad03d14c823d5ebc2edf85fdd861e3bd34f3"
+    }
+  ]
+}

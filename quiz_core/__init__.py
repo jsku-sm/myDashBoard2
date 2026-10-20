@@ -1,1 +1,1 @@
-"""Teacher-controlled ten-question concept quizzes. No external AI required."""
+"""Teacher-controlled concept quizzes, 1-10 unique types per paper."""
