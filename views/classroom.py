@@ -46,8 +46,10 @@ def _iso(value):
 
 
 def _name(course):
-    return " · ".join(str(part) for part in (course.get("class_name"), course.get("title"),
-                                            KINDS.get(course.get("kind"), course.get("kind"))) if part)
+    parts = [str(part).strip() for part in (course.get("class_name"), course.get("title"),
+                                          KINDS.get(course.get("kind"), course.get("kind")))
+             if part and str(part).strip()]
+    return " · ".join(dict.fromkeys(parts))
 
 
 def _lesson_name(lesson):
