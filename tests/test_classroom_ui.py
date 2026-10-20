@@ -133,6 +133,8 @@ def test_concurrent_update_preserves_draft_until_latest_record_review():
 def test_teacher_dashboard_uses_saved_courses_and_missing_plan_label():
     app = AppTest.from_string(SCRIPT)
     app.session_state["test_mode"] = "dashboard"
+    # The former dashboard remains available as the explicit detailed view.
+    app.session_state["classroom_t_dashboard_layout"] = "기존 상세 진도"
     app.run()
     assert not app.exception
     assert {item.label for item in app.selectbox} >= {"학기", "과목", "정규·방과후", "단원"}

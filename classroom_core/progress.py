@@ -522,8 +522,12 @@ class ClassroomService:
             raise ValidationError("수업과 공통 수업안의 과목이 다릅니다.")
         if course["curriculum_id"] and course["curriculum_id"] != curriculum_id and course["lesson_records"]:
             raise ValidationError("운영 기록이 있는 수업은 다른 수업안으로 덮어쓸 수 없습니다. 새 수업으로 개설하세요.")
+        # Uploaded board content is independent of the common curriculum.
+        # Reapplying a curriculum must not erase distributed files or completion.
+        extras = [copy.deepcopy(lesson) for lesson in course.get("lessons", [])
+                  if lesson.get("board_content_id") and lesson["id"] not in {row["id"] for row in curriculum["lessons"]}]
         course.update(curriculum_id=curriculum_id, curriculum_title=curriculum["title"],
-                      curriculum_version=curriculum["version"], lessons=copy.deepcopy(curriculum["lessons"]))
+                      curriculum_version=curriculum["version"], lessons=copy.deepcopy(curriculum["lessons"]) + extras)
         # Retain removed lesson operating records for audit and future restore;
         # only the explicit snapshot participates in the denominator.
         return self._write("courses", course_id, course, expected_version, "curriculum_apply", reason)
@@ -649,6 +653,9 @@ class ClassroomService:
             templates = {item["id"]: item for item in source.get(embedded_key, [])}
             templates.update({item["id"]: item for item in self.store.list(namespace, fresh=True)
                               if item.get("course_id") == course_id})
+            if namespace == "materials":
+                from .teaching_board import TeachingBoardService
+                templates.update({item["id"]: item for item in TeachingBoardService(self).materials(course_id)})
             output = []
             for original_id, item in templates.items():
                 if item.get("activity_id") or "snorkl" in item.get("methods", []):
@@ -665,6 +672,8 @@ class ClassroomService:
                 output.append(template)
             record[embedded_key] = output
         for lesson in record["lessons"]:
+            # The new course owns private draft copies, not an old distribution.
+            lesson.pop("board_content_id", None)
             lesson.pop("activity_id", None)
             resources = []
             for resource in lesson.get("resources", []):

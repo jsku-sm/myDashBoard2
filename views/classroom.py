@@ -220,6 +220,16 @@ def _csv(rows):
 
 
 def _dashboard(service, courses, user):
+    mode = st.segmented_control("전체 학급 진도 보기", ["수업내용 체크", "기존 상세 진도"],
+                                default="수업내용 체크", key=_key(user, "dashboard_layout")) or "수업내용 체크"
+    if mode == "기존 상세 진도":
+        _legacy_dashboard(service, courses, user)
+    else:
+        from views.classroom_progress_board import render_board
+        render_board(service, courses, user)
+
+
+def _legacy_dashboard(service, courses, user):
     st.markdown("### 전체 학급 진도")
     st.caption("교사가 확인한 고유 차시의 완료 기록으로 계산해요. 자료 열기·학생 제출은 진도를 바꾸지 않아요.")
     owned = [course for course in courses if _teacher(user, course)]

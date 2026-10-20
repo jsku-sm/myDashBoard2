@@ -287,7 +287,9 @@ def render_materials(service, course, user=None):
     for material in materials:
         with st.container(border=True):
             _material_body(work, course, material, _key("material", material["id"], _user(work)["id"]))
-            if teacher and not course.get("archived") and not material.get("disabled"):
+            if teacher and material.get("board_content_id"):
+                st.caption("전체 학급 진도에서 등록한 공통 자료입니다. 반별 배포는 해당 화면에서 관리하세요.")
+            if teacher and not course.get("archived") and not material.get("disabled") and not material.get("board_content_id"):
                 if not material.get("published"):
                     if st.button("학생에게 배포", key=_key("material_publish", course["id"], material["id"], _user(work)["id"]),
                                  width="stretch"):

@@ -189,9 +189,16 @@ class WorkService:
                 current = self.store.get(namespace, discovered["id"], fresh=True)
                 if current and current.get("course_id") == course_id:
                     records[current["id"]] = current
+        if namespace == "materials":
+            from .teaching_board import TeachingBoardService
+            for material in TeachingBoardService(self.service).materials(course_id):
+                records[material["id"]] = material
         return list(records.values())
 
     def _embedded(self, namespace, course_id, record_id):
+        if namespace == "materials" and record_id.startswith("board:"):
+            from .teaching_board import TeachingBoardService
+            return TeachingBoardService(self.service).material(course_id, record_id[len("board:"):])
         if namespace == "stream":
             # A distribution is published by one durable CAS write. Each board
             # gets its own identity; its first edit/comment materializes only
@@ -386,6 +393,8 @@ class WorkService:
                       activity_id="", material_id=None, published=False, publish_at=None,
                       target_student_ids=()):
         course = self._course(course_id, teacher=True, write=True)
+        if material_id and material_id.startswith("board:"):
+            raise ValidationError("전체 학급 진도에서 등록한 공통 수업내용입니다. 해당 화면에서 배포를 관리하세요.")
         url = _text(url, "자료 링크", 2000, False)
         if url and (urlsplit(url).scheme not in ("https", "http") or not urlsplit(url).netloc or urlsplit(url).username):
             raise ValidationError("자료 링크는 http 또는 https 주소로 입력하세요.")
@@ -417,6 +426,9 @@ class WorkService:
 
     def publish_material(self, course_id, material_id):
         """Distribute an existing draft without replacing its files or targets."""
+        if material_id.startswith("board:"):
+            self._course(course_id, teacher=True, write=True)
+            return self._safe(self._owned_record("materials", material_id, course_id))
         def change(old):
             if not old or old.get("course_id") != course_id:
                 raise PermissionDenied("자료가 없거나 접근 권한이 없습니다.")
