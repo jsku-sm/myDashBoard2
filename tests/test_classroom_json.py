@@ -18,6 +18,64 @@ def json_cloud(remote):
     return GitHubStore("jsku-sm/class-dashboard-data", "main", "synthetic-test-token", session=remote)
 
 
+def test_json_25_students_join_by_code_without_losing_members_across_instances(monkeypatch):
+    import classroom_core.progress as progress
+    remote = MockGitHub()
+    users = {"t": {"id": "t", "role": "teacher"}}
+    users.update({f"s{i}": {"id": f"s{i}", "role": "student", "class": "1-1"} for i in range(25)})
+    teacher = ClassroomService(json_cloud(remote), users["t"], users.get, lock_checker=lambda _: False)
+    monkeypatch.setattr(progress.secrets, "randbelow", lambda _: 7)
+    course = teacher.create_course("1-1", "2026-2", "수학", class_name="1-1")
+    assert course["join_code"] == "000007"
+    barrier = threading.Barrier(25)
+
+    def join(index):
+        student = ClassroomService(json_cloud(remote), users[f"s{index}"], users.get, lock_checker=lambda _: False)
+        barrier.wait(timeout=20)
+        receipt = student.join_course("000007")
+        assert student.join_course("000007") == receipt
+        assert "join_code" not in student.get_course(course["id"])
+        return receipt
+
+    with ThreadPoolExecutor(max_workers=25) as pool:
+        receipts = list(pool.map(join, range(25)))
+    assert receipts == [{"status": "approved", "course_id": course["id"]}] * 25
+    restarted = ClassroomService(json_cloud(remote), users["t"], users.get, lock_checker=lambda _: False)
+    saved = restarted.get_course(course["id"])
+    assert len(saved["student_ids"]) == 25
+    assert set(saved["student_ids"]) == {f"s{i}" for i in range(25)}
+    assert saved["pending_student_ids"] == []
+    assert restarted.get_join_code(course["id"]) == "000007"
+
+
+def test_json_reserved_code_cannot_join_until_course_save_and_recovers_after_restart(monkeypatch):
+    remote = MockGitHub()
+    store = json_cloud(remote)
+    users = {"t": {"id": "t", "role": "teacher"}, "s": {"id": "s", "role": "student", "class": "1-1"}}
+    teacher = ClassroomService(store, users["t"], users.get, lock_checker=lambda _: False)
+    course = teacher.create_course("1-1", "2026-2", "수학", class_name="1-1")
+    code = course.pop("join_code")
+    store.put("courses", course["id"], course, course["version"])
+    original_put = store.put
+
+    def fail_course_write(namespace, record_id, record, expected_version=None):
+        if namespace == "courses":
+            raise StorageError("synthetic course write failure")
+        return original_put(namespace, record_id, record, expected_version)
+
+    monkeypatch.setattr(store, "put", fail_course_write)
+    with pytest.raises(StorageError):
+        teacher.get_join_code(course["id"])
+    student = ClassroomService(json_cloud(remote), users["s"], users.get, lock_checker=lambda _: False)
+    with pytest.raises(PermissionDenied):
+        student.join_course(code)
+    assert student.list_courses() == []
+    restarted = ClassroomService(json_cloud(remote), users["t"], users.get, lock_checker=lambda _: False)
+    assert restarted.get_join_code(course["id"]) == code
+    assert student.join_course(code)["status"] == "approved"
+    assert len(restarted.get_course(course["id"])["student_ids"]) == 1
+
+
 def test_json_25_concurrent_students_duplicate_receipts_and_restart():
     remote = MockGitHub()
     store, users, teacher, cid, work = environment(json_cloud(remote), count=25)

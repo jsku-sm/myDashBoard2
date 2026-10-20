@@ -29,13 +29,15 @@ if "test_store" not in st.session_state:
         {"id":"two", "unit":"기하", "title":"원"}])
     course = teacher.create_course("수학 수업", "2026-2", "수학", class_name="1-1", curriculum_id=plan["id"], student_ids=["s"])
     after = teacher.create_course("방과후", "2026-2", "수학", kind="after_school", class_name="1-1")
-    student = ClassroomService(store, users["s"], users.get, lock_checker=lambda _:False)
-    student.request_join(after["id"])
+    # Preserve an old approval request without relying on the retired UUID join flow.
+    after["pending_student_ids"] = ["s"]
+    store.put("courses", after["id"], after, after["version"])
     st.session_state.test_store = store
     st.session_state.test_course = course["id"]
+    st.session_state.test_after = after["id"]
 store = st.session_state.test_store
 mode = st.session_state.get("test_mode", "editor")
-user = users["s"] if mode == "student" else users["t"]
+user = users["s"] if mode.startswith("student") else users["t"]
 service = ClassroomService(store, user, users.get, lock_checker=lambda _:False)
 course = service.get_course(st.session_state.test_course)
 if mode == "editor":
@@ -46,6 +48,19 @@ elif mode == "matrix":
     view._matrix(service, service.list_courses(), user, "전체")
 elif mode == "student":
     view._my_courses(service, service.list_courses(), user)
+elif mode == "student_today":
+    import classroom_core
+    original = classroom_core.get_store
+    original_service = classroom_core.ClassroomService
+    classroom_core.get_store = lambda:store
+    classroom_core.ClassroomService = lambda *args, **kwargs:service
+    try:
+        view.page(user)
+    finally:
+        classroom_core.get_store = original
+        classroom_core.ClassroomService = original_service
+elif mode == "members":
+    view._members(service, course, user)
 '''
 
 
@@ -145,6 +160,141 @@ def test_pending_student_course_is_not_opened_or_exposed():
     picker = element(app.selectbox, "수업 선택")
     assert len(picker.options) == 1 and "수학 수업" in picker.options[0]
     assert not app.error
+
+
+def student_app(mode="student"):
+    app = AppTest.from_string(SCRIPT)
+    app.session_state["test_mode"] = mode
+    return app.run()
+
+
+@pytest.mark.parametrize("mode", ["student", "student_today"])
+def test_student_join_form_is_visible_on_both_student_screens(mode):
+    app = student_app(mode)
+    assert not app.exception
+    assert element(app.text_input, "6자리 승인코드").value == ""
+    assert element(app.button, "수업 참여하기")
+    assert not any("참여 코드로" in item.label for item in app.expander)
+
+
+@pytest.mark.parametrize("code", ["", "12345", "abc123", "１２３４５６"])
+def test_student_join_code_requires_six_ascii_digits(code):
+    app = student_app()
+    element(app.text_input, "6자리 승인코드").set_value(code)
+    element(app.button, "수업 참여하기").click().run()
+    assert not app.exception
+    assert any("숫자 6자리" in item.value for item in app.warning)
+    assert element(app.text_input, "6자리 승인코드").value == code
+    assert len(element(app.selectbox, "수업 선택").options) == 1
+
+
+def test_student_join_code_joins_immediately_and_selects_course():
+    app = student_app()
+    store, after_id = app.session_state["test_store"], app.session_state["test_after"]
+    after = store.get("courses", after_id)
+    code = next(candidate for candidate in ["012345"] + [f"{number:06d}" for number in range(10)]
+                if not store.get("course_join_codes", candidate))
+    after["join_code"] = code
+    store.put("courses", after_id, after, after["version"])
+    store.put("course_join_codes", code, {"id":code, "course_id":after_id}, None)
+    element(app.text_input, "6자리 승인코드").set_value(code)
+    element(app.button, "수업 참여하기").click().run()
+    assert not app.exception
+    assert not app.error
+    assert element(app.selectbox, "수업 선택").value == after_id
+    assert "s" in store.get("courses", after_id)["student_ids"]
+    assert "s" not in store.get("courses", after_id)["pending_student_ids"]
+    assert element(app.text_input, "6자리 승인코드").value == ""
+    assert app.session_state["classroom_s_next_section"] == "내 수업"
+    assert "수업에 참여했어요" in app.session_state["classroom_s_flash"]
+
+
+def test_join_from_initial_today_page_opens_joined_course():
+    app = student_app("student_today")
+    after_id = app.session_state["test_after"]
+    code = app.session_state["test_store"].get("courses", after_id)["join_code"]
+    element(app.text_input, "6자리 승인코드").set_value(code)
+    element(app.button, "수업 참여하기").click().run()
+    assert not app.exception
+    assert not app.error
+    assert app.session_state["classroom_s_section"] == "내 수업"
+    assert element(app.selectbox, "수업 선택").value == after_id
+    assert any("수업에 참여했어요" in item.value for item in app.success)
+
+
+def test_join_storage_failure_keeps_code_without_navigating():
+    app = student_app()
+    store = app.session_state["test_store"]
+    after_id = app.session_state["test_after"]
+    code = store.get("courses", after_id)["join_code"]
+    store.fail = True
+    element(app.text_input, "6자리 승인코드").set_value(code)
+    element(app.button, "수업 참여하기").click().run()
+    assert not app.exception
+    assert any("저장 실패" in item.value for item in app.error)
+    assert element(app.text_input, "6자리 승인코드").value == code
+    assert "classroom_s_next_section" not in app.session_state
+    assert "classroom_s_flash" not in app.session_state
+    assert "s" not in store.get("courses", after_id)["student_ids"]
+
+
+def test_join_repeated_wrong_codes_are_limited_and_input_is_kept(monkeypatch):
+    from classroom_core import ClassroomService
+    attempts = []
+    original = ClassroomService.join_course
+
+    def counted_join(service, code):
+        attempts.append(code)
+        return original(service, code)
+
+    monkeypatch.setattr(ClassroomService, "join_course", counted_join)
+    clock = [100.0]
+    monkeypatch.setattr(view, "monotonic", lambda:clock[0])
+    app = student_app()
+    store = app.session_state["test_store"]
+    code = next(f"{number:06d}" for number in range(10)
+                if not store.get("course_join_codes", f"{number:06d}"))
+    for _ in range(6):
+        element(app.text_input, "6자리 승인코드").set_value(code)
+        element(app.button, "수업 참여하기").click().run()
+    assert not app.exception
+    assert len(attempts) == 5
+    assert any("1분 뒤" in item.value for item in app.warning)
+    assert element(app.text_input, "6자리 승인코드").value == code
+    clock[0] += 61
+    element(app.button, "수업 참여하기").click().run()
+    assert len(attempts) == 6
+
+
+def test_teacher_members_shows_six_digit_code_and_student_does_not():
+    app = AppTest.from_string(SCRIPT)
+    app.session_state["test_mode"] = "members"
+    app.run()
+    assert not app.exception
+    code = app.session_state["test_store"].get("courses", app.session_state["test_course"])["join_code"]
+    assert len(code) == 6 and code.isascii() and code.isdigit()
+    assert [item.value for item in app.code] == [code]
+    student = student_app()
+    assert not student.code
+
+
+def test_old_course_join_code_is_issued_only_after_explicit_teacher_click():
+    app = AppTest.from_string(SCRIPT)
+    app.session_state["test_mode"] = "members"
+    app.run()
+    store, cid = app.session_state["test_store"], app.session_state["test_course"]
+    course = store.get("courses", cid)
+    course.pop("join_code")
+    store.put("courses", cid, course, course["version"])
+    version = store.get("courses", cid)["version"]
+    app.run()
+    assert not app.exception
+    assert not app.code
+    assert store.get("courses", cid)["version"] == version
+    element(app.button, "승인코드 발급").click().run()
+    assert not app.exception
+    code = store.get("courses", cid)["join_code"]
+    assert [item.value for item in app.code] == [code]
 
 
 def test_edited_curriculum_preserves_resource_reference_ids():

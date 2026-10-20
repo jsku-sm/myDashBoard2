@@ -9,6 +9,7 @@ import copy
 import csv
 from datetime import date, datetime, timedelta
 import io
+from time import monotonic
 from urllib.parse import urlparse
 
 import pandas as pd
@@ -567,17 +568,55 @@ def _create_course(service, user):
             confirm = st.checkbox("학기·과목·대상 학급과 공동 담당 교사를 확인했습니다.", key=_key(user, "new_confirm"))
             save = st.form_submit_button("수업 개설", type="primary", width="stretch")
         if save:
+            selected_class = custom_class.strip() if class_name == "직접 입력" else class_name
             if not title.strip() or not term.strip() or not subject.strip() or not confirm:
                 st.warning("수업명·학기·과목과 대상 확인을 입력해 주세요.")
+            elif not selected_class:
+                st.warning("학생이 참여할 수 있도록 대상 학급을 입력해 주세요.")
             elif curriculum and curriculum.get("subject") != subject.strip():
                 st.warning("공통 수업안과 수업의 과목을 같게 설정해 주세요.")
             else:
-                selected_class = custom_class.strip() if class_name == "직접 입력" else class_name
                 teachers = list(dict.fromkeys([str(user["id"])] + [value.strip() for value in co_teachers.split(",") if value.strip()]))
                 _save(user, lambda: service.create_course(title=title.strip(), term=term.strip(), subject=subject.strip(),
                                                          kind=kind, class_name=selected_class,
                                                          curriculum_id=curriculum["id"] if curriculum else "", teacher_ids=teachers),
-                      "수업을 GitHub에 개설했어요. 구성원 탭의 참여 코드를 학생에게 안내해 주세요.")
+                      "수업을 GitHub에 개설했어요. 구성원 탭의 6자리 승인코드를 해당 학급 학생에게 안내해 주세요.")
+
+
+def _join_course(service, user):
+    with st.container(border=True):
+        st.markdown("### 수업 참여하기")
+        st.caption("담당 교사가 알려 준 6자리 승인코드를 입력하면 본인 학급의 수업에 참여할 수 있어요.")
+        prefix = _key(user, "join")
+        with st.form(prefix, clear_on_submit=False):
+            course_code = st.text_input("6자리 승인코드", key=prefix + "_code", max_chars=6,
+                                        placeholder="예: 012345")
+            join = st.form_submit_button("수업 참여하기", type="primary", width="stretch")
+        if join:
+            code = course_code.strip()
+            if len(code) != 6 or not code.isascii() or not code.isdigit():
+                st.warning("승인코드는 숫자 6자리로 입력해 주세요.")
+                return
+            attempt_key = prefix + "_attempts"
+            attempts = [at for at in st.session_state.get(attempt_key, []) if monotonic() - at < 60]
+            st.session_state[attempt_key] = attempts
+            if len(attempts) >= 5:
+                st.warning("승인코드를 여러 번 확인했어요. 1분 뒤에 다시 입력해 주세요.")
+                return
+
+            def join_and_open():
+                from classroom_core import PermissionDenied, ValidationError
+                try:
+                    result = service.join_course(code)
+                except (PermissionDenied, ValidationError):
+                    st.session_state[attempt_key] = attempts + [monotonic()]
+                    raise
+                st.session_state[_key(user, "next_section")] = "내 수업"
+                st.session_state[_key(user, "next_course")] = result["course_id"]
+                st.session_state[_key(user, "my_kind")] = "전체"
+                return result
+
+            _save(user, join_and_open, "수업에 참여했어요. 내 수업에서 바로 확인할 수 있어요.", clear_prefix=prefix)
 
 
 def _my_courses(service, courses, user):
@@ -585,15 +624,7 @@ def _my_courses(service, courses, user):
     if _teacher(user):
         _create_course(service, user)
     else:
-        with st.expander("참여 코드로 수업 신청"):
-            with st.form(_key(user, "join"), clear_on_submit=False):
-                course_code = st.text_input("담당 교사가 알려 준 수업 참여 코드", key=_key(user, "join_code"))
-                join = st.form_submit_button("수업 참여 신청", type="primary", width="stretch")
-            if join:
-                if not course_code.strip():
-                    st.warning("수업 참여 코드를 입력해 주세요.")
-                else:
-                    _save(user, lambda: service.request_join(course_code.strip()), "참여 신청을 GitHub에 저장했어요. 담당 교사가 승인한 뒤 수업이 표시됩니다.")
+        _join_course(service, user)
     include_archive = st.checkbox("학기 보관 수업 보기", key=_key(user, "my_archive"))
     pending_courses = [course for course in courses if course.get("membership_status") == "pending"]
     for course in pending_courses:
@@ -606,7 +637,7 @@ def _my_courses(service, courses, user):
     kind = st.segmented_control("수업 구분", ["전체", "regular", "after_school"], format_func=lambda value: KINDS.get(value, value), default="전체", key=_key(user, "my_kind")) or "전체"
     current = [course for course in current if kind == "전체" or course.get("kind") == kind]
     if not current:
-        st.info("표시할 승인된 수업이 없어요. 교사는 수업을 개설하고, 학생은 담당 교사에게 참여 코드를 받아 신청해 주세요.")
+        st.info("표시할 수업이 없어요. 교사는 수업을 개설하고, 학생은 담당 교사에게 6자리 승인코드를 받아 수업에 참여해 주세요.")
         return
     pending = st.session_state.pop(_key(user, "next_course"), None)
     selected_key = _key(user, "course_picker")
@@ -674,8 +705,19 @@ def _members(service, course, user):
         st.write(f"승인된 학생 {course.get('member_count', len(course.get('student_ids', [])))}명")
         st.caption("담당 교사가 수업 참여와 질문 공개 범위를 관리해요.")
         return
-    st.code(course["id"], language=None)
-    st.caption("수업 참여 코드 · 학생이 같은 계정으로 정규·방과후 수업에 각각 신청할 수 있어요.")
+    st.markdown("#### 6자리 승인코드")
+    if not str(course.get("class_name", "")).strip():
+        st.warning("학생이 참여하려면 ‘수업 설정’에서 대상 학급을 먼저 지정해 주세요.")
+    code = str(course.get("join_code", ""))
+    if len(code) == 6 and code.isascii() and code.isdigit():
+        st.code(code, language=None)
+        st.caption("해당 학급 학생에게 알려 주세요. 학생이 승인코드를 입력하면 수업에 바로 참여해요.")
+    elif not course.get("archived"):
+        st.caption("기존 수업입니다. 승인코드를 발급해 해당 학급 학생에게 알려 주세요.")
+        if st.button("승인코드 발급", key=_key(user, "issue_code_" + course["id"]), width="stretch"):
+            _save(user, lambda: service.get_join_code(course["id"]), "6자리 승인코드를 GitHub에 저장했어요.")
+    if course.get("archived"):
+        st.caption("학기 보관 수업에는 새로 참여할 수 없어요.")
     pending = course.get("pending_student_ids", [])
     st.markdown(f"#### 승인 대기 · {len(pending)}명")
     if not pending:
@@ -749,8 +791,8 @@ def _settings(service, course, user):
             st.caption("수업안과 자료·과제 양식을 재사용해요. 학생·답안·점수·개인 댓글·실제 진도는 새 수업에 복사하지 않아요.")
             copy = st.form_submit_button("새 학기 양식으로 복사", width="stretch")
         if copy:
-            if not title.strip() or not term.strip():
-                st.warning("새 수업명과 학기를 입력해 주세요.")
+            if not title.strip() or not term.strip() or not class_name.strip():
+                st.warning("새 수업명·학기·대상 학급을 입력해 주세요.")
             else:
                 _save(user, lambda: service.copy_course(course["id"], title=title, term=term, class_name=class_name), "새 학기 수업 양식을 만들었어요. 학생 제출물·평가·실제 진도는 복사하지 않았습니다.")
     if not course.get("archived"):
@@ -898,6 +940,7 @@ def page(user):
         elif selected == "공통 수업안":
             _curricula(service, user)
         elif selected == "오늘 할 일":
+            _join_course(service, user)
             approved = [course for course in courses if course.get("membership_status") != "pending"]
             try:
                 from views.classroom_work import render_today
@@ -906,7 +949,7 @@ def page(user):
                 _error(error)
             st.markdown("### 내 수업")
             if not approved:
-                st.info("승인된 수업이 아직 없어요. ‘내 수업’에서 담당 교사의 참여 코드로 신청해 주세요.")
+                st.info("참여한 수업이 아직 없어요. 위의 ‘수업 참여하기’에 담당 교사가 알려 준 6자리 승인코드를 입력해 주세요.")
             for course in courses:
                 if course.get("membership_status") == "pending":
                     st.info(f"참여 승인 대기 · {_name(course)}")

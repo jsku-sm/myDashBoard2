@@ -80,12 +80,9 @@ def test_stale_version_has_no_partial_audit_or_progress(setup):
 def test_membership_same_account_regular_after_school_and_auth_not_trusted(setup):
     service, users, store, _, course = setup
     student = ClassroomService(store, {"id": "s", "role": "teacher"}, users.get, lock_checker=lambda _: False)
-    after = service.create_course("방과후", "2026-2", "수학", kind="after_school")
-    student.request_join(after["id"])
-    assert student.list_courses()[-1]["membership_status"] == "pending"
-    with pytest.raises(PermissionDenied):
-        student.get_course(after["id"])
-    service.approve_member(after["id"], "s")
+    after = service.create_course("방과후", "2026-2", "수학", kind="after_school", class_name="1-1")
+    assert student.join_course(after["join_code"])["status"] == "approved"
+    assert student.get_course(after["id"])["membership_status"] == "approved"
     assert {row["kind"] for row in student.list_courses()} == {"regular", "after_school"}
     with pytest.raises(PermissionDenied):
         student.set_lesson(course["id"], "1", {"progress": "in_progress"}, course["version"], "위조")
@@ -145,9 +142,9 @@ def test_completion_validation_input_lock_and_password_requirement(setup):
     with pytest.raises(ValidationError):
         update(service, course["id"], "1", progress="completed")
     locked = ClassroomService(store, users["s"], users.get, lock_checker=lambda _: True)
-    extra = service.create_course("추가", "2026-2", "수학")
+    extra = service.create_course("추가", "2026-2", "수학", class_name="1-1")
     with pytest.raises(PermissionDenied, match="잠금"):
-        locked.request_join(extra["id"])
+        locked.request_join(extra["join_code"])
     users["s"]["must_change"] = "1"
     with pytest.raises(PermissionDenied, match="비밀번호"):
         locked.list_courses()
@@ -190,7 +187,7 @@ def test_next_term_templates_are_atomic_sanitized_and_remapped(setup, monkeypatc
     service.update_curriculum(curriculum["id"], {"lessons": lessons}, curriculum["version"], "연결")
     latest = service.get_course(course["id"])
     service.apply_curriculum(course["id"], curriculum["id"], latest["version"], "확인")
-    copied = service.copy_course(course["id"], "새 학기", "2027-1")
+    copied = service.copy_course(course["id"], "새 학기", "2027-1", class_name="1-1")
     assert len(copied["copied_material_templates"]) == len(copied["copied_assignment_templates"]) == 1
     material, task = copied["copied_material_templates"][0], copied["copied_assignment_templates"][0]
     assert not material["published"] and not task["published"]
@@ -202,8 +199,7 @@ def test_next_term_templates_are_atomic_sanitized_and_remapped(setup, monkeypatc
     assert task["material_ids"] == [material["id"]]
     assert {r["id"] for r in copied["lessons"][0]["resources"]} == {material["id"], task["id"]}
     student = ClassroomService(store, users["s"], users.get, lock_checker=lambda _: False)
-    student.request_join(copied["id"])
-    service.approve_member(copied["id"], "s")
+    student.join_course(copied["join_code"])
     assert "copied_material_templates" not in student.get_course(copied["id"])
     assert "copied_assignment_templates" not in student.get_course(copied["id"])
     before = len(store.list("courses"))

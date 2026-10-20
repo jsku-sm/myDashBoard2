@@ -65,7 +65,7 @@ def environment(store=None, legacy=None, count=3):
     def service(uid):
         return ClassroomService(store, users[uid], users.get, lock_checker=lambda _: False)
     teacher = service("teacher")
-    course = teacher.create_course("수학", "2026-2", "수학", teacher_ids=["shared"], student_ids=[f"s{i}" for i in range(count)])
+    course = teacher.create_course("수학", "2026-2", "수학", class_name="1-1", teacher_ids=["shared"], student_ids=[f"s{i}" for i in range(count)])
     def work(uid):
         return WorkService(service(uid), legacy=legacy)
     return store, users, teacher, course["id"], work
@@ -372,7 +372,7 @@ if "fixture" not in st.session_state:
              "other": {"id": "other", "role": "student", "name": "다른학생", "class": "1-1"}}
     store = MemoryStore()
     svc = ClassroomService(store, users["t"], users.get, lock_checker=lambda _: False)
-    course = svc.create_course("수학", "2026-2", "수학", student_ids=["s", "other"])
+    course = svc.create_course("수학", "2026-2", "수학", class_name="1-1", student_ids=["s", "other"])
     work = WorkService(svc)
     task = work.save_assignment(course["id"], "탐구", "설명", max_points=10, published=True)
     st.session_state.fixture = (store, users, course["id"], task["id"])

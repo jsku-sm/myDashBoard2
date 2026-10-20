@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 import copy
+import random
+import re
+import secrets
+import time
 import uuid
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -31,6 +35,17 @@ def now():
 
 def _id():
     return uuid.uuid4().hex
+
+
+def _is_join_code(value):
+    return isinstance(value, str) and re.fullmatch(r"[0-9]{6}", value) is not None
+
+
+def _same_class(actor, course):
+    """Current account metadata, never a cached membership, scopes students."""
+    student_class = str(actor.get("class") or "").strip()
+    course_class = str(course.get("class_name") or "").strip()
+    return bool(student_class and course_class and student_class == course_class)
 
 
 def _text(value, field):
@@ -138,7 +153,13 @@ class ClassroomService:
         self._user_id = str(user.get("id", "")) if isinstance(user, dict) else str(user or "")
         if user_lookup is None:
             import auth
-            user_lookup = auth.get_user
+            import storage
+
+            def user_lookup(uid):
+                # Account edits must affect access immediately, even while
+                # ordinary user lists retain their shared display cache.
+                storage.invalidate("users")
+                return auth.get_user(uid)
         self._lookup = user_lookup
         self._lock_checker = lock_checker
 
@@ -161,8 +182,9 @@ class ClassroomService:
         record = self.store.get("courses", course_id, fresh=True)
         if not record:
             raise PermissionDenied("수업이 없거나 접근 권한이 없습니다.")
-        is_teacher = actor["role"] == "teacher" and actor["id"] in record["teacher_ids"]
-        is_student = actor["role"] == "student" and actor["id"] in record["student_ids"]
+        is_teacher = actor["role"] == "teacher" and actor["id"] in record.get("teacher_ids", [])
+        is_student = (actor["role"] == "student" and actor["id"] in record.get("student_ids", [])
+                      and _same_class(actor, record))
         if not is_teacher and (teacher or not is_student):
             raise PermissionDenied("수업 참여 승인 또는 담당 교사 권한이 필요합니다.")
         if write and record.get("archived"):
@@ -174,13 +196,12 @@ class ClassroomService:
 
     def _write(self, namespace, record_id, record, expected_version, action, reason=""):
         actor = self.actor()
+        if action == "member_joined" and (actor["role"] != "student" or not _same_class(actor, record)):
+            raise PermissionDenied("학생 계정과 수업의 학급을 다시 확인하세요.")
         if actor["role"] == "student":
-            checker = self._lock_checker
-            if checker is None:
-                import realtime
-                checker = realtime.is_locked
-            if checker(actor.get("class", "")):
-                raise PermissionDenied("지금은 입력 잠금 중입니다. 작성 중인 내용을 유지하고 잠금 해제 후 다시 저장하세요.")
+            self._check_student_lock(actor)
+            if namespace == "courses" and not _same_class(actor, record):
+                raise PermissionDenied("수업과 계정의 학급을 확인하세요.")
         previous = self.store.get(namespace, record_id, fresh=True)
         actual = previous.get("version") if previous else None
         if actual != expected_version:
@@ -208,6 +229,14 @@ class ClassroomService:
         result["audit"] = old.get("audit", []) + [entry]
         return self.store.put(namespace, record_id, result, expected_version)
 
+    def _check_student_lock(self, actor):
+        checker = self._lock_checker
+        if checker is None:
+            import realtime
+            checker = realtime.is_locked
+        if checker(actor.get("class", "")):
+            raise PermissionDenied("지금은 입력 잠금 중입니다. 작성 중인 내용을 유지하고 잠금 해제 후 다시 저장하세요.")
+
     def _people(self, ids, role):
         result = []
         for uid in dict.fromkeys(str(uid) for uid in (ids or [])):
@@ -225,11 +254,13 @@ class ClassroomService:
             course = self.store.get("courses", course["id"], fresh=True)
             if not course:
                 continue
-            if actor["role"] == "teacher" and actor["id"] in course["teacher_ids"]:
+            if actor["role"] == "teacher" and actor["id"] in course.get("teacher_ids", []):
                 result.append(_present_course(course))
-            elif actor["role"] == "student" and actor["id"] in course["student_ids"]:
+            elif (actor["role"] == "student" and _same_class(actor, course)
+                  and actor["id"] in course.get("student_ids", [])):
                 result.append(self._student_course(course))
-            elif actor["role"] == "student" and actor["id"] in course.get("pending_student_ids", []):
+            elif (actor["role"] == "student" and _same_class(actor, course)
+                  and actor["id"] in course.get("pending_student_ids", [])):
                 result.append({k: course.get(k) for k in ("id", "title", "term", "subject", "kind", "class_name", "archived")}
                               | {"membership_status": "pending"})
         return result
@@ -244,7 +275,8 @@ class ClassroomService:
             item["resources"] = [({"kind": r["kind"], "id": r.get("id", "")}
                                   if r.get("kind") in {"material", "assignment"} else r)
                                  for r in item.get("resources", [])]
-        for key in ("audit", "pending_student_ids", "student_ids", "copied_material_templates", "copied_assignment_templates"):
+        for key in ("audit", "pending_student_ids", "student_ids", "join_code", "approval_code",
+                    "join_code_reservation", "copied_material_templates", "copied_assignment_templates"):
             result.pop(key, None)
         # Operating notes and support reasons are teacher-only observations.
         for record in result.get("lesson_records", {}).values():
@@ -255,12 +287,67 @@ class ClassroomService:
 
     def get_course(self, course_id):
         record = self._course(course_id)
-        return _present_course(record) if self.actor()["role"] == "teacher" else self._student_course(record)
+        actor = self.actor()
+        if actor["role"] == "teacher" and actor["id"] in record.get("teacher_ids", []):
+            return _present_course(record)
+        if (actor["role"] == "student" and actor["id"] in record.get("student_ids", [])
+                and _same_class(actor, record)):
+            return self._student_course(record)
+        raise PermissionDenied("수업 참여 승인 또는 담당 교사 권한이 필요합니다.")
 
     def members(self, course_id):
         course = self._course(course_id, teacher=True)
         return [{k: user.get(k, "") for k in ("id", "name", "class", "role")}
                 for uid in course["student_ids"] if (user := self._lookup(uid)) and user.get("role") == "student"]
+
+    def _reserve_join_code(self, course_id, preferred=""):
+        """Reserve before updating a course; a lost course write is recoverable.
+
+        The store hashes record IDs in filenames. A reservation is never enough
+        to join: the authoritative course must publish the same code, too.
+        Per-code CAS makes collisions safe across independent app processes.
+        """
+        candidates = [preferred] if _is_join_code(preferred) else []
+        candidates += [record.get("id") for record in self.store.list("course_join_codes", fresh=True)
+                       if record.get("course_id") == course_id and _is_join_code(record.get("id"))
+                       and record.get("id") not in candidates]
+        for attempt in range(24):
+            code = candidates.pop(0) if candidates else f"{secrets.randbelow(1_000_000):06d}"
+            reservation = self.store.get("course_join_codes", code, fresh=True)
+            if reservation:
+                if reservation.get("course_id") == course_id:
+                    return code
+                continue
+            try:
+                self.store.put("course_join_codes", code,
+                               {"id": code, "course_id": course_id}, None)
+                return code
+            except ConflictError:
+                # Another process claimed this number. The next iteration
+                # chooses a different candidate without overwriting its owner.
+                continue
+        raise ConflictError("승인코드를 발급하지 못했습니다. 잠시 후 다시 시도해 주세요.")
+
+    def get_join_code(self, course_id):
+        """Explicit teacher action also upgrades older courses without a code."""
+        for attempt in range(6):
+            course = self._course(course_id, teacher=True)
+            if course.get("archived"):
+                code = course.get("join_code")
+                reservation = self.store.get("course_join_codes", code, fresh=True) if _is_join_code(code) else None
+                if reservation and reservation.get("course_id") == course_id:
+                    return code
+                raise ArchivedError("보관된 수업에는 승인코드를 발급할 수 없습니다. 새 학기로 복사해 사용하세요.")
+            code = self._reserve_join_code(course_id, course.get("join_code", ""))
+            if course.get("join_code") == code:
+                return code
+            course["join_code"] = code
+            try:
+                self._write("courses", course_id, course, course["version"], "join_code_create")
+                return code
+            except ConflictError:
+                continue
+        raise ConflictError("수업 정보가 변경되었습니다. 새로 불러온 뒤 승인코드를 다시 확인하세요.")
 
     def create_course(self, title, term, subject, kind="regular", class_name="", curriculum_id="", teacher_ids=None, student_ids=None):
         actor = self.require_teacher()
@@ -272,12 +359,15 @@ class ClassroomService:
                   "teacher_ids": list(dict.fromkeys([actor["id"]] + self._people(teacher_ids, "teacher"))),
                   "student_ids": self._people(student_ids, "student"), "pending_student_ids": [], "archived": False,
                   "comments_enabled": True, "curriculum_id": "", "curriculum_title": "", "lessons": [], "lesson_records": {}}
+        if any(not _same_class(self._lookup(uid) or {}, course) for uid in course["student_ids"]):
+            raise ValidationError("수업과 같은 학급의 학생만 구성원으로 추가할 수 있습니다.")
         if curriculum_id:
             curriculum = self.get_curriculum(curriculum_id)
             if curriculum["subject"] != subject:
                 raise ValidationError("수업과 공통 수업안의 과목이 다릅니다.")
             course.update(curriculum_id=curriculum_id, curriculum_title=curriculum["title"],
                           curriculum_version=curriculum["version"], lessons=copy.deepcopy(curriculum["lessons"]))
+        course["join_code"] = self._reserve_join_code(course_id)
         return self._write("courses", course_id, course, None, "course_create")
 
     def update_course(self, course_id, changes, expected_version, reason):
@@ -291,24 +381,54 @@ class ClassroomService:
             course[key] = bool(value) if key == "comments_enabled" else _text(value, key)
         return self._write("courses", course_id, course, expected_version, "course_update", reason)
 
-    def request_join(self, course_id):
+    def join_course(self, code):
+        """A teacher's six-digit approval code approves a same-class student."""
         actor = self.actor()
         if actor["role"] != "student":
-            raise PermissionDenied("학생 계정으로 참여를 신청하세요.")
-        course = self.store.get("courses", course_id)
-        if not course or course.get("archived"):
-            raise PermissionDenied("참여 가능한 수업 ID를 확인하세요.")
-        if actor["id"] in course["student_ids"] or actor["id"] in course["pending_student_ids"]:
-            return {"status": "approved" if actor["id"] in course["student_ids"] else "pending"}
-        course["pending_student_ids"].append(actor["id"])
-        self._write("courses", course_id, course, course["version"], "join_requested")
-        return {"status": "pending"}
+            raise PermissionDenied("학생 계정으로 수업에 참여하세요.")
+        self._check_student_lock(actor)
+        if not _is_join_code(code):
+            raise ValidationError("교사가 알려 준 숫자 6자리 승인코드를 입력하세요.")
+        reservation = self.store.get("course_join_codes", code, fresh=True)
+        course_id = reservation.get("course_id") if reservation else None
+        if not course_id:
+            raise PermissionDenied("참여 가능한 승인코드와 계정의 학급을 확인하세요.")
+        for attempt in range(32):
+            # Re-read both identity and authoritative membership on every CAS
+            # retry. Transfer, archive, and concurrent enrollments take effect
+            # even if a previous page still contains a course ID.
+            actor = self.actor()
+            course = self.store.get("courses", course_id, fresh=True)
+            if (actor["role"] != "student" or not course or course.get("archived")
+                    or course.get("join_code") != code or not _same_class(actor, course)):
+                raise PermissionDenied("참여 가능한 승인코드와 계정의 학급을 확인하세요.")
+            if actor["id"] in course.get("student_ids", []):
+                return {"status": "approved", "course_id": course_id}
+            course.setdefault("student_ids", []).append(actor["id"])
+            course["pending_student_ids"] = [uid for uid in course.get("pending_student_ids", [])
+                                             if uid != actor["id"]]
+            try:
+                self._write("courses", course_id, course, course["version"], "member_joined")
+                return {"status": "approved", "course_id": course_id}
+            except ConflictError:
+                # A whole class often joins together. Jitter avoids keeping
+                # each process in lockstep while bounded CAS retries retain
+                # every successful enrollment in this single durable record.
+                time.sleep(random.uniform(0.01, min(0.05 * (attempt + 1), 0.3)))
+                continue
+        raise ConflictError("참여 정보가 변경되었습니다. 잠시 후 승인코드를 다시 입력하세요.")
+
+    def request_join(self, code):
+        # Old callers must also provide an approval code, never an internal ID.
+        return self.join_course(code)
 
     def approve_member(self, course_id, student_id, approve=True):
         course = self._course(course_id, teacher=True, write=True)
         self._people([student_id], "student")
         if student_id not in course["pending_student_ids"]:
             raise ValidationError("대기 중인 참여 신청이 없습니다.")
+        if approve and not _same_class(self._lookup(student_id) or {}, course):
+            raise ValidationError("수업과 같은 학급의 학생만 참여를 승인할 수 있습니다.")
         course["pending_student_ids"].remove(student_id)
         if approve and student_id not in course["student_ids"]:
             course["student_ids"].append(student_id)
@@ -493,4 +613,5 @@ class ClassroomService:
                     continue  # A previous course's permission is never inherited.
                 resources.append(item)
             lesson["resources"] = resources
+        record["join_code"] = self._reserve_join_code(record["id"])
         return self._write("courses", record["id"], record, None, "course_copy")
