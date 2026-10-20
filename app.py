@@ -14,6 +14,7 @@ import ui
 from config import APP_TITLE, POLL_SEC
 from snorkl_navigation import main_menu_changed, sync_shared_link
 from views import account, dashboard, emotion, home, intro, math_class, sudanote, teacher, tools
+from classroom_navigation import apply_pending_navigation as classroom_navigation, preserve_tool_drafts
 from views.student_announcements import poll_announcements, show_announcement_popup
 
 st.set_page_config(page_title=APP_TITLE, page_icon="📐", layout="wide")
@@ -35,7 +36,11 @@ except Exception as e:
     )
     st.stop()
 
-auth.ensure_teacher()
+try:
+    auth.ensure_teacher()
+except db.SetupError as error:
+    st.error(str(error))
+    st.stop()
 
 
 # ------------------------------------------------------------ 로그인 화면 ---
@@ -136,6 +141,7 @@ def show_popups():
 # ------------------------------------------------------------ 사이드바 ---
 # 메뉴 (id, 이름, 번호 붙임 여부, 보이는 사람). 번호는 보이는 메뉴 순서대로 자동으로 붙어요.
 MENU = [
+    ("classroom", "🏫 클래스룸", False, "all"),
     ("home", "🏠 홈", False, "student"),
     ("dashboard", "📊 대시보드", False, "teacher"),
     ("intro", "👋 선생님 소개", True, "all"),
@@ -210,6 +216,7 @@ if user["role"] == "student":
     rt.touch(user["id"])
     student_poller()
     if st.session_state["_locked"]:
+        preserve_tool_drafts(user)
         ui.lock_screen(db.get_setting("lock_message"))
         st.stop()
     if not show_popups():
@@ -223,9 +230,16 @@ if user["role"] == "student" and not emotion.done_today(user):
 # A share link chooses a view only; all login/password/emotion/lock checks run first.
 sync_shared_link(st.session_state, st.query_params)
 home.apply_pending_navigation(user)
+classroom_navigation(st.session_state, user)
 page = sidebar(user)
 
+
+def classroom_page():
+    from views.classroom import page as render_classroom
+    render_classroom(user)
+
 ROUTES = {
+    "classroom": classroom_page,
     "home": lambda: home.page(user),
     "dashboard": lambda: dashboard.page(user),
     "intro": lambda: intro.intro_page(user),

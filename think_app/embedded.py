@@ -13,6 +13,7 @@ from .ai import AI
 from .classroom import Classroom
 from .classroom_ui import course_detail, student_preview
 from .courses import CourseManager
+from .ownership import OwnedCourseManager
 from .course_admin import active_courses, archived_courses
 from .integration import load_embedded_settings, student_identity, visible_courses
 from .storage import AppError, GitHubStore, LocalStore, MemoryStore
@@ -214,7 +215,11 @@ def teacher_view(store, manager, settings, requested):
             st.error("공유한 수업을 찾을 수 없습니다. 삭제되었거나 보관된 수업일 수 있습니다.")
             return
         st.session_state["selected_course"] = requested
-        st.session_state.pop("selected_activity", None)
+        requested_activity = st.session_state.pop("_classroom_requested_activity", None)
+        if requested_activity:
+            st.session_state["selected_activity"] = requested_activity
+        else:
+            st.session_state.pop("selected_activity", None)
     selected = st.session_state.get("selected_course")
     if selected:
         course = manager.get(selected)
@@ -249,7 +254,7 @@ def render(user):
             settings = load_embedded_settings()
             storage_notice(settings, teacher)
             store = get_store(settings)
-            manager = CourseManager(store)
+            manager = OwnedCourseManager(store, user) if teacher else CourseManager(store)
             requested = st.session_state.pop(REQUESTED_COURSE, None)
             if teacher:
                 teacher_view(store, manager, settings, requested)

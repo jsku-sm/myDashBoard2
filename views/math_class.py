@@ -293,5 +293,7 @@ def page(user, subject):
             tab_sheets(user, subject)
         with t3:
             tab_board(user, subject)
+            from views.classroom_bridge import render_shared_records
+            render_shared_records(user, "assignments", subject)
         with t4:
             tab_questions(user, subject)

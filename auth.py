@@ -8,7 +8,6 @@ import streamlit as st
 import storage as db
 
 DEFAULT_TEACHER_ID = "teacher"
-DEFAULT_TEACHER_PW = "teacher1234"
 
 
 def hash_pw(pw: str) -> str:
@@ -34,9 +33,9 @@ def initial_password(student_id: str) -> str:
 def _teacher_secret():
     try:
         app = st.secrets["app"]
-        return app.get("teacher_id", DEFAULT_TEACHER_ID), app.get("teacher_password", DEFAULT_TEACHER_PW)
+        return str(app.get("teacher_id", DEFAULT_TEACHER_ID)).strip(), str(app.get("teacher_password", ""))
     except Exception:
-        return DEFAULT_TEACHER_ID, DEFAULT_TEACHER_PW
+        return DEFAULT_TEACHER_ID, ""
 
 
 def ensure_teacher():
@@ -46,9 +45,14 @@ def ensure_teacher():
     users = db.read("users")
     if not any(u["role"] == "teacher" for u in users):
         tid, tpw = _teacher_secret()
+        if not tid or len(tpw) < 10:
+            raise db.SetupError("교사 계정이 없습니다. 배포 Secrets의 [app] teacher_id와 "
+                                "10자 이상인 teacher_password를 설정하세요. 기존 계정과 비밀번호는 유지됩니다.")
+        if any(u.get("id") == tid for u in users):
+            raise db.SetupError("설정한 교사 아이디가 기존 계정과 중복됩니다. 기존 계정은 유지하고 다른 teacher_id를 설정하세요.")
         db.append("users", {
             "id": tid, "name": "선생님", "class": "", "role": "teacher",
-            "pw_hash": hash_pw(tpw), "must_change": "1" if tpw == DEFAULT_TEACHER_PW else "0",
+            "pw_hash": hash_pw(tpw), "must_change": "1",
             "created_at": db.now_str(),
         })
     st.session_state["_teacher_ok"] = True

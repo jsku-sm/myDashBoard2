@@ -49,13 +49,49 @@ def _date_label(value):
         return ""
 
 
-def _content(text):
-    if len(text) <= 180:
-        st.write(text)
-    else:
-        st.write(text[:180] + "…")
-        with st.popover("글 전체 읽기"):
-            st.write(text)
+def _preview(text):
+    text = " ".join(text.split())
+    preview = text if len(text) <= 88 else text[:87] + "…"
+    st.markdown(f'<p class="home-preview">{ui.esc(preview)}</p>', unsafe_allow_html=True)
+
+
+def select_home_item(items, category, user, label, title):
+    """Render one item, retaining history without constructing every old card."""
+    key = "home_select_" + category + "_" + user["id"] + "_" + user["class"]
+    by_id = {}
+    for item in items:
+        identity = (item["source"] + ":" + item["id"]) if category == "feedback" else item["id"]
+        by_id.setdefault(identity, item)
+    options = list(by_id)
+    if not options:
+        st.session_state.pop(key, None)
+        st.session_state.pop(key + "_latest", None)
+        st.selectbox(label, [], key=key, disabled=True, placeholder="아직 등록된 글이 없어요.",
+                     label_visibility="collapsed")
+        return None
+    previous_latest = st.session_state.get(key + "_latest")
+    selected = st.session_state.get(key)
+    if selected not in by_id:
+        st.session_state.pop(key, None)
+    elif selected == previous_latest and previous_latest != options[0]:
+        # Follow new posts while the latest is selected; keep an older post
+        # the student has deliberately chosen until it is hidden or deleted.
+        st.session_state[key] = options[0]
+    st.session_state[key + "_latest"] = options[0]
+    titles = [title(by_id[value]) for value in options]
+    # Streamlit serializes choices by their displayed labels. Distinguish
+    # repeated filenames/titles so choosing an older record selects that one.
+    labels = dict(zip(options, titles if len(set(titles)) == len(titles) else
+                      [f"{index + 1:02d} · {text}" for index, text in enumerate(titles)]))
+    chosen = st.selectbox(label, options, format_func=labels.get,
+                          key=key, label_visibility="collapsed")
+    return by_id[chosen]
+
+
+def _heading(title, count):
+    name, number = st.columns([5, 1], vertical_alignment="center", gap="small")
+    name.markdown(title)
+    number.markdown(f'<span class="home-count">{count}건</span>', unsafe_allow_html=True)
 
 
 def _document(item):
@@ -70,69 +106,55 @@ def _document(item):
 
 
 def _feedback(item):
-    with st.container(border=True):
-        ui.note(f"<b>{ui.esc(item['title'])}</b>", "mint")
-        kind = "질문 답변" if item["source"] == "question" else "수행평가 피드백" if item["source"] == "assessment" else "게시판 피드백"
-        st.caption(" · ".join(value for value in
-                             (item["subject"] or item["course_title"], kind, _date_label(item["updated_at"])) if value))
-        _content(item["content"])
+    kind = "질문 답변" if item["source"] == "question" else "수행평가 피드백" if item["source"] == "assessment" else "게시판 피드백"
+    st.caption(" · ".join(value for value in (kind, _date_label(item["updated_at"])) if value))
+    _preview(item["content"])
+    with st.popover("피드백 전체 읽기", width="stretch"):
+        st.markdown(f"**{ui.esc(item['title'])}**")
+        st.write(item["content"])
         if item["student_feedback"] and item["student_feedback"] != item["content"]:
             st.caption("풀이 피드백")
-            _content(item["student_feedback"])
+            st.write(item["student_feedback"])
 
 
 def _assessment(item, user):
-    with st.container(border=True):
-        ui.note(f"<b>{ui.esc(item['title'])}</b>", "yellow")
-        st.caption(item["course_title"])
-        if item["phase"] == "ended":
-            label = "평가 종료"
-        elif item.get("period") == "scheduled":
-            label = "시작 예정"
-        elif item.get("period") == "closed":
-            label = "기간 종료"
-        elif item.get("period") == "invalid":
-            label = "평가 기간 확인 필요"
-        elif item["available"]:
-            label = ("보기만 가능" if item["status"] == "보기만 가능" else
-                     "제출 완료" if item["attempt_count"] >= item["max_attempts"] else "참여 가능")
-        elif item["phase"] == "waiting":
-            label = "평가 시작 대기"
-        elif item["phase"] == "expired":
-            label = "풀이 시간 종료"
-        else:
-            label = "기간 대기·종료"
-        st.write(label)
-        st.caption(item["start"] + " ~ " + (item["end"] or "마감일 없음"))
-        st.caption(f"나의 제출 {item['attempt_count']}회 / 최대 {item['max_attempts']}회")
-        if item["notice"] and not item["available"]:
-            st.caption(item["notice"])
-        if st.button("수행평가 열기", key="home_assessment_" + item["id"], disabled=not item["available"],
-                     use_container_width=True):
-            st.session_state[PENDING_NAVIGATION] = {
-                "student_id": user["id"], "class": user["class"],
-                "course_id": item["course_id"], "activity_id": item["id"],
-            }
-            st.rerun(scope="app")
+    if item["phase"] == "ended":
+        label = "평가 종료"
+    elif item.get("period") == "scheduled":
+        label = "시작 예정"
+    elif item.get("period") == "closed":
+        label = "기간 종료"
+    elif item.get("period") == "invalid":
+        label = "평가 기간 확인 필요"
+    elif item["available"]:
+        label = ("보기만 가능" if item["status"] == "보기만 가능" else
+                 "제출 완료" if item["attempt_count"] >= item["max_attempts"] else "참여 가능")
+    elif item["phase"] == "waiting":
+        label = "평가 시작 대기"
+    elif item["phase"] == "expired":
+        label = "풀이 시간 종료"
+    else:
+        label = "기간 대기·종료"
+    st.caption(f"{label} · 제출 {item['attempt_count']} / {item['max_attempts']}회")
+    if item["notice"] and not item["available"]:
+        _preview(item["notice"])
+    else:
+        _preview(item["start"] + " ~ " + (item["end"] or "마감일 없음"))
+    if st.button("수행평가 열기", key="home_assessment_" + item["id"], disabled=not item["available"],
+                 width="stretch"):
+        st.session_state[PENDING_NAVIGATION] = {
+            "student_id": user["id"], "class": user["class"],
+            "course_id": item["course_id"], "activity_id": item["id"],
+        }
+        st.rerun(scope="app")
 
 
 def _announcement(item):
-    with st.container(border=True):
-        ui.note(f"<b>{ui.esc(item['title'])}</b>", "yellow")
-        st.caption(" · ".join(value for value in (item["author_name"], _date_label(item["updated_at"])) if value))
-        _content(item["content"])
-
-
-def _items(items, render, empty):
-    if not items:
-        st.caption(empty)
-        return
-    for item in items[:2]:
-        render(item)
-    if len(items) > 2:
-        with st.expander(f"더 보기 · {len(items) - 2}건"):
-            for item in items[2:]:
-                render(item)
+    st.caption(" · ".join(value for value in (item["author_name"], _date_label(item["updated_at"])) if value))
+    _preview(item["content"])
+    with st.popover("공지 전체 읽기", width="stretch"):
+        st.markdown(f"**{ui.esc(item['title'])}**")
+        st.write(item["content"])
 
 
 @st.fragment(run_every="10s")
@@ -161,25 +183,46 @@ def render_student_updates(user):
         # teacher comment cannot appear differently in the two home sections.
         st.rerun(scope="app")
         return
-    st.markdown("#### 선생님 소식")
-    st.caption("선생님이 올린 자료와 나에게 남긴 피드백, 수행평가와 공지를 확인하세요.")
-    documents, feedback = st.columns(2, gap="large")
-    with documents:
-        st.markdown("##### 📄 배포 문서")
-        if not updates["documents"]:
-            st.caption("아직 배포된 문서가 없어요.")
-        for item in updates["documents"][:5]:
-            _document(item)
-    with feedback:
-        st.markdown("##### 💬 선생님 피드백")
-        _items(updates["feedback"], _feedback, "아직 선생님이 남긴 피드백이 없어요.")
-    assessments, announcements = st.columns(2, gap="large")
-    with assessments:
-        st.markdown("##### 📝 수행평가 배포 현황")
-        if unavailable:
-            st.info("수행평가 소식을 불러오지 못했어요. 잠시 후 다시 확인해 주세요.")
-        else:
-            _items(updates["assessments"], lambda item: _assessment(item, user), "아직 우리 반에 배포된 수행평가가 없어요.")
-    with announcements:
-        st.markdown("##### 📢 공지글")
-        _items(updates["announcements"], _announcement, "아직 우리 반에 올라온 공지가 없어요.")
+    with st.container(key="home_updates", gap="small"):
+        st.markdown('<p class="home-section-label">선생님 소식 <span>목록에서 이전 글도 확인할 수 있어요</span></p>',
+                    unsafe_allow_html=True)
+        documents, feedback = st.columns(2, gap="small")
+        with documents, st.container(border=True, key="home_documents", gap="small"):
+            _heading("##### 📄 배포 문서", len(updates["documents"]))
+            selected = select_home_item(updates["documents"], "documents", user, "배포 문서 선택",
+                                        lambda item: item["file_name"] or item["title"] or "첨부 문서")
+            if selected:
+                st.caption(" · ".join(value for value in
+                                     (selected["subject"], selected["category"], _date_label(selected["uploaded_at"])) if value))
+                _document(selected)
+            else:
+                st.caption("아직 배포된 문서가 없어요.")
+        with feedback, st.container(border=True, key="home_feedback", gap="small"):
+            _heading("##### 💬 선생님 피드백", len(updates["feedback"]))
+            selected = select_home_item(updates["feedback"], "feedback", user, "선생님 피드백 선택",
+                                        lambda item: item["title"] or "선생님 피드백")
+            if selected:
+                _feedback(selected)
+            else:
+                st.caption("아직 선생님이 남긴 피드백이 없어요.")
+        assessments, announcements = st.columns(2, gap="small")
+        with assessments, st.container(border=True, key="home_assessments", gap="small"):
+            _heading("##### 📝 수행평가 배포 현황", len(updates["assessments"]))
+            if unavailable:
+                select_home_item([], "assessments", user, "수행평가 선택", lambda item: item["title"])
+                st.caption("수행평가 소식을 불러오지 못했어요. 잠시 후 다시 확인해 주세요.")
+            else:
+                selected = select_home_item(updates["assessments"], "assessments", user, "수행평가 선택",
+                                            lambda item: item["title"] or item["course_title"])
+                if selected:
+                    _assessment(selected, user)
+                else:
+                    st.caption("아직 우리 반에 배포된 수행평가가 없어요.")
+        with announcements, st.container(border=True, key="home_announcements", gap="small"):
+            _heading("##### 📢 공지글", len(updates["announcements"]))
+            selected = select_home_item(updates["announcements"], "announcements", user, "공지글 선택",
+                                        lambda item: item["title"] or "우리 반 공지")
+            if selected:
+                _announcement(selected)
+            else:
+                st.caption("아직 우리 반에 올라온 공지가 없어요.")

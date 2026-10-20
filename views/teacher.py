@@ -276,6 +276,8 @@ def page(user):
         tab_announcements(user)
     with t1:
         tab_observe()
+        from views.classroom_bridge import render_shared_records
+        render_shared_records(user, "observations")
     with t2:
         tab_points()
     with t5:

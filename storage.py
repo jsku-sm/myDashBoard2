@@ -36,9 +36,9 @@ SCHEMAS: dict[str, list[str]] = {
                     "teacher_comment_at"],
     "questions": ["id", "created_at", "subject", "class", "student_id", "name", "anonymous", "unit",
                   "title", "content", "answer", "answered_at"],
-    "observations": ["id", "created_at", "class", "student_id", "name", "category", "content"],
+    "observations": ["id", "created_at", "class", "student_id", "name", "category", "content", "author_id"],
     "points": ["id", "created_at", "class", "student_id", "name", "kind", "score", "reason"],
-    "records": ["id", "updated_at", "period", "subject", "class", "student_id", "name", "text", "sources"],
+    "records": ["id", "updated_at", "period", "subject", "class", "student_id", "name", "text", "sources", "author_id"],
     "sudanotes": ["id", "created_at", "date", "time", "class", "student_id", "name", "subject",
                   "q1", "q2", "q3", "q4", "q5"],
 }
@@ -477,12 +477,41 @@ def read(table: str) -> list[dict]:
     ttl = CACHE_TTL.get(table, DEFAULT_TTL)
     with c["lock"]:
         hit = c["data"].get(table)
-        if hit and time.time() - hit[0] < ttl:
-            return [_norm(r, table) for r in hit[1]]
+        cached = [_norm(r, table) for r in hit[1]] if hit and time.time() - hit[0] < ttl else None
+    if cached is not None:
+        return _scope_private_records(table, cached)
     rows = [_norm(r, table) for r in backend.read(table)]
     with c["lock"]:
         c["data"][table] = (time.time(), rows)
-    return [dict(r) for r in rows]
+    return _scope_private_records(table, [dict(r) for r in rows])
+
+
+def _record_author():
+    """Resolve the actor from the account store rather than a caller's role."""
+    uid = (st.session_state.get("user") or {}).get("id")
+    import auth
+    user = auth.get_user(uid) if uid else None
+    if not user or user.get("role") != "teacher" or user.get("must_change") == "1":
+        raise PermissionError("교사 개인 기록에 접근할 권한이 없습니다.")
+    return user["id"]
+
+
+def _scope_private_records(table, rows):
+    if table not in ("observations", "records"):
+        return rows
+    try:
+        author = _record_author()
+    except PermissionError:
+        return []
+    from think_app.ownership import legacy_teacher_id
+    return [r for r in rows if (r.get("author_id") or legacy_teacher_id()) == author]
+
+
+def _check_private_change(table, row_id):
+    if table in ("observations", "records"):
+        _record_author()
+        if not any(row["id"] == row_id for row in read(table)):
+            raise PermissionError("이 교사 개인 기록을 수정할 권한이 없습니다.")
 
 
 def invalidate(table: str):
@@ -493,6 +522,8 @@ def invalidate(table: str):
 
 def append(table: str, row: dict):
     row = dict(row)
+    if table in ("observations", "records"):
+        row["author_id"] = _record_author()
     row.setdefault("id", new_id())
     _ready_backend().append(table, row)
     invalidate(table)
@@ -501,17 +532,24 @@ def append(table: str, row: dict):
 
 def append_many(table: str, rows: list[dict]):
     if rows:
+        if table in ("observations", "records"):
+            author = _record_author()
+            rows = [dict(row, author_id=author) for row in rows]
         _ready_backend().append_many(table, rows)
         invalidate(table)
 
 
 def update(table: str, row_id: str, changes: dict):
+    _check_private_change(table, row_id)
+    if table in ("observations", "records") and "author_id" in changes:
+        raise PermissionError("개인 기록의 소유자는 변경할 수 없습니다.")
     ok = _ready_backend().update(table, row_id, changes)
     invalidate(table)
     return ok
 
 
 def delete(table: str, row_id: str):
+    _check_private_change(table, row_id)
     _ready_backend().delete(table, row_id)
     invalidate(table)
 

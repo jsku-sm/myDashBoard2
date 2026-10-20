@@ -278,3 +278,5 @@ def page(user):
             _teacher()
         else:
             _student(user)
+        from views.classroom_bridge import render_shared_records
+        render_shared_records(user, "reflections")
