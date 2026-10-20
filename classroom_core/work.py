@@ -2,7 +2,7 @@
 
 Submission content is append only. Drafts, reviews, notifications and audit changes
 share its CAS record, so a failed save can never create a successful receipt.
-Existing Snorkl work is referenced through ``legacy``; it is never copied here.
+Existing CSV records are referenced through ``legacy``; they are never copied here.
 """
 from __future__ import annotations
 
@@ -19,6 +19,14 @@ from zoneinfo import ZoneInfo
 
 from .progress import PermissionDenied, ValidationError
 from .store import ConflictError, StorageError
+
+
+DISABLED_ACTIVITY_MESSAGE = "이전 외부 활동 연결은 비활성화되었습니다. 새 자료나 과제를 등록하세요."
+
+
+def _disabled_activity(record):
+    """Recognize old external links without loading their provider or responses."""
+    return bool(record.get("activity_id") or "snorkl" in record.get("methods", []))
 
 
 MAX_FILES = 2
@@ -196,6 +204,8 @@ class WorkService:
 
     def _public_record(self, record):
         result = self._safe(record)
+        if _disabled_activity(record):
+            result.update(disabled=True, disabled_reason=DISABLED_ACTIVITY_MESSAGE)
         if self._actor()["role"] == "student":
             result.pop("target_student_ids", None)
         return result
@@ -269,20 +279,21 @@ class WorkService:
         url = _text(url, "자료 링크", 2000, False)
         if url and (urlsplit(url).scheme not in ("https", "http") or not urlsplit(url).netloc or urlsplit(url).username):
             raise ValidationError("자료 링크는 http 또는 https 주소로 입력하세요.")
-        activity_id = _text(activity_id, "소노클 활동 ID", 128, False)
         if activity_id:
-            self.legacy.get_snorkl_activity(self._actor(), course_id, activity_id)
+            raise ValidationError("외부 활동 연결은 제거되었습니다. 설명, 파일 또는 링크를 등록하세요.")
         attachments = prepare_attachments(files)
         fields = dict(title=_text(title, "자료 제목", 160), body=_text(body, "자료 설명", required=False),
                       unit=_text(unit, "단원", 160, False), url=url, attachments=attachments,
-                      activity_id=activity_id, published=bool(published), publish_at=_instant(publish_at, "공개 시각"),
+                      published=bool(published), publish_at=_instant(publish_at, "공개 시각"),
                       target_student_ids=self._targets(course, target_student_ids))
-        if not (body.strip() or url or attachments or activity_id):
-            raise ValidationError("설명, 파일, 링크 또는 소노클 활동을 등록하세요.")
+        if not (body.strip() or url or attachments):
+            raise ValidationError("설명, 파일 또는 링크를 등록하세요.")
         material_id = material_id or uuid.uuid4().hex
         def change(old):
             if old and old.get("course_id") != course_id:
                 raise PermissionDenied("다른 수업의 자료를 수정할 수 없습니다.")
+            if old and _disabled_activity(old):
+                raise ValidationError(DISABLED_ACTIVITY_MESSAGE)
             return dict(old or {}, **fields, created_at=(old or {}).get("created_at", now()), updated_at=now())
         return self._safe(self._write("materials", material_id, change, "material.save", course_id, teacher=True))
 
@@ -299,8 +310,8 @@ class WorkService:
         course = self._course(course_id, teacher=True, write=True)
         if kind not in ("assignment", "quiz", "performance"):
             raise ValidationError("과제 유형을 확인하세요.")
-        if not isinstance(methods, (list, tuple)) or not methods or any(m not in ("text", "file", "snorkl") for m in methods):
-            raise ValidationError("제출 방식을 선택하세요.")
+        if not isinstance(methods, (list, tuple)) or not methods or any(m not in ("text", "file") for m in methods):
+            raise ValidationError("텍스트 또는 파일 제출 방식을 선택하세요.")
         if resubmit_policy not in ("always", "requested", "never"):
             raise ValidationError("재제출 정책을 확인하세요.")
         maximum = _number(max_points, "배점")
@@ -315,17 +326,14 @@ class WorkService:
         if maximum is not None and criteria and all(r["max_points"] is not None for r in criteria):
             if abs(sum(r["max_points"] for r in criteria) - maximum) > 0.00001:
                 raise ValidationError("평가 요소 배점 합계가 과제 배점과 일치해야 합니다.")
-        activity_id = _text(activity_id, "소노클 활동 ID", 128, False)
         if activity_id:
-            self.legacy.get_snorkl_activity(self._actor(), course_id, activity_id)
-            if set(methods) != {"snorkl"}:
-                raise ValidationError("연결한 소노클 활동은 기존 활동 화면에서 제출합니다. 제출 방식은 소노클만 선택하세요.")
-        elif "snorkl" in methods:
-            raise ValidationError("연결할 소노클 활동을 선택하세요.")
+            raise ValidationError("외부 활동 연결은 제거되었습니다. 텍스트 또는 파일 과제를 등록하세요.")
         if not isinstance(material_ids, (list, tuple)):
             raise ValidationError("연결 자료를 확인하세요.")
         for material_id in material_ids:
-            self._owned_record("materials", material_id, course_id)
+            material = self._owned_record("materials", material_id, course_id)
+            if _disabled_activity(material):
+                raise ValidationError(DISABLED_ACTIVITY_MESSAGE)
         publication, due = _instant(publish_at, "공개 시각"), _instant(due_at, "마감 시각")
         if publication and due and due < publication:
             raise ValidationError("마감 시각은 공개 시각 이후로 설정하세요.")
@@ -333,13 +341,13 @@ class WorkService:
                       methods=list(dict.fromkeys(methods)), max_points=maximum, rubric=criteria, due_at=due,
                       publish_at=publication, published=bool(published), allow_late=bool(allow_late),
                       resubmit_policy=resubmit_policy, target_student_ids=self._targets(course, target_student_ids),
-                      activity_id=activity_id, material_ids=list(dict.fromkeys(material_ids)))
+                      material_ids=list(dict.fromkeys(material_ids)))
         assignment_id = assignment_id or uuid.uuid4().hex
         def change(old):
             if old and old.get("course_id") != course_id:
                 raise PermissionDenied("다른 수업의 과제를 수정할 수 없습니다.")
-            if old and old.get("activity_id", "") != activity_id:
-                raise ValidationError("연결한 활동은 변경할 수 없습니다. 새 과제로 등록하세요.")
+            if old and _disabled_activity(old):
+                raise ValidationError(DISABLED_ACTIVITY_MESSAGE)
             return dict(old or {}, **fields, created_at=(old or {}).get("created_at", now()), updated_at=now())
         return self._safe(self._write("assignments", assignment_id, change, "assignment.save", course_id, teacher=True))
 
@@ -360,10 +368,8 @@ class WorkService:
         self._course(source_course_id, teacher=True)
         self._course(target_course_id, teacher=True, write=True)
         source = self.assignment(source_course_id, assignment_id)
-        # Cross-course native activities/materials are scoped references; deliberately
-        # require a new local activity selection instead of copying their permissions.
-        if source.get("activity_id"):
-            raise ValidationError("소노클 연결 과제는 대상 수업에서 기존 활동을 선택해 등록하세요.")
+        if _disabled_activity(source):
+            raise ValidationError(DISABLED_ACTIVITY_MESSAGE)
         fields = {key: source.get(key) for key in ("kind", "methods", "max_points", "rubric", "allow_late", "resubmit_policy")}
         return self.save_assignment(target_course_id, source["title"], source["instructions"], **fields)
 
@@ -376,6 +382,8 @@ class WorkService:
         if student_id not in course.get("student_ids", []):
             raise PermissionDenied("승인된 수업 참여자의 기록만 확인할 수 있습니다.")
         assignment = self.assignment(course_id, assignment_id)
+        if write and _disabled_activity(assignment):
+            raise ValidationError(DISABLED_ACTIVITY_MESSAGE)
         if assignment.get("target_student_ids") and student_id not in assignment["target_student_ids"]:
             raise PermissionDenied("이 과제의 배부 대상이 아닙니다.")
         return course, assignment, student_id, _identity(course_id, assignment_id, student_id)
@@ -392,8 +400,6 @@ class WorkService:
         _, assignment, sid, record_id = self._student_context(course_id, assignment_id, write=True)
         if self._actor().get("role") != "student":
             raise PermissionDenied("학생 본인만 답안을 작성할 수 있습니다.")
-        if assignment.get("activity_id"):
-            raise ValidationError("소노클 임시 저장은 연결된 활동 화면을 이용하세요.")
         payload = self._payload(assignment, text, files)
         def change(old):
             self._student_context(course_id, assignment_id, sid, write=True)
@@ -410,8 +416,6 @@ class WorkService:
         _, assignment, sid, record_id = self._student_context(course_id, assignment_id, write=True)
         if self._actor().get("role") != "student":
             raise PermissionDenied("학생 본인만 제출할 수 있습니다.")
-        if assignment.get("activity_id"):
-            raise ValidationError("연결한 소노클 활동에서 제출하세요. 같은 답안을 복제하지 않습니다.")
         request_id = _text(request_id, "제출 요청 번호", 128)
         payload = self._payload(assignment, text, files)
         if not payload["text"] and not payload["attachments"]:
@@ -453,12 +457,10 @@ class WorkService:
 
     def submission(self, course_id, assignment_id, student_id=None):
         course, assignment, sid, record_id = self._student_context(course_id, assignment_id, student_id)
-        if assignment.get("activity_id"):
-            if sid != self._actor()["id"] and not self._teacher(course):
-                raise PermissionDenied("다른 학생의 소노클 기록을 볼 수 없습니다.")
-            # The native teacher UI owns the student response gallery/reviews.
-            return dict(source="snorkl", activity_id=assignment["activity_id"],
-                        native=self.legacy.snorkl_status(self._actor(), course_id, assignment["activity_id"], student_id=sid))
+        if _disabled_activity(assignment):
+            return dict(source="disabled", disabled=True, disabled_reason=DISABLED_ACTIVITY_MESSAGE,
+                        student_id=sid, assignment_id=assignment_id, versions=[], reviews={},
+                        status="연결 비활성화", revision_requested=False)
         saved = self.store.get("submissions", record_id, fresh=True)
         if not saved:
             return dict(source="classroom", student_id=sid, assignment_id=assignment_id,
@@ -510,8 +512,6 @@ class WorkService:
                     rubric_scores=(), review_status="in_review", score_status="draft", needs_check=False):
         self._course(course_id, teacher=True, write=True)
         _, assignment, sid, record_id = self._student_context(course_id, assignment_id, student_id, write=True)
-        if assignment.get("activity_id"):
-            raise ValidationError("소노클 평가는 연결된 활동의 교사 평가 화면을 이용하세요.")
         if review_status not in ("in_review", "reviewed") or score_status not in ("draft", "final"):
             raise ValidationError("검토·점수 상태를 확인하세요.")
         # Assessment remains tied to the criteria the student submitted against,
@@ -701,6 +701,8 @@ class WorkService:
             return []
         notices = []
         for assignment in self.assignments(course_id):
+            if _disabled_activity(assignment):
+                continue
             notices.append(dict(id="assignment:" + assignment["id"], kind="assignment", title=assignment["title"],
                                 assignment_id=assignment["id"], created_at=assignment.get("publish_at") or assignment["created_at"],
                                 message="새 과제가 공개되었습니다."))
@@ -718,7 +720,7 @@ class WorkService:
             if assignment["target_student_ids"] and sid not in assignment["target_student_ids"]:
                 continue
             record = self.submission(course_id, assignment_id, sid)
-            if record.get("source") == "snorkl":
+            if record.get("disabled"):
                 continue
             latest = record.get("versions", [])[-1:]
             number = latest[0]["number"] if latest else None

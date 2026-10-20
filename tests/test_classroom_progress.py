@@ -175,22 +175,30 @@ def test_compare_rejects_different_curriculum_versions(setup):
 def test_next_term_templates_are_atomic_sanitized_and_remapped(setup, monkeypatch):
     service, users, store, _, course = setup
     store.put("materials", "original", {"id": "original", "course_id": course["id"], "title": "설명 자료", "body": "학습 안내",
-                                        "published": True, "target_student_ids": ["s"], "private_comment": "복사 금지", "activity_id": "old-native"})
-    store.put("assignments", "task", {"id": "task", "course_id": course["id"], "title": "과제", "instructions": "풀기", "methods": ["snorkl"],
+                                        "published": True, "target_student_ids": ["s"], "private_comment": "복사 금지"})
+    store.put("assignments", "task", {"id": "task", "course_id": course["id"], "title": "과제", "instructions": "풀기", "methods": ["text", "file"],
                                       "rubric": [{"label": "풀이", "max_points": 10}], "material_ids": ["original"], "published": True,
                                       "due_at": "2026-10-20", "target_student_ids": ["s"], "answer": "학생 답안", "score": 8})
+    old_material = store.put("materials", "old-material", {"id": "old-material", "course_id": course["id"],
+        "title": "이전 외부 자료", "activity_id": "old-activity"})
+    old_task = store.put("assignments", "old-task", {"id": "old-task", "course_id": course["id"],
+        "title": "이전 외부 과제", "methods": ["snorkl"]})
     curriculum = service.get_curriculum(course["curriculum_id"])
     lessons = copy.deepcopy(curriculum["lessons"])
-    lessons[0]["resources"] = [{"kind": "material", "id": "original"}, {"kind": "assignment", "id": "task"}]
+    lessons[0]["resources"] = [{"kind": "material", "id": "original"}, {"kind": "assignment", "id": "task"},
+                                {"kind": "material", "id": "old-material"}, {"kind": "assignment", "id": "old-task"}]
     service.update_curriculum(curriculum["id"], {"lessons": lessons}, curriculum["version"], "연결")
     latest = service.get_course(course["id"])
     service.apply_curriculum(course["id"], curriculum["id"], latest["version"], "확인")
     copied = service.copy_course(course["id"], "새 학기", "2027-1")
+    assert len(copied["copied_material_templates"]) == len(copied["copied_assignment_templates"]) == 1
     material, task = copied["copied_material_templates"][0], copied["copied_assignment_templates"][0]
     assert not material["published"] and not task["published"]
     assert "private_comment" not in material and "score" not in task and "answer" not in task
-    assert task["due_at"] is None and task["target_student_ids"] == [] and task["methods"] == ["text"]
-    assert material["activity_id"] == task["activity_id"] == ""
+    assert task["due_at"] is None and task["target_student_ids"] == [] and task["methods"] == ["text", "file"]
+    assert "activity_id" not in material and "activity_id" not in task
+    assert store.get("materials", "old-material") == old_material
+    assert store.get("assignments", "old-task") == old_task
     assert task["material_ids"] == [material["id"]]
     assert {r["id"] for r in copied["lessons"][0]["resources"]} == {material["id"], task["id"]}
     student = ClassroomService(store, users["s"], users.get, lock_checker=lambda _: False)
@@ -210,3 +218,49 @@ def test_next_term_templates_are_atomic_sanitized_and_remapped(setup, monkeypatc
     with pytest.raises(StorageError):
         service.copy_course(course["id"], "실패한 복사", "2027-1")
     assert len(store.list("courses")) == before
+
+
+def test_old_lesson_activity_launches_are_hidden_without_migrating_stored_records(setup):
+    service, users, store, curriculum, course = setup
+    raw_curriculum = store.get("curricula", curriculum["id"])
+    old_lesson = raw_curriculum["lessons"][0]
+    old_lesson["activity_id"] = "old-activity"
+    old_lesson["resources"] = [
+        {"kind": "snorkl", "id": "old-activity", "url": "https://removed.example/activity"},
+        {"kind": "url", "activity_id": "old-activity", "url": "https://removed.example/activity"},
+        {"kind": "material", "id": "retained", "activity_id": "old-activity", "url": "https://private.example/file"},
+        {"kind": "url", "title": "참고", "url": "https://school.example/reference"},
+    ]
+    saved_curriculum = store.put("curricula", curriculum["id"], raw_curriculum, raw_curriculum["version"])
+    raw_course = store.get("courses", course["id"])
+    raw_course["lessons"] = copy.deepcopy(saved_curriculum["lessons"])
+    raw_course["lesson_records"][old_lesson["id"]] = dict(progress="in_progress", activity_id="old-activity",
+        resources=[{"kind": "activity", "id": "old-activity"}])
+    saved_course = store.put("courses", course["id"], raw_course, raw_course["version"])
+    student = ClassroomService(store, users["s"], users.get)
+    for visible in (service.get_course(course["id"]), service.list_courses()[0], student.get_course(course["id"])):
+        lesson = visible["lessons"][0]
+        assert "activity_id" not in lesson
+        assert lesson["resources"] == [{"kind": "material", "id": "retained"},
+            {"kind": "url", "title": "참고", "url": "https://school.example/reference"}]
+        record = visible["lesson_records"][old_lesson["id"]]
+        assert "activity_id" not in record and record["resources"] == []
+    assert "activity_id" not in service.progress_summary(course["id"])["current_lesson"]
+    assert "activity_id" not in service.get_curriculum(curriculum["id"])["lessons"][0]
+    assert "activity_id" not in service.list_curricula()[0]["lessons"][0]
+    new_course = service.create_course("새 수업", "2027-1", "수학", curriculum_id=curriculum["id"])
+    assert "activity_id" not in new_course["lessons"][0]
+    assert store.get("courses", course["id"]) == saved_course
+    assert store.get("curricula", curriculum["id"]) == saved_curriculum
+    renamed = service.update_curriculum(curriculum["id"], {"title": "이름만 변경"}, saved_curriculum["version"], "이름 수정")
+    assert renamed["lessons"] == saved_curriculum["lessons"]
+    assert "activity_id" not in service.get_curriculum(curriculum["id"])["lessons"][0]
+
+
+def test_new_curriculum_discards_removed_activity_launch_fields(setup):
+    service, _, _, _, _ = setup
+    curriculum = service.create_curriculum("직접 수업안", "수학", [dict(title="차시", activity_id="removed", resources=[
+        {"kind": "activity", "id": "removed"}, {"kind": "snorkl", "id": "removed"},
+        {"kind": "url", "url": "https://school.example/reference"}])])
+    assert "activity_id" not in curriculum["lessons"][0]
+    assert curriculum["lessons"][0]["resources"] == [{"kind": "url", "url": "https://school.example/reference"}]

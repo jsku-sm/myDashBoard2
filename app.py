@@ -12,9 +12,9 @@ import realtime as rt
 import storage as db
 import ui
 from config import APP_TITLE, POLL_SEC
-from snorkl_navigation import main_menu_changed, sync_shared_link
+from snorkl_navigation import main_menu_changed, preserve_tool_drafts, sync_shared_link
 from views import account, dashboard, emotion, home, intro, math_class, sudanote, teacher, tools
-from classroom_navigation import apply_pending_navigation as classroom_navigation, preserve_tool_drafts
+from classroom_navigation import apply_pending_navigation as classroom_navigation
 from views.student_announcements import poll_announcements, show_announcement_popup
 
 st.set_page_config(page_title=APP_TITLE, page_icon="📐", layout="wide")

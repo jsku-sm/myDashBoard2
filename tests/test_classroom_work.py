@@ -230,19 +230,72 @@ def test_late_policy_draft_cas_archived_writes_and_files_validation():
             prepare_attachments(files)
 
 
-def test_no_native_submissions_are_copied_and_legacy_observation_cannot_be_retagged():
-    calls = []
-    original = dict(submission_id="native-original", version=2, status="제출 완료")
-    legacy = SimpleNamespace(get_snorkl_activity=lambda *args: dict(id="native"),
-        snorkl_status=lambda *args, **kwargs: (calls.append(kwargs) or original),
-        validate_reference=lambda *args: dict(student_id="s0"))
-    store, _, _, cid, work = environment(legacy=legacy)
-    task = assignment(work("teacher"), cid, methods=["snorkl"], activity_id="native")
-    result = work("teacher").submission(cid, task["id"], "s0")
-    assert result["native"] is original and calls == [dict(student_id="s0")]
+def test_new_classroom_work_accepts_only_text_file_without_external_provider():
+    # Deliberately no activity methods on this adapter: classroom paths must
+    # never load an external activity store or require its encryption key.
+    store, _, _, cid, work = environment(legacy=SimpleNamespace())
+    teacher = work("teacher")
+    for fields in (dict(methods=["snorkl"]), dict(activity_id="old-activity"),
+                   dict(methods=["file", "snorkl"])):
+        with pytest.raises(ValidationError):
+            assignment(teacher, cid, **fields)
+    with pytest.raises(ValidationError, match="제거"):
+        teacher.save_material(cid, "자료", activity_id="old-activity")
+    task = assignment(teacher, cid, methods=["text", "file"])
+    material = teacher.save_material(cid, "자료", body="설명", published=True)
+    assert "activity_id" not in task and "activity_id" not in material
+    assert work("s0").submit(cid, task["id"], "new", "직접 답안")["number"] == 1
+    assert len(store.list("assignments")) == len(store.list("materials")) == 1
+
+
+@pytest.mark.parametrize("link", [dict(activity_id="old-activity", methods=["snorkl"]),
+                                    dict(methods=["snorkl"]),
+                                    dict(activity_id="old-activity", methods=["text"])])
+def test_existing_external_assignments_are_disabled_read_only_without_callbacks(link):
+    store, _, _, cid, work = environment(legacy=SimpleNamespace())
+    teacher = work("teacher")
+    task = assignment(teacher, cid)
+    original = store.put("assignments", task["id"], dict(task, **link), task["version"])
+    visible = work("s0").assignment(cid, task["id"])
+    assert visible["disabled"] and "비활성화" in visible["disabled_reason"]
+    result = teacher.submission(cid, task["id"], "s0")
+    assert result["source"] == "disabled" and result["status"] == "연결 비활성화"
+    assert result["versions"] == [] and result["reviews"] == {}
+    assert "native" not in result
+    for action in (lambda: work("s0").save_draft(cid, task["id"], "답안"),
+                   lambda: work("s0").submit(cid, task["id"], "new", "답안"),
+                   lambda: teacher.save_assignment(cid, "바꾼 과제", "설명", assignment_id=task["id"]),
+                   lambda: teacher.save_review(cid, task["id"], "s0", 1),
+                   lambda: teacher.publish_review(cid, task["id"], "s0", 1),
+                   lambda: teacher.request_revision(cid, task["id"], "s0", "수정"),
+                   lambda: teacher.clone_assignment(cid, task["id"], cid)):
+        with pytest.raises(ValidationError, match="비활성화"):
+            action()
+    with pytest.raises(PermissionDenied):
+        work("s1").submission(cid, task["id"], "s0")
+    assert teacher.export_assignment(cid, task["id"]) == []
+    assert work("s0").notifications(cid) == []
+    assert store.get("assignments", task["id"]) == original
     assert store.list("submissions") == []
-    with pytest.raises(ValidationError, match="소노클"):
-        work("s0").submit(cid, task["id"], "new", "복제 금지")
+
+
+def test_existing_external_materials_are_disabled_without_conversion_or_new_links():
+    store, _, _, cid, work = environment(legacy=SimpleNamespace())
+    teacher = work("teacher")
+    material = teacher.save_material(cid, "기존 자료", body="보존할 설명", published=True)
+    original = store.put("materials", material["id"], dict(material, activity_id="old-activity"), material["version"])
+    assert work("s0").materials(cid)[0]["disabled"]
+    with pytest.raises(ValidationError, match="비활성화"):
+        teacher.save_material(cid, "변경 시도", body="다른 설명", material_id=material["id"])
+    with pytest.raises(ValidationError, match="비활성화"):
+        assignment(teacher, cid, material_ids=[material["id"]])
+    assert store.get("materials", material["id"]) == original
+    assert store.list("assignments") == []
+
+
+def test_legacy_csv_observation_cannot_be_retagged():
+    legacy = SimpleNamespace(validate_reference=lambda *args: dict(student_id="s0"))
+    _, _, _, cid, work = environment(legacy=legacy)
     with pytest.raises(PermissionDenied, match="일치"):
         work("teacher").save_observation(cid, "s1", "", legacy_ref="existing-observation")
 
@@ -293,18 +346,17 @@ def test_ui_attachment_reruns_deduplicate_raw_upload_and_restored_file():
 
 def test_invisible_scoped_lesson_resources_never_fall_back_to_external_links(monkeypatch):
     import views.classroom_work as view
-    launches, links, captions = [], [], []
+    links, captions = [], []
     fake = SimpleNamespace(materials=lambda cid: [], assignments=lambda cid: [],
                            service=SimpleNamespace(actor=lambda: dict(id="s0", role="student")))
     monkeypatch.setattr(view, "_work", lambda service: fake)
-    monkeypatch.setattr(view, "_launch", lambda *args: launches.append(args))
     monkeypatch.setattr(view, "st", SimpleNamespace(caption=captions.append, link_button=lambda *a, **k: links.append(a)))
     lesson = dict(id="lesson", resources=[
         dict(kind="material", id="not-targeted", activity_id="hidden-native", url="https://private.example/file"),
         dict(kind="assignment", id="not-published", activity_id="hidden-native", url="https://private.example/file"),
     ])
     view.render_lesson_resources(fake, dict(id="course"), lesson)
-    assert launches == links == []
+    assert links == []
     assert len(captions) == 2
 
 
@@ -327,7 +379,7 @@ if "fixture" not in st.session_state:
 store, users, cid, aid = st.session_state.fixture
 actor = st.session_state.get("actor", "s")
 svc = ClassroomService(store, users[actor], users.get, lock_checker=lambda _: False)
-work = WorkService(svc, legacy=SimpleNamespace(list_snorkl_activities=lambda *args: []))
+work = WorkService(svc, legacy=SimpleNamespace())
 render_assignments(work, svc.get_course(cid))
 '''
 

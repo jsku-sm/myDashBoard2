@@ -18,8 +18,9 @@ from classroom_core.work import WorkService
 
 TZ = ZoneInfo("Asia/Seoul")
 KINDS = {"assignment": "과제", "quiz": "간단 퀴즈", "performance": "수행평가"}
-METHODS = {"text": "앱 안에서 답변", "file": "파일·사진", "snorkl": "기존 소노클 활동"}
+METHODS = {"text": "앱 안에서 답변", "file": "파일·사진"}
 POLICIES = {"requested": "교사의 수정 요청 후", "always": "언제든 재제출", "never": "재제출 불가"}
+DISABLED_ACTIVITY = "이전 외부 활동 연결은 비활성화되었습니다. 새 자료나 과제를 등록하세요."
 
 
 def _work(service):
@@ -65,30 +66,6 @@ def _dedup_files(files):
 def _notice_error(error):
     st.error(str(error))
     st.caption("입력 내용을 유지했습니다. 연결과 권한을 확인한 뒤 같은 저장 버튼으로 다시 시도하세요.")
-
-
-def _launch(work, course, activity_id, key):
-    if st.button("소노클 활동 열기", key=key, width="stretch"):
-        try:
-            work.legacy.launch_snorkl(work.service.actor(), course["id"], activity_id)
-        except ClassroomError as error:
-            _notice_error(error)
-        else:
-            st.rerun()
-
-
-def _activity_selector(work, course, key, selected=""):
-    try:
-        rows = work.legacy.list_snorkl_activities(work.service.actor(), course["id"])
-    except (ClassroomError, AttributeError):
-        rows = []
-    mapping = {r["id"]: r for r in rows}
-    options = [""] + list(mapping)
-    if selected and selected not in options:
-        options.append(selected)
-    return st.selectbox("연결할 기존 소노클 활동", options,
-                        index=options.index(selected) if selected in options else 0,
-                        format_func=lambda aid: mapping.get(aid, {}).get("title", aid) if aid else "연결 안 함", key=key)
 
 
 def _publication(key, record=None):
@@ -235,7 +212,7 @@ def render_materials(service, course, user=None):
     for material in materials:
         with st.container(border=True):
             _material_body(work, course, material, _key("material", material["id"], _user(work)["id"]))
-            if teacher and not course.get("archived"):
+            if teacher and not course.get("archived") and not material.get("disabled"):
                 with st.expander("자료 수정·공개 설정"):
                     _material_form(work, course, material)
 
@@ -254,13 +231,16 @@ def _material_body(work, course, material, key):
         st.download_button("파일 내려받기 · " + attachment["filename"], saved["data"],
                            file_name=saved["filename"], mime=saved["mime"], key=key + "_file_" + str(index),
                            width="stretch")
-    if material.get("activity_id"):
-        _launch(work, course, material["activity_id"], key + "_launch")
+    if material.get("disabled") or material.get("activity_id"):
+        st.info(material.get("disabled_reason") or DISABLED_ACTIVITY)
     st.caption("자료 열기와 내려받기는 수업 진도를 변경하지 않습니다.")
 
 
 def _material_form(work, course, material=None):
     material = material or {}
+    if material.get("disabled") or material.get("activity_id"):
+        st.info(material.get("disabled_reason") or DISABLED_ACTIVITY)
+        return
     key = _key("material_form", course["id"], material.get("id", "new"), _user(work)["id"])
     title = st.text_input("자료 제목", material.get("title", ""), max_chars=160, key=key + "_title")
     unit = st.text_input("단원·주제", material.get("unit", ""), max_chars=160, key=key + "_unit")
@@ -269,14 +249,13 @@ def _material_form(work, course, material=None):
     uploads = st.file_uploader("배부할 원본 파일 · 최대 2개, 합계 2 MiB", accept_multiple_files=True,
                                type=["pdf", "png", "jpg", "jpeg", "txt", "docx", "hwp", "hwpx"], key=key + "_files")
     keep_files = st.checkbox("기존 첨부 유지", value=True, key=key + "_keep") if material.get("attachments") else False
-    activity_id = _activity_selector(work, course, key + "_activity", material.get("activity_id", ""))
     targets = _targets(work, course, key, material.get("target_student_ids", []))
     published, instant = _publication(key, material)
     if st.button("배부 대상 확인 후 자료 저장", key=key + "_save", width="stretch"):
         files = _dedup_files((material.get("attachments", []) if keep_files else []) + _uploads(uploads))
         try:
             work.save_material(course["id"], title, body=body, unit=unit, url=url, files=files,
-                               activity_id=activity_id, material_id=material.get("id"), published=published,
+                               material_id=material.get("id"), published=published,
                                publish_at=instant, target_student_ids=targets)
         except ClassroomError as error:
             _notice_error(error)
@@ -301,6 +280,8 @@ def render_assignments(service, course, user=None):
     assignment_id = st.selectbox("과제 선택", list(mapping), format_func=lambda aid: mapping[aid]["title"], key=key)
     assignment = mapping[assignment_id]
     _assignment_body(work, course, assignment, _key("assignment_body", assignment_id, _user(work)["id"]))
+    if assignment.get("disabled") or assignment.get("activity_id"):
+        return
     if teacher:
         if not course.get("archived"):
             with st.expander("과제 수정·배부 설정"):
@@ -318,10 +299,7 @@ def render_assignments(service, course, user=None):
                             _notice_error(error)
                         else:
                             st.success("대상 수업에 비공개 과제 양식을 저장했습니다.")
-        if assignment.get("activity_id"):
-            st.info("이 과제는 기존 소노클 활동의 답안과 평가를 사용합니다. 연결한 활동의 교사 화면에서 평가하세요.")
-        else:
-            _teacher_submissions(work, course, assignment)
+        _teacher_submissions(work, course, assignment)
     else:
         _student_assignment(work, course, assignment)
 
@@ -340,20 +318,22 @@ def _assignment_body(work, course, assignment, key):
         if mid in materials:
             with st.expander("연결 자료 · " + materials[mid]["title"]):
                 _material_body(work, course, materials[mid], key + "_material_" + mid)
-    if assignment.get("activity_id"):
-        _launch(work, course, assignment["activity_id"], key + "_launch")
+    if assignment.get("disabled") or assignment.get("activity_id"):
+        st.info(assignment.get("disabled_reason") or DISABLED_ACTIVITY)
 
 
 def _assignment_form(work, course, assignment=None):
     assignment = assignment or {}
+    if assignment.get("disabled") or assignment.get("activity_id"):
+        st.info(assignment.get("disabled_reason") or DISABLED_ACTIVITY)
+        return
     key = _key("assignment_form", course["id"], assignment.get("id", "new"), _user(work)["id"])
     title = st.text_input("과제 제목", assignment.get("title", ""), max_chars=160, key=key + "_title")
     instructions = st.text_area("안내", assignment.get("instructions", ""), max_chars=10000, key=key + "_instructions")
     kind = st.selectbox("유형", list(KINDS), index=list(KINDS).index(assignment.get("kind", "assignment")), format_func=KINDS.get, key=key + "_kind")
-    methods = st.multiselect("허용할 제출 방식", list(METHODS), default=assignment.get("methods", ["text"]), format_func=METHODS.get, key=key + "_methods")
-    activity_id = _activity_selector(work, course, key + "_activity", assignment.get("activity_id", "")) if "snorkl" in methods else ""
-    if activity_id:
-        st.caption("소노클 연결은 기존 활동 ID와 로그인한 학생 ID를 사용합니다. 답안을 이중 저장하지 않습니다.")
+    methods = st.multiselect("허용할 제출 방식", list(METHODS),
+                             default=[method for method in assignment.get("methods", ["text"]) if method in METHODS],
+                             format_func=METHODS.get, key=key + "_methods")
     graded = st.checkbox("점수형 평가", value=assignment.get("max_points") is not None, key=key + "_graded")
     maximum = st.number_input("전체 배점", min_value=0.0, max_value=100000.0,
                               value=float(assignment["max_points"] if assignment.get("max_points") is not None else 100),
@@ -388,7 +368,7 @@ def _assignment_form(work, course, assignment=None):
             work.save_assignment(course["id"], title, instructions, assignment_id=assignment.get("id"), kind=kind,
                                  methods=methods, max_points=maximum, rubric=rubric, due_at=due_at,
                                  publish_at=instant, published=published, allow_late=late, resubmit_policy=policy,
-                                 target_student_ids=targets, activity_id=activity_id, material_ids=material_ids)
+                                 target_student_ids=targets, material_ids=material_ids)
         except ValueError:
             st.error("평가 기준의 배점은 숫자로 입력하세요.")
         except ClassroomError as error:
@@ -400,11 +380,8 @@ def _assignment_form(work, course, assignment=None):
 
 def _student_assignment(work, course, assignment):
     record = work.submission(course["id"], assignment["id"])
-    if record.get("source") == "snorkl":
-        native = record.get("native", {})
-        st.info("소노클 저장 기록 · " + str(native.get("status", "기록 없음")))
-        if native.get("submitted_at"):
-            st.caption("최근 제출 " + _when(native["submitted_at"]))
+    if record.get("disabled") or record.get("source") == "disabled":
+        st.info(record.get("disabled_reason") or DISABLED_ACTIVITY)
         return
     st.info("내 제출 상태 · " + record["status"])
     if record.get("revision_requested"):
@@ -592,11 +569,10 @@ def render_today(service, courses, user=None):
         if course.get("membership_status") == "pending" or course.get("archived"):
             continue
         for assignment in work.assignments(course["id"]):
+            if assignment.get("disabled") or assignment.get("activity_id"):
+                continue
             record = work.submission(course["id"], assignment["id"])
-            if record.get("source") == "snorkl":
-                state = str(record.get("native", {}).get("status", "미제출"))
-            else:
-                state = record["status"]
+            state = record["status"]
             if state in ("미제출", "작성 중", "수정 요청"):
                 items.append(dict(수업=course["title"], 할일=assignment["title"], 상태=state,
                                   마감=_when(assignment.get("due_at"))))
@@ -615,10 +591,10 @@ def render_today(service, courses, user=None):
 
 def calendar_resources(service, course, user=None):
     work = _work(service)
-    rows = [dict(kind="material", id=m["id"], title=m["title"], url=m.get("url", ""), activity_id=m.get("activity_id", ""))
-            for m in work.materials(course["id"])]
-    rows += [dict(kind="assignment", id=a["id"], title=a["title"], activity_id=a.get("activity_id", ""))
-             for a in work.assignments(course["id"])]
+    rows = [dict(kind="material", id=m["id"], title=m["title"], url=m.get("url", ""))
+            for m in work.materials(course["id"]) if not m.get("disabled") and not m.get("activity_id")]
+    rows += [dict(kind="assignment", id=a["id"], title=a["title"])
+             for a in work.assignments(course["id"]) if not a.get("disabled") and not a.get("activity_id")]
     return rows
 
 
@@ -630,9 +606,9 @@ def render_lesson_resources(service, course, lesson, user=None, key=""):
     resources += [dict(kind="material", id=mid) for mid in lesson.get("material_ids", [])]
     resources += [dict(kind="assignment", id=aid) for aid in lesson.get("assignment_ids", [])]
     if lesson.get("activity_id"):
-        resources.append(dict(kind="snorkl", activity_id=lesson["activity_id"]))
-    if not resources:
-        st.caption("이 차시에 연결한 자료·활동이 없습니다.")
+        st.caption(DISABLED_ACTIVITY)
+    if not resources and not lesson.get("activity_id"):
+        st.caption("이 차시에 연결한 자료·과제가 없습니다.")
     for index, resource in enumerate(resources):
         resource_key = _key("lesson_resource", course["id"], lesson.get("id"), index, _user(work)["id"], key)
         kind = resource.get("kind", resource.get("type", "link"))
@@ -651,7 +627,7 @@ def render_lesson_resources(service, course, lesson, user=None, key=""):
             else:
                 st.caption("연결 과제가 비공개이거나 접근할 수 없습니다.")
         elif resource.get("activity_id") or kind == "snorkl":
-            _launch(work, course, resource.get("activity_id") or rid, resource_key)
+            st.caption(DISABLED_ACTIVITY)
         elif resource.get("url", "").startswith(("https://", "http://")):
             st.link_button(resource.get("title") or "연결 자료 열기", resource["url"], width="stretch")
         else:

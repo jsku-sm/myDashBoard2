@@ -98,7 +98,7 @@ class GitHubStore:
         try:
             self._cipher = Fernet(str(key).encode())
         except (ValueError, TypeError):
-            raise ConfigurationError("[snorkl] encryption_key 또는 ENCRYPTION_KEY에 기존 Fernet 키를 설정하세요. 기존 키를 교체하거나 새로 만들지 마세요.") from None
+            raise ConfigurationError("[classroom] encryption_key에 올바른 Fernet 키를 설정하세요. 기존 클래스룸 기록이 있으면 처음 사용한 키를 유지하세요.") from None
         if session is None:
             import requests
             session = requests.Session()
@@ -246,13 +246,17 @@ class GitHubStore:
 def store_from_secrets(secrets):
     """Use the dashboard's explicit existing target; never infer a new repo."""
     github = dict(secrets.get("github", {}))
-    snorkl = dict(secrets.get("snorkl", {}))
+    classroom = dict(secrets.get("classroom", {}))
     missing = [field for field in ("repo", "branch", "token") if not str(github.get(field, "")).strip()]
     if missing:
         raise ConfigurationError("기존 [github] 설정의 " + ", ".join(missing) + " 항목을 배포 Secrets에 설정하세요. 비밀값을 채팅으로 보내지 마세요.")
-    key = snorkl.get("encryption_key") or secrets.get("ENCRYPTION_KEY")
+    # New classroom installations use their own Secrets setting. The final
+    # fallback only preserves access to classroom records encrypted by older
+    # versions; it never initializes or connects the separate learning tool.
+    key = (classroom.get("encryption_key") or secrets.get("CLASSROOM_ENCRYPTION_KEY")
+           or secrets.get("ENCRYPTION_KEY") or dict(secrets.get("snorkl", {})).get("encryption_key"))
     if not key:
-        raise ConfigurationError("[snorkl] encryption_key 또는 ENCRYPTION_KEY의 기존 키가 필요합니다. 키 원문을 채팅에 보내지 마세요. 저장소의 키를 새로 생성하지 않습니다.")
+        raise ConfigurationError("클래스룸 암호화 설정이 필요합니다. 배포 Secrets의 [classroom] encryption_key를 설정하세요. 기존 클래스룸 기록이 있으면 처음 사용한 키를 그대로 사용하세요. 키 원문은 채팅에 보내지 마세요.")
     return GitHubStore(github["repo"], github["branch"], github["token"], key)
 
 
@@ -264,6 +268,6 @@ def get_store():
         try:
             secrets = dict(st.secrets)
         except Exception:
-            raise ConfigurationError("배포 Secrets에 기존 [github] 연결과 [snorkl] 암호화 키를 설정하세요.") from None
+            raise ConfigurationError("배포 Secrets에 기존 [github] 연결과 [classroom] 암호화 설정을 확인하세요.") from None
         return store_from_secrets(secrets)
     return configured_store()

@@ -155,3 +155,155 @@ def test_edited_curriculum_preserves_resource_reference_ids():
     rows[0]["연결 자료 · 제목|주소"] = "안전하지 않은 주소|javascript:alert(1)"
     with pytest.raises(ValueError):
         view._edited_lessons(rows, plan)
+
+
+WORK_SCRIPT = '''
+import streamlit as st
+from classroom_core import ClassroomService, MemoryStore
+from classroom_core.work import WorkService
+from views import classroom_work as view
+
+class NoExternalActivities:
+    def __getattr__(self, name):
+        raise AssertionError("Classroom attempted an external activity call: " + name)
+
+users = {"t": {"id":"t", "role":"teacher", "name":"교사"},
+         "s": {"id":"s", "role":"student", "name":"학생", "class":"1-1"}}
+if "work_store" not in st.session_state:
+    store = MemoryStore()
+    teacher = ClassroomService(store, users["t"], users.get, lock_checker=lambda _:False)
+    course = teacher.create_course("수학", "2026-2", "수학", class_name="1-1", student_ids=["s"])
+    work = WorkService(teacher, legacy=NoExternalActivities())
+    task = work.save_assignment(course["id"], "일반 과제", "풀이를 설명하세요", published=True)
+    material = work.save_material(course["id"], "일반 자료", body="설명", published=True)
+    for namespace, original in (("assignments", task), ("materials", material)):
+        linked = dict(original, id="old-" + namespace, title="이전 연결 " + namespace,
+                      activity_id="preserved-old-activity")
+        if namespace == "assignments":
+            linked["methods"] = ["snorkl"]
+        store.put(namespace, linked["id"], linked, None)
+    st.session_state.work_store = store
+    st.session_state.work_course = course["id"]
+store = st.session_state.work_store
+uid = st.session_state.get("work_uid", "t")
+service = ClassroomService(store, users[uid], users.get, lock_checker=lambda _:False)
+course = service.get_course(st.session_state.work_course)
+work = WorkService(service, legacy=NoExternalActivities())
+mode = st.session_state.get("work_mode", "assignment_form")
+if mode == "assignment_form":
+    view._assignment_form(work, course)
+elif mode == "material_form":
+    view._material_form(work, course)
+elif mode == "assignments":
+    view.render_assignments(work, course)
+elif mode == "materials":
+    view.render_materials(work, course)
+elif mode == "today":
+    view.render_today(work, [course])
+elif mode == "resources":
+    view.render_lesson_resources(work, course, {"id":"lesson", "activity_id":"preserved-old-activity",
+        "resources":[{"kind":"snorkl", "id":"old"},
+                     {"kind":"assignment", "id":"old-assignments"},
+                     {"kind":"material", "id":"old-materials"}]})
+elif mode == "calendar":
+    st.session_state.calendar_rows = view.calendar_resources(work, course)
+'''
+
+
+def work_app(mode, uid="t"):
+    app = AppTest.from_string(WORK_SCRIPT)
+    app.session_state["work_mode"] = mode
+    app.session_state["work_uid"] = uid
+    return app.run()
+
+
+def assert_no_activity_widgets(app):
+    for kind in ("selectbox", "multiselect", "button", "text_input", "caption", "info"):
+        for item in getattr(app, kind):
+            shown = str(getattr(item, "label", "")) + str(getattr(item, "options", ""))
+            if kind in ("caption", "info"):
+                shown += str(item.value)
+            assert "snorkl" not in shown.lower() and "소노클" not in shown
+
+
+def test_assignment_form_saves_text_and_file_options_without_external_activity():
+    app = work_app("assignment_form")
+    assert not app.exception
+    methods = element(app.multiselect, "허용할 제출 방식")
+    assert methods.options == ["앱 안에서 답변", "파일·사진"]
+    methods.set_value(["text", "file"])
+    element(app.text_input, "과제 제목").set_value("새 과제")
+    element(app.text_area, "안내").set_value("앱에서 작성하거나 파일을 제출하세요")
+    element(app.button, "대상·공개 여부 확인 후 과제 저장").click().run()
+    assert not app.exception
+    saved = next(row for row in app.session_state["work_store"].list("assignments") if row["title"] == "새 과제")
+    assert saved["methods"] == ["text", "file"]
+    assert not saved.get("activity_id")
+    assert_no_activity_widgets(app)
+
+
+def test_material_form_has_no_external_activity_selector_and_saves():
+    app = work_app("material_form")
+    assert not app.exception
+    element(app.text_input, "자료 제목").set_value("새 자료")
+    element(app.text_area, "자료 설명").set_value("수업 설명")
+    element(app.button, "배부 대상 확인 후 자료 저장").click().run()
+    assert not app.exception
+    saved = next(row for row in app.session_state["work_store"].list("materials") if row["title"] == "새 자료")
+    assert not saved.get("activity_id")
+    assert_no_activity_widgets(app)
+
+
+@pytest.mark.parametrize("uid", ["t", "s"])
+def test_old_linked_assignment_has_no_submit_or_grading_controls(uid):
+    app = work_app("assignments", uid)
+    element(app.selectbox, "과제 선택").select("old-assignments").run()
+    assert not app.exception
+    assert any("외부 활동 연결은 비활성화" in item.value for item in app.info)
+    assert not any(item.label in ("내 답안", "교사 피드백 초안") for item in app.text_area)
+    assert not any(item.label in ("제출 요청", "평가 초안 저장", "GitHub 임시 저장", "양식 복사") for item in app.button)
+    old = app.session_state["work_store"].get("assignments", "old-assignments")
+    assert old["activity_id"] == "preserved-old-activity"
+    assert old["methods"] == ["snorkl"] and old["version"] == 1
+    assert_no_activity_widgets(app)
+
+
+def test_regular_student_assignment_keeps_draft_and_submission_flow():
+    app = work_app("assignments", "s")
+    assert not app.exception
+    element(app.text_area, "내 답안").set_value("유지해야 할 풀이 과정")
+    element(app.button, "GitHub 임시 저장").click().run()
+    assert not app.exception
+    assert element(app.text_area, "내 답안").value == "유지해야 할 풀이 과정"
+    saved = app.session_state["work_store"].list("submissions")[0]
+    assert saved["draft"]["text"] == "유지해야 할 풀이 과정"
+    element(app.button, "제출 요청").click().run()
+    assert not app.exception
+    saved = app.session_state["work_store"].list("submissions")[0]
+    assert len(saved["versions"]) == 1
+    assert saved["versions"][0]["text"] == "유지해야 할 풀이 과정"
+    assert any("제출 완료" in item.value for item in app.success)
+    assert_no_activity_widgets(app)
+
+
+@pytest.mark.parametrize("mode", ["materials", "resources", "today", "calendar"])
+def test_old_links_do_not_load_or_launch_external_activities(mode):
+    app = work_app(mode, "s" if mode == "today" else "t")
+    assert not app.exception
+    assert_no_activity_widgets(app)
+    if mode == "calendar":
+        assert len(app.session_state["calendar_rows"]) == 2
+        assert all(not row["id"].startswith("old-") and "activity_id" not in row
+                   for row in app.session_state["calendar_rows"])
+    if mode == "today":
+        assert list(app.dataframe[0].value["할일"]) == ["일반 과제"]
+
+
+def test_curriculum_hides_old_activity_id_and_preserves_existing_metadata():
+    plan = {"lessons": [{"id":"lesson", "title":"기존 차시", "activity_id":"preserved-old-activity"}]}
+    rows = view._curriculum_editor_rows(plan)
+    assert "소노클 활동 ID" not in rows[0]
+    rows[0]["차시명"] = "변경한 차시"
+    saved = view._edited_lessons(rows, plan)[0]
+    assert saved["title"] == "변경한 차시"
+    assert saved["activity_id"] == "preserved-old-activity"

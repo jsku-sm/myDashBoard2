@@ -52,11 +52,34 @@ def _date(value):
 def _resources(resources):
     if not isinstance(resources, list) or any(not isinstance(r, dict) for r in resources):
         raise ValidationError("연결 자료는 자료 정보 목록이어야 합니다.")
+    result = []
     for resource in resources:
+        # Old scoped references retain only their classroom identity. Removed
+        # external activities never become calendar buttons or ordinary URLs.
+        if resource.get("kind") in {"material", "assignment"}:
+            result.append({key: copy.deepcopy(resource[key]) for key in ("kind", "id", "title") if key in resource})
+            continue
+        if resource.get("kind") in {"snorkl", "activity"} or resource.get("activity_id"):
+            continue
         url = str(resource.get("url", ""))
         if url and not url.startswith(("https://", "http://")):
             raise ValidationError("자료 주소는 http 또는 https 주소여야 합니다.")
-    return copy.deepcopy(resources)
+        result.append(copy.deepcopy(resource))
+    return result
+
+
+def _present_lesson(lesson):
+    result = copy.deepcopy(lesson)
+    result.pop("activity_id", None)
+    result["resources"] = _resources(result.get("resources", []))
+    return result
+
+
+def _present_course(course):
+    result = copy.deepcopy(course)
+    result["lessons"] = [_present_lesson(lesson) for lesson in result.get("lessons", [])]
+    result["lesson_records"] = {lid: _present_lesson(record) for lid, record in result.get("lesson_records", {}).items()}
+    return result
 
 
 def _lessons(lessons):
@@ -68,8 +91,6 @@ def _lessons(lessons):
         if item["id"] in seen:
             raise ValidationError("차시 ID가 중복되었습니다.")
         seen.add(item["id"])
-        if lesson.get("activity_id"):
-            item["activity_id"] = str(lesson["activity_id"])
         result.append(item)
     return result
 
@@ -78,7 +99,7 @@ def calculate_progress(course, as_of=None, unit=None):
     """Unique applied lessons; missed planned lessons never offset by early ones."""
     as_of = _date(as_of or datetime.now(TZ).date().isoformat())
     records = course.get("lesson_records", {})
-    lessons = [dict(lesson, **records.get(lesson["id"], {})) for lesson in course.get("lessons", [])
+    lessons = [_present_lesson(dict(lesson, **records.get(lesson["id"], {}))) for lesson in course.get("lessons", [])
                if records.get(lesson["id"], {}).get("applied", True)
                and (unit is None or lesson.get("unit", "") == unit)]
     completed = {lesson["id"] for lesson in lessons if lesson.get("progress") == "completed"
@@ -205,7 +226,7 @@ class ClassroomService:
             if not course:
                 continue
             if actor["role"] == "teacher" and actor["id"] in course["teacher_ids"]:
-                result.append(course)
+                result.append(_present_course(course))
             elif actor["role"] == "student" and actor["id"] in course["student_ids"]:
                 result.append(self._student_course(course))
             elif actor["role"] == "student" and actor["id"] in course.get("pending_student_ids", []):
@@ -214,11 +235,11 @@ class ClassroomService:
         return result
 
     def _student_course(self, course):
-        result = copy.deepcopy(course)
+        result = _present_course(course)
         result["member_count"] = len(course.get("student_ids", []))
         # Scoped resource permissions are resolved by WorkService at display
-        # time. Cached calendar metadata must never expose private URLs or
-        # native activity IDs before that check.
+        # time. Cached calendar metadata must never expose private resource
+        # details before that check.
         for item in result.get("lessons", []) + list(result.get("lesson_records", {}).values()):
             item["resources"] = [({"kind": r["kind"], "id": r.get("id", "")}
                                   if r.get("kind") in {"material", "assignment"} else r)
@@ -234,7 +255,7 @@ class ClassroomService:
 
     def get_course(self, course_id):
         record = self._course(course_id)
-        return record if self.actor()["role"] == "teacher" else self._student_course(record)
+        return _present_course(record) if self.actor()["role"] == "teacher" else self._student_course(record)
 
     def members(self, course_id):
         course = self._course(course_id, teacher=True)
@@ -301,15 +322,20 @@ class ClassroomService:
 
     def list_curricula(self):
         actor = self.require_teacher()
-        return [record for record in self.store.list("curricula")
+        return [dict(record, lessons=[_present_lesson(lesson) for lesson in record.get("lessons", [])])
+                for record in self.store.list("curricula")
                 if actor["id"] == record["owner_id"] or actor["id"] in record["shared_teacher_ids"]]
 
-    def get_curriculum(self, curriculum_id):
+    def _curriculum(self, curriculum_id):
         actor = self.require_teacher()
-        record = self.store.get("curricula", curriculum_id)
+        record = self.store.get("curricula", curriculum_id, fresh=True)
         if not record or (actor["id"] != record["owner_id"] and actor["id"] not in record["shared_teacher_ids"]):
             raise PermissionDenied("공통 수업안의 공유 권한이 없습니다.")
         return record
+
+    def get_curriculum(self, curriculum_id):
+        record = self._curriculum(curriculum_id)
+        return dict(record, lessons=[_present_lesson(lesson) for lesson in record.get("lessons", [])])
 
     def create_curriculum(self, title, subject, lessons, shared_teacher_ids=None):
         actor = self.require_teacher()
@@ -333,7 +359,7 @@ class ClassroomService:
         return result
 
     def update_curriculum(self, curriculum_id, changes, expected_version, reason):
-        record = self.get_curriculum(curriculum_id)
+        record = self._curriculum(curriculum_id)
         _text(reason, "변경 사유")
         if set(changes) - {"title", "lessons", "shared_teacher_ids"}:
             raise ValidationError("수정할 수 없는 수업안 항목입니다.")
@@ -411,7 +437,7 @@ class ClassroomService:
         courses = [self._course(cid, teacher=True) for cid in course_ids]
         if len({(course["subject"], course["curriculum_id"], course.get("curriculum_version")) for course in courses}) > 1:
             raise ValidationError("같은 과목과 같은 공통 수업안 버전을 적용한 수업끼리 비교하세요.")
-        return [{"course": course, "summary": calculate_progress(course, as_of)} for course in courses]
+        return [{"course": _present_course(course), "summary": calculate_progress(course, as_of)} for course in courses]
 
     def archive_course(self, course_id, expected_version):
         course = self._course(course_id, teacher=True, write=True)
@@ -440,14 +466,16 @@ class ClassroomService:
                               if item.get("course_id") == course_id})
             output = []
             for original_id, item in templates.items():
+                if item.get("activity_id") or "snorkl" in item.get("methods", []):
+                    continue  # Disabled external work is never converted to new answers.
                 new_id = _id()
                 copies[namespace[:-1]][original_id] = new_id
                 template = {key: copy.deepcopy(item[key]) for key in fields if key in item}
                 template.update(id=new_id, course_id=record["id"], published=False, publish_at=None,
-                                target_student_ids=[], activity_id="", created_at=now(), updated_at=now())
+                                target_student_ids=[], created_at=now(), updated_at=now())
                 if namespace == "assignments":
                     template["due_at"] = None
-                    template["methods"] = [method for method in template.get("methods", []) if method != "snorkl"] or ["text"]
+                    template["methods"] = [method for method in template.get("methods", []) if method in {"text", "file"}] or ["text"]
                     template["material_ids"] = [copies["material"][mid] for mid in template.get("material_ids", []) if mid in copies["material"]]
                 output.append(template)
             record[embedded_key] = output

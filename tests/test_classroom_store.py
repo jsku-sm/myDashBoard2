@@ -123,8 +123,39 @@ def test_missing_config_does_not_guess_or_generate_key():
         store_from_secrets({})
     with pytest.raises(ConfigurationError, match="branch"):
         store_from_secrets({"github": {"repo": "owner/mydashboard", "token": "secret"}})
-    with pytest.raises(ConfigurationError, match="기존 키"):
+    with pytest.raises(ConfigurationError, match=r"\[classroom\] encryption_key") as error:
         store_from_secrets({"github": {"repo": "owner/mydashboard", "branch": "main", "token": "secret"}})
+    assert "[snorkl]" not in str(error.value)
+
+
+def test_classroom_key_works_without_any_snorkl_settings(monkeypatch):
+    import classroom_core.store as module
+    key = Fernet.generate_key().decode()
+    remote = FakeGitHub()
+    constructor = GitHubStore
+    monkeypatch.setattr(module, "GitHubStore", lambda repo, branch, token, key: constructor(repo, branch, token, key, session=remote))
+    secrets = {"github": {"repo": "school/class-dashboard-data", "branch": "main", "token": "test"},
+               "classroom": {"encryption_key": key}}
+    first = store_from_secrets(secrets)
+    saved = first.put("courses", "one", {"id": "one", "title": "독립 클래스룸"})
+    assert store_from_secrets(secrets).get("courses", "one") == saved
+    assert "독립 클래스룸".encode() not in next(iter(remote.files.values()))
+
+
+def test_original_classroom_encryption_key_remains_compatible(monkeypatch):
+    import classroom_core.store as module
+    key = Fernet.generate_key().decode()
+    remote = FakeGitHub()
+    constructor = GitHubStore
+    monkeypatch.setattr(module, "GitHubStore", lambda repo, branch, token, key: constructor(repo, branch, token, key, session=remote))
+    connection = {"repo": "school/class-dashboard-data", "branch": "main", "token": "test"}
+    original = store_from_secrets({"github": connection, "snorkl": {"encryption_key": key}})
+    saved = original.put("courses", "old", {"id": "old", "title": "기존 기록"})
+    independent = store_from_secrets({"github": connection, "classroom": {"encryption_key": key}})
+    assert independent.get("courses", "old") == saved
+    with pytest.raises(StorageError):
+        store_from_secrets({"github": connection, "classroom": {"encryption_key": Fernet.generate_key().decode()}}).get("courses", "old")
+    assert independent.get("courses", "old", fresh=True) == saved
 
 
 def test_large_contents_blob_fallback_cache_invalidation_and_branch():

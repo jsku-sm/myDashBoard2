@@ -215,11 +215,7 @@ def teacher_view(store, manager, settings, requested):
             st.error("공유한 수업을 찾을 수 없습니다. 삭제되었거나 보관된 수업일 수 있습니다.")
             return
         st.session_state["selected_course"] = requested
-        requested_activity = st.session_state.pop("_classroom_requested_activity", None)
-        if requested_activity:
-            st.session_state["selected_activity"] = requested_activity
-        else:
-            st.session_state.pop("selected_activity", None)
+        st.session_state.pop("selected_activity", None)
     selected = st.session_state.get("selected_course")
     if selected:
         course = manager.get(selected)

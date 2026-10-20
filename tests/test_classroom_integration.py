@@ -38,17 +38,13 @@ def test_new_teacher_bootstrap_requires_secrets_and_preserves_existing(monkeypat
 
 
 @pytest.mark.parametrize("role", ["student", "teacher"])
-def test_classroom_shortcut_selects_exact_native_activity_without_identity_change(role):
+def test_classroom_shortcut_preserves_identity_without_tool_connection(role):
     user = {"id": "one", "role": role}
-    state = {"user": user, PENDING: {"user_id": "one", "menu": "snorkl", "course_id": "course", "activity_id": "activity"}}
+    state = {"user": user, PENDING: {"user_id": "one", "menu": "sudanote"}}
     apply_pending_navigation(state, user)
-    assert state["user"] is user and state["nav"] == "tools"
-    assert state["_classroom_requested_activity"] == "activity"
-    assert state["_snorkl_requested_course"] == "course"
-    if role == "student":
-        assert state["snorkl_student_activity_course"] == "activity"
-    else:
-        assert state["selected_activity"] == "activity"
+    assert state["user"] is user and state["nav"] == "sudanote"
+    assert not any("snorkl" in key for key in state)
+
 
 
 def test_pending_navigation_does_not_cross_user_sessions():
@@ -92,20 +88,6 @@ def test_old_private_observations_are_not_shared_through_global_cache(monkeypatc
     assert db._scope_private_records("observations", rows) == []
 
 
-def test_native_status_is_same_original_attempt_and_blocks_other_student(monkeypatch):
-    teacher = {"id": "teacher", "role": "teacher"}
-    student = {"id": "s1", "role": "student"}
-    course = {"id": "classroom", "student_ids": ["s1", "s2"]}
-    monkeypatch.setattr(legacy, "_context", lambda user, cid, teacher=False: (None, user, course))
-    monkeypatch.setattr(legacy, "get_snorkl_activity", lambda *args: {"course_id": "native", "title": "활동"})
-    original = {"id": "original-attempt", "activity_id": "a", "student_id": "s1", "number": 2, "created": "2026-10-20"}
-    other = dict(original, id="other-attempt", student_id="s2", number=9)
-    monkeypatch.setattr(legacy, "_native", lambda: SimpleNamespace(read=lambda: {"course_attempts": {"one": original, "two": other}}))
-    status = legacy.snorkl_status(student, "classroom", "a")
-    assert status["submission_id"] == original["id"] and status["version"] == 2
-    assert legacy.snorkl_status(teacher, "classroom", "a", student_id="s1") == status
-    with pytest.raises(PermissionDenied):
-        legacy.snorkl_status(student, "classroom", "a", student_id="s2")
 
 
 def test_legacy_reference_checks_student_and_approved_membership(monkeypatch):

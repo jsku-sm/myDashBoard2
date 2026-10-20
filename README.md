@@ -272,10 +272,10 @@ streamlit run app.py
 
 ## 클래스룸 수업 관리
 
-기존 로그인과 소노클을 공유하는 클래스룸 메뉴를 추가했습니다. 교사는 전체 학급 진도, 학생은 오늘 할 일과 승인된 수업을 확인합니다.
+기존 로그인을 사용하는 독립 클래스룸 메뉴를 추가했습니다. 교사는 전체 학급 진도, 학생은 오늘 할 일과 승인된 수업을 확인합니다. 클래스룸의 소노클 연결은 제거했으며 소노클 설정 없이 사용할 수 있습니다.
 
 - [적용 방법과 데이터·백업 계약](CLASSROOM_GUIDE.md)
 - [자동·모의 테스트 결과와 실제 기기 검증 범위](CLASSROOM_TEST_RESULTS.md)
 - [비밀값 없는 Secrets 예시](.streamlit/classroom.secrets.toml.example)
 
-운영 데이터 대상은 사용자가 확인한 `[github] repo = "jsku-sm/class-dashboard-data"`, `branch = "main"`입니다. 기존 토큰과 암호화 키는 배포 Secrets에서 유지합니다. 운영 저장소 변경·이전·배포는 별도 승인 후 수행합니다.
+운영 데이터 대상은 사용자가 확인한 `[github] repo = "jsku-sm/class-dashboard-data"`, `branch = "main"`입니다. 암호화 키는 `[classroom] encryption_key`로 따로 설정합니다. 기존 클래스룸 암호화 기록이 있으면 원래 키를 유지합니다. 운영 저장소 변경·이전·배포는 별도 승인 후 수행합니다.

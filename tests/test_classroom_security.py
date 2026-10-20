@@ -4,7 +4,6 @@ from types import SimpleNamespace
 from cryptography.fernet import Fernet
 
 from classroom_core import ClassroomService, GitHubStore
-from classroom_core.legacy import _student_linked
 from classroom_core import legacy, PermissionDenied
 from classroom_core.work import WorkService
 from test_classroom_work import MockGitHub, environment, assignment
@@ -35,22 +34,6 @@ def test_second_process_privacy_changes_override_first_process_list_cache():
     assert first_work("shared").observations(cid) == []
 
 
-def test_scoped_resource_metadata_cannot_bypass_target_and_operating_override():
-    fake_native = SimpleNamespace(get_snorkl_activity=lambda *args: {"id": "hidden-activity"})
-    store, users, teacher, cid, _ = environment(legacy=fake_native)
-    work = WorkService(teacher, legacy=fake_native)
-    material = work.save_material(cid, "개별 자료", body="개별", activity_id="hidden-activity", published=True, target_student_ids=["s0"])
-    course = teacher.get_course(cid)
-    course["lessons"] = [{"id": "one", "title": "차시", "resources": [
-        {"kind": "material", "id": material["id"], "activity_id": "hidden-activity", "url": "https://private.example"}]}]
-    student = ClassroomService(store, users["s1"], users.get, lock_checker=lambda _: False)
-    assert not _student_linked(student, course, "hidden-activity")
-    course["lessons"][0]["resources"] = [{"kind": "snorkl", "id": "old"}]
-    course["lesson_records"] = {"one": {"resources": [{"kind": "snorkl", "id": "new"}]}}
-    assert not _student_linked(student, course, "old")
-    assert _student_linked(student, course, "new")
-    course["lesson_records"]["one"]["applied"] = False
-    assert not _student_linked(student, course, "new")
 
 
 def test_copy_remaps_namespaced_ids_and_removes_private_fallback_metadata():
@@ -75,23 +58,6 @@ def test_copy_remaps_namespaced_ids_and_removes_private_fallback_metadata():
     assert not copied_material["published"] and not copied_task["published"]
 
 
-def test_native_closed_activity_keeps_own_receipt_but_cannot_launch(monkeypatch):
-    store, users, teacher, cid, _ = environment()
-    users["s0"]["class"] = "1-1"
-    course = teacher.get_course(cid)
-    course["lessons"] = [{"id": "lesson", "title": "활동", "activity_id": "native-activity"}]
-    teacher._write("courses", cid, course, course["version"], "fixture.activity")
-    def context(actor, course_id, teacher=False):
-        service = ClassroomService(store, actor, users.get, lock_checker=lambda _: False)
-        return service, service.actor(), service._course(course_id, teacher=teacher)
-    monkeypatch.setattr(legacy, "_context", context)
-    state = {"courses": {"native": {"id": "native", "classes": ["1-1"]}},
-             "course_activities": {"native-activity": {"id": "native-activity", "course_id": "native", "title": "종료된 활동", "status": "숨김"}},
-             "course_attempts": {"one": {"id": "original", "activity_id": "native-activity", "student_id": "s0", "number": 1, "created": "2026-10-20T00:00:00+00:00"}}}
-    monkeypatch.setattr(legacy, "_native", lambda: SimpleNamespace(read=lambda: state))
-    assert legacy.snorkl_status(users["s0"], cid, "native-activity")["submission_id"] == "original"
-    with pytest.raises(PermissionDenied, match="현재 열 수 없습니다"):
-        legacy.launch_snorkl(users["s0"], cid, "native-activity")
 
 
 def test_shared_original_observation_requires_live_explicit_reference(monkeypatch):

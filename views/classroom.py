@@ -160,20 +160,17 @@ def _resources(service, course, lesson, user, key):
     record = _record(course, lesson.get("id", ""))
     resources = record.get("resources", lesson.get("resources", []))
     for index, resource in enumerate(resources):
+        if resource.get("activity_id") or resource.get("kind", resource.get("type")) == "snorkl":
+            st.caption("이전 외부 활동 연결은 비활성화되었습니다. 새 자료나 과제를 등록하세요.")
+            continue
         url = _safe_url(resource.get("url", ""))
         if url:
             st.link_button(resource.get("title") or "연결 자료 열기", url, width="stretch")
         elif resource.get("title"):
             st.caption(resource["title"])
-    activity_id = lesson.get("activity_id")
-    if activity_id and st.button("소노클 활동 열기", key=f"{key}_snorkl", width="stretch"):
-        try:
-            from classroom_core.legacy import launch_snorkl
-            launch_snorkl(user, course["id"], activity_id)
-            st.rerun()
-        except Exception as error:
-            _error(error)
-    if not resources and not activity_id:
+    if lesson.get("activity_id"):
+        st.caption("이전 외부 활동 연결은 비활성화되었습니다. 새 자료나 과제를 등록하세요.")
+    if not resources and not lesson.get("activity_id"):
         st.caption("연결 자료가 아직 없어요. 수업·자료에서 등록할 수 있어요.")
 
 
@@ -524,7 +521,7 @@ def _place_date(service, courses, user, prefix, resources):
             a, b = st.columns(2)
             planned = a.date_input("계획 수업일", value=_date(pending.get("date")) or _date(record.get("planned_date")) or _today(), key=form_key + "_date")
             period = b.text_input("교시", value=record.get("period", ""), key=form_key + "_period")
-            chosen_resources = st.multiselect("함께 연결할 자료·과제·활동", linked, default=defaults, format_func=lambda resource: resource.get("title", "자료"), key=form_key + "_resources")
+            chosen_resources = st.multiselect("함께 연결할 자료·과제", linked, default=defaults, format_func=lambda resource: resource.get("title", "자료"), key=form_key + "_resources")
             reason = st.text_input("일정 배치·변경 이유", key=form_key + "_reason")
             confirm = st.checkbox("대상 수업·차시·날짜를 확인했습니다.", key=form_key + "_confirm")
             save = st.form_submit_button("날짜에 배치", type="primary", width="stretch")
@@ -540,7 +537,7 @@ def _place_date(service, courses, user, prefix, resources):
                     saved_resources = list(record.get("resources", lesson.get("resources", [])))
                     existing = {(item.get("kind"), item.get("id")) for item in saved_resources}
                     for resource in chosen_resources:
-                        item = {part: resource[part] for part in ("kind", "id", "title", "url", "activity_id") if part in resource}
+                        item = {part: resource[part] for part in ("kind", "id", "title", "url") if part in resource}
                         if (item.get("kind"), item.get("id")) not in existing:
                             saved_resources.append(item)
                             existing.add((item.get("kind"), item.get("id")))
@@ -767,8 +764,8 @@ def _resource_text(resources):
 
 def _curriculum_editor_rows(plan):
     return [{"id": lesson.get("id", ""), "단원": lesson.get("unit", ""), "차시명": lesson.get("title", ""),
-             "학습 목표": lesson.get("objective", ""), "연결 자료 · 제목|주소": _resource_text(lesson.get("resources", [])),
-             "소노클 활동 ID": lesson.get("activity_id", "")} for lesson in plan.get("lessons", [])]
+             "학습 목표": lesson.get("objective", ""), "연결 자료 · 제목|주소": _resource_text(lesson.get("resources", []))}
+            for lesson in plan.get("lessons", [])]
 
 
 def _edited_lessons(rows, plan):
@@ -795,7 +792,9 @@ def _edited_lessons(rows, plan):
                 resources.append({"kind": "link", "title": label.strip() if separator else url, "url": url})
         result.append({"id": lesson_id, "unit": str(row.get("단원") or "").strip(), "title": title,
                        "objective": str(row.get("학습 목표") or "").strip(), "resources": resources,
-                       "activity_id": str(row.get("소노클 활동 ID") or "").strip()})
+                       # Preserve old metadata without exposing or launching a
+                       # removed integration from the curriculum editor.
+                       "activity_id": existing.get("activity_id", "")})
     return result
 
 
@@ -811,7 +810,7 @@ def _curricula(service, user):
     expected_version = _expected_version(plan, prefix, details={"수업안 이름": plan.get("title"), "차시": plan.get("lessons", [])}) if selected else None
     title = st.text_input("수업안 이름", value=plan.get("title", ""), key=prefix + "_title")
     subject = st.text_input("과목", value=plan.get("subject", ""), key=prefix + "_subject", disabled=bool(selected))
-    rows = _curriculum_editor_rows(plan) or [{"id": "", "단원": "", "차시명": "", "학습 목표": "", "연결 자료 · 제목|주소": "", "소노클 활동 ID": ""}]
+    rows = _curriculum_editor_rows(plan) or [{"id": "", "단원": "", "차시명": "", "학습 목표": "", "연결 자료 · 제목|주소": ""}]
     edited = st.data_editor(rows, num_rows="dynamic", hide_index=True, width="stretch", key=prefix + "_editor",
                             column_config={"id": None, "단원": st.column_config.TextColumn(width="medium"),
                                            "차시명": st.column_config.TextColumn(required=True, width="medium"),
