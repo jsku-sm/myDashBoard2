@@ -60,5 +60,7 @@ def page(user):
                     f'<span class="home-date">{ui.esc(user["class"])} · {db.today_str()}</span></div>',
                     unsafe_allow_html=True)
         _summary(user)
+        from views import quiz
+        quiz.student_home(user)
         render_student_updates(user)
         _recent_feedback(user)

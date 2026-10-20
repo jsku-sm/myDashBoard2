@@ -9,6 +9,7 @@ secrets 에 [app] storage = "github" 이 있으면 깃허브를, 없으면 로�
 from __future__ import annotations
 
 import base64
+import hashlib
 import csv
 import io
 import os
@@ -22,6 +23,8 @@ import streamlit as st
 from config import TZ
 
 SCHEMAS: dict[str, list[str]] = {
+    "quiz_sets": ["id", "teacher_id", "subject", "unit", "bank_unit", "title", "state", "created_at", "updated_at", "parent_id", "round", "question_json", "targets_json", "classes_json", "generator"],
+    "quiz_attempts": ["id", "quiz_id", "student_id", "name", "class", "state", "answers_json", "revision", "started_at", "updated_at", "submitted_at", "graded_at", "graded_by", "score", "marks_json", "released_at"],
     "users": ["id", "name", "class", "role", "pw_hash", "must_change", "created_at"],
     "settings": ["id", "value"],
     "logins": ["id", "created_at", "date", "student_id", "name", "class"],
@@ -43,7 +46,7 @@ SCHEMAS: dict[str, list[str]] = {
                   "q1", "q2", "q3", "q4", "q5"],
 }
 
-CACHE_TTL = {"users": 60, "settings": 60}
+CACHE_TTL = {"users": 60, "settings": 60, "quiz_sets": 0, "quiz_attempts": 0}
 DEFAULT_TTL = 20
 
 
@@ -83,6 +86,13 @@ class LocalBackend:
 
     def read(self, table):
         with self.lock:
+            if table in ("quiz_sets", "quiz_attempts"):
+                from pathlib import Path
+                rows = []
+                for path in sorted(Path(self.root, table).glob("*.csv")):
+                    with path.open(newline="", encoding="utf-8") as source:
+                        rows.extend(_norm(r, table) for r in csv.DictReader(source))
+                return rows
             p = self._path(table)
             if not os.path.exists(p):
                 return []
@@ -90,6 +100,27 @@ class LocalBackend:
                 return [_norm(r, table) for r in csv.DictReader(f)]
 
     def _write_all(self, table, rows):
+        if table in ("quiz_sets", "quiz_attempts"):
+            # Local tests use the same per-person/per-quiz file layout as GitHub.
+            from pathlib import Path
+            directory = Path(self.root, table)
+            directory.mkdir(parents=True, exist_ok=True)
+            groups = {}
+            for row in rows:
+                name = GitHubBackend._path(table, row).split("/")[-1]
+                groups.setdefault(name, []).append(row)
+            for name, group in groups.items():
+                dest = directory / name
+                tmp = dest.with_suffix(".tmp")
+                with tmp.open("w", newline="", encoding="utf-8") as target:
+                    writer = csv.DictWriter(target, fieldnames=SCHEMAS[table])
+                    writer.writeheader()
+                    writer.writerows(_norm(row, table) for row in group)
+                os.replace(tmp, dest)
+            for old in directory.glob("*.csv"):
+                if old.name not in groups:
+                    old.unlink()
+            return
         p = self._path(table)
         tmp = p + ".tmp"
         with open(tmp, "w", newline="", encoding="utf-8") as f:
@@ -161,8 +192,8 @@ class SetupError(Exception):
 
 
 PARTITIONED = {"logins", "emotions"}  # 매일 쌓이는 표는 월별 파일로 나눠 저장
-BY_STUDENT = {"sudanotes"}  # 학생별 파일로 저장: data/sudanotes/<학번>.csv
-FLUSH_SEC = 8
+BY_STUDENT = {"sudanotes", "quiz_attempts"}  # 학생별 파일로 저장: data/sudanotes/<학번>.csv
+FLUSH_SEC = 30
 
 
 class GitHubBackend:
@@ -171,8 +202,8 @@ class GitHubBackend:
     - 표 데이터: data/<표>.csv  (logins, emotions 는 data/<표>/<YYYY-MM>.csv,
       수다노트는 학생별 data/sudanotes/<학번>.csv)
     - 업로드 파일: files/<YYYY-MM>/<이름>
-    읽기는 서버 메모리에서 바로 하고, 변경 사항은 8초마다 모아서 커밋 1개로 저장합니다.
-    (학생 30명이 동시에 저장해도 커밋은 하나라서 빠르고 충돌이 없습니다)
+    읽기는 서버 메모리에서 바로 하고, 변경 사항은 30초마다 모아서 커밋 1개로 저장합니다.
+    (여러 학생의 변경을 모아서 저장합니다. 단일 앱 서버를 기준으로 하며, 외부 동시 수정 병합은 보장하지 않습니다)
     """
     is_local = False
     API = "https://api.github.com"
@@ -280,6 +311,13 @@ class GitHubBackend:
 
     @staticmethod
     def _path(table, row):
+        if table == "quiz_sets":
+            key = hashlib.sha256(str(row.get("id", "")).encode("utf-8")).hexdigest()
+            return f"data/quiz_sets/{key}.csv"
+        if table == "quiz_attempts":
+            # Stable opaque name avoids literal names/student IDs in paths.
+            key = hashlib.sha256(str(row.get("student_id", "")).encode("utf-8")).hexdigest()
+            return f"data/quiz_attempts/{key}.csv"
         if table in BY_STUDENT:
             sid = "".join(ch for ch in (row.get("student_id") or "unknown") if ch.isalnum() or ch in "-_")
             return f"data/{table}/{sid or 'unknown'}.csv"
@@ -392,6 +430,9 @@ class GitHubBackend:
                               json={"sha": nc.json()["sha"], "force": False})
                 if u.status_code == 200:
                     break
+                if u.status_code not in (409, 422):
+                    # Do not repeat content creation on rate/auth failures.
+                    raise RuntimeError(f"깃허브 저장을 확인하지 못했어요 ({u.status_code}). 잠시 뒤 재시도해 주세요.")
                 time.sleep(1 + attempt)
             else:
                 raise RuntimeError(f"깃허브 저장 충돌이 계속돼요 ({u.status_code})")
@@ -497,6 +538,16 @@ def _record_author():
 
 
 def _scope_private_records(table, rows):
+    if table in ("quiz_sets", "quiz_attempts"):
+        # Raw question keys/other students' records must never go through generic
+        # student-facing table helpers. quiz_core.service supplies projections.
+        uid = (st.session_state.get("user") or {}).get("id")
+        backend = _ready_backend()
+        actor = next((u for u in backend.read("users") if u.get("id") == uid), None)
+        if not actor or actor.get("role") != "teacher" or actor.get("must_change") == "1":
+            return []
+        owned = {q["id"] for q in backend.read("quiz_sets") if q["teacher_id"] == uid}
+        return [r for r in rows if (r["id"] if table == "quiz_sets" else r["quiz_id"]) in owned]
     if table not in ("observations", "records"):
         return rows
     try:

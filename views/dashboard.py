@@ -380,6 +380,10 @@ def page(user):
             f'감정 상태와 접속 상태는 선생님만 볼 수 있어요.</p></div>{_HERO_ART}</section>',
             unsafe_allow_html=True,
         )
+        # The quiz service checks the current teacher account and ownership.
+        with st.container(border=True, key="dashboard_quizzes"):
+            from views import quiz
+            quiz.teacher_dashboard(user)
         with st.container(border=True, key="dashboard_filters"):
             st.markdown('<p class="dash-filter-title">우리 반의 하루 살펴보기</p>', unsafe_allow_html=True)
             c1, c2, c3 = st.columns([2, 2, 1.5], gap="small")

@@ -429,6 +429,11 @@ def _page(user):
                 snorkl.page(user)
                 return
 
+            if key == "tool_quiz":
+                from views import quiz
+                quiz.page(user)
+                return
+
             raw = db.get_setting(key)
             if key == "tool_apps" and not raw.strip():
                 raw = DEFAULT_SETTINGS["tool_apps"]

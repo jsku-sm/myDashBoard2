@@ -1,0 +1,44 @@
+{
+  "base": "myDashBoard2_eval_plan_full.zip",
+  "base_sha256": "a349a6eada7ab80f4f403e00e57a2b66d0c6f19ded4a89c51c53f52787dbb6ec",
+  "modified_files": [
+    "storage.py",
+    "tests/test_tools_menu.py",
+    "views/dashboard.py",
+    "views/home.py",
+    "views/tools.py"
+  ],
+  "new_files": [
+    "QUIZ_TEST_RESULTS.md",
+    "QUIZ_UPDATE.md",
+    "quiz_core/__init__.py",
+    "quiz_core/bank.py",
+    "quiz_core/presentation.py",
+    "quiz_core/service.py",
+    "tests/test_concept_quiz.py",
+    "tests/test_quiz_dashboard_browser.py",
+    "tests/test_quiz_math.py",
+    "views/quiz.py"
+  ],
+  "removed_files": [],
+  "sha256": {
+    "storage.py": "e293bd53a8c7383ff041516be84f0f3f5592e6583a515d967aa2b581fa82a5f3",
+    "tests/test_tools_menu.py": "f728f3fb787636d39f33e78d3be1f214e6448e0f03285ab0258496063a085eb2",
+    "views/dashboard.py": "c72711558591eb2326ddee37da5abaae692c127e7a77bca217bbd92390146ee8",
+    "views/home.py": "dab771cb6201b356893a4f807889d5737904f45e1523c1a0c573b9df4b05e9e3",
+    "views/tools.py": "f2e9ecd4065efcbba03697ce14c01f91c6eefcb6f670b4d3b59e38ea0d3940ae",
+    "QUIZ_TEST_RESULTS.md": "d46ac1bbd55e11218e3fc7c768de13f915952caa3f0e559a4bb508bc4dbaa34f",
+    "QUIZ_UPDATE.md": "79293e5471efd618e5f1cc7318f7a29aed8578c5d2f0b4a41b93fca4a801e35f",
+    "quiz_core/__init__.py": "76c4ccac5864bef9451b3e979944b30ae3fa806ef96fcae24bda1aa5f26f0fd9",
+    "quiz_core/bank.py": "e019260a07b65bac0170d35042d313c196f80bd691b6c4ed58577c90a78f9431",
+    "quiz_core/presentation.py": "e35fbf6f7461b6e291233e576d8a665bdbb8cf26f80f41aba16d898f284bbff0",
+    "quiz_core/service.py": "d94e1f7d8ee8ae41b27733f99d5e6f355ceb996a08f5c61bda28cc701be1e86c",
+    "tests/test_concept_quiz.py": "f1f1ac377d2873e65fb970d287be77405c37e2a102d355e64ae98bcba43b4cff",
+    "tests/test_quiz_dashboard_browser.py": "f76f37cef88934f76d17b81740efc98a9415b48547a56525c4e2b94cdb7041e4",
+    "tests/test_quiz_math.py": "75d42edcf477bb65058a76048cd6a3f20a758eb36094d9390b246dbbbeb0e9ee",
+    "views/quiz.py": "38cbfa82016e9c01c2043e505e531fc59a5c3752ce8137bd0dce9e7144ee9f96"
+  },
+  "data_migration": "None. Existing data and secrets must be preserved.",
+  "live_repository_changed": false,
+  "full_streamlit_runtime_tested": false
+}

@@ -8,13 +8,13 @@ from html.parser import HTMLParser
 from types import SimpleNamespace
 
 import pytest
-import streamlit as st
+st = pytest.importorskip("streamlit")
 from streamlit.testing.v1 import AppTest
 
 from config import DEFAULT_SETTINGS
 from snorkl_navigation import ACTIVE_TOOL, LINK_SEEN, REQUESTED_COURSE
 from ui import parse_links
-from views import snorkl, tools
+from views import snorkl, tools, quiz
 
 
 MENU = [
@@ -33,6 +33,7 @@ SETTINGS = {
                  "도형 앱|https://apps.example.com/shapes",
 }
 SENTINEL = "수행평가 연동 확인"
+QUIZ_SENTINEL = "내장 개념퀴즈 연동 확인"
 
 
 @pytest.fixture
@@ -54,6 +55,7 @@ def menu_app(monkeypatch):
     monkeypatch.setattr(tools.db, "get_setting", lambda key: settings.get(key, ""))
     monkeypatch.setattr(tools.db, "set_setting", save_setting)
     monkeypatch.setattr(snorkl, "page", embedded_page)
+    monkeypatch.setattr(quiz, "page", lambda user: st.markdown(QUIZ_SENTINEL))
 
     def make(role="teacher", query=None, active=None):
         app = AppTest.from_string(
@@ -138,6 +140,9 @@ def test_menu_order_and_only_selected_content_is_rendered(menu_app, role):
             assert not buttons(app) and not table_links(app) and not app_names(app)
             assert not app.text_area
             assert menu_app.calls[-1][0] == dict(app.session_state["user"])
+        elif key == "tool_quiz":
+            assert QUIZ_SENTINEL in [element.value for element in app.markdown]
+            assert not buttons(app) and not app.text_area and not table_links(app)
         elif key == "tool_apps":
             assert app_names(app) == [name for name, _ in parse_links(SETTINGS[key])]
             assert not buttons(app) and not table_links(app)
@@ -155,7 +160,7 @@ def test_menu_order_and_only_selected_content_is_rendered(menu_app, role):
             assert not any(button.label == "저장" for button in app.button)
 
 
-@pytest.mark.parametrize("key", ["tool_desmos", "tool_activity", "tool_quiz", "tool_apps"])
+@pytest.mark.parametrize("key", ["tool_desmos", "tool_activity", "tool_apps"])
 def test_teacher_can_save_selected_links_and_return_to_saved_values(menu_app, key):
     app = menu_app.make()
     app.radio[0].set_value(key).run()
@@ -173,7 +178,7 @@ def test_teacher_can_save_selected_links_and_return_to_saved_values(menu_app, ke
     else:
         assert buttons(app) == parse_links(updated)
 
-    other = "tool_quiz" if key != "tool_quiz" else "tool_activity"
+    other = "tool_activity" if key != "tool_activity" else "tool_desmos"
     app.radio[0].set_value(other).run()
     assert app.text_area[0].value == SETTINGS[other]
     app.radio[0].set_value(key).run()
@@ -267,7 +272,8 @@ def test_selected_app_survives_other_tool_menu_selection(menu_app):
 
     app.radio[0].set_value("tool_quiz").run()
     assert not app.exception
-    assert buttons(app) == parse_links(SETTINGS["tool_quiz"])
+    assert not buttons(app)
+    assert QUIZ_SENTINEL in [element.value for element in app.markdown]
     assert not app.get("iframe")
     assert app.session_state[tools.ACTIVE_APP] == selected
 
