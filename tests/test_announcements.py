@@ -198,7 +198,7 @@ def test_teacher_page_includes_the_announcement_tab_without_changing_other_tools
     app.session_state["user"] = dict(TEACHER)
     app.run()
     assert not app.exception and not app.error
-    assert [tab.label for tab in app.tabs] == ["🔒 화면 잠금", "📢 공지사항", "📒 관찰기록", "⭐ 상점·벌점",
+    assert [tab.label for tab in app.tabs] == ["📅 진도관리", "🔒 화면 잠금", "📢 공지사항", "📒 관찰기록", "⭐ 상점·벌점",
                                              "📝 생기부 생성기", "👥 학생 명단", "⚙️ 설정"]
     assert app.checkbox(key="announcement_new_active").value is True
 

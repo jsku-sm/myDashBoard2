@@ -1,0 +1,93 @@
+{
+  "base_archive": "myDashBoard2_quiz_v2_full.zip",
+  "runtime_changes": [
+    "storage.py",
+    "teaching_progress_service.py",
+    "teaching_progress_visuals.py",
+    "views/dashboard.py",
+    "views/teacher.py",
+    "views/teaching_progress.py"
+  ],
+  "changed_files": [
+    {
+      "path": "README.md",
+      "old_sha256": "0b4141433de15db09708a36a4c3c715149bb77838f56127e7c335cc59b7ed7ee",
+      "new_sha256": "83dd03dc9c32c2d7437d79b5c5ef545ec388d7cc0b048b0011f2edf509e8af2a"
+    },
+    {
+      "path": "TEACHER_PROGRESS_TEST_RESULTS.md",
+      "old_sha256": null,
+      "new_sha256": "2cd332b4c21ef987e0e632b32c3a17e6f10106ec9382496b3a9bdfb9d2acca88"
+    },
+    {
+      "path": "TEACHER_PROGRESS_UPDATE.md",
+      "old_sha256": null,
+      "new_sha256": "a6a2233ea78e39175c5059c1bc84dbb460493683f2d797143429039c7aabe704"
+    },
+    {
+      "path": "storage.py",
+      "old_sha256": "e293bd53a8c7383ff041516be84f0f3f5592e6583a515d967aa2b581fa82a5f3",
+      "new_sha256": "2c0ddb0c9312e1b9752c273a439e808bf73840abf4817e3c075bd9c7655e4acc"
+    },
+    {
+      "path": "teaching_progress_service.py",
+      "old_sha256": null,
+      "new_sha256": "a795edd821a6356e508ffa4f923d6d5550a237c9fc7b37b89c6e76687919472c"
+    },
+    {
+      "path": "teaching_progress_visuals.py",
+      "old_sha256": null,
+      "new_sha256": "74441a15305277e4e07dc5b605e391488ecf0f8d4696c318c81479468636c72a"
+    },
+    {
+      "path": "tests/test_announcements.py",
+      "old_sha256": "891986a54cb3c36f3e6e36b674e52198a458a85d58484ac8697dbf52e614bfbe",
+      "new_sha256": "08f70dfb0fb8a3b6750a03366d16aae7187a74a94b33dad17d5620198c21e23b"
+    },
+    {
+      "path": "tests/test_concept_quiz.py",
+      "old_sha256": "5211cb5944955f4ea391b5d4f244ec113914612975f1522656f31d9496afb795",
+      "new_sha256": "4e2cbfc3b5683a1788eb7667d52eaf4d6b402751f05db517e9a0535a7c4bd61b"
+    },
+    {
+      "path": "tests/test_teacher_progress.py",
+      "old_sha256": null,
+      "new_sha256": "a0fdb20c90bf755274941fff95c71c64fae94c936ff7877f95f3c589dd75471b"
+    },
+    {
+      "path": "tests/test_teacher_progress_app.py",
+      "old_sha256": null,
+      "new_sha256": "0b64fb3c8fd99229754be2781d90a2c99116a9327f75ad4227f7a5bf3c1273a8"
+    },
+    {
+      "path": "tests/test_teacher_progress_browser.py",
+      "old_sha256": null,
+      "new_sha256": "0fb7ee9ee5402b0cead21af358ad6d0dbe2f9893721ab5ef8615c80be5c92e2d"
+    },
+    {
+      "path": "views/dashboard.py",
+      "old_sha256": "c72711558591eb2326ddee37da5abaae692c127e7a77bca217bbd92390146ee8",
+      "new_sha256": "b20a3cae4bd315ccd5f5089b0494790e8a6522bcb4f230b7088b30defe5e22c1"
+    },
+    {
+      "path": "views/teacher.py",
+      "old_sha256": "32494131d7fdfa8d28393862de8f65c57fba803997a68e46d6bde8d3e7b04e29",
+      "new_sha256": "1a990f070ad81c8f147844095603647d7bed8e301957400f21bfac94914fdbe7"
+    },
+    {
+      "path": "views/teaching_progress.py",
+      "old_sha256": null,
+      "new_sha256": "bb2deb3fe259afc242ee64b66249abb5854746e33cc37113dfdb132bccf5fba5"
+    }
+  ],
+  "deleted_files": [],
+  "operating_data_included": false,
+  "actual_deployment_changed": false,
+  "validation": {
+    "automated_passed": 472,
+    "streamlit_module_skipped": 1,
+    "python_files_syntax_checked": 116
+  },
+  "data_path": "data/teaching_progress.csv",
+  "storage_settings": "unchanged"
+}

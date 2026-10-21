@@ -1,3 +1,13 @@
+## 교사전용 진도관리 업데이트
+
+교사용 대시보드에서는 퀴즈 관련 표시를 제거하고, **교사전용 → 📅 진도관리**를 추가했습니다.
+1-1~1-7반의 날짜별 수업내용·상태·수행평가 일정을 기록하고 수정합니다.
+퀴즈의 생성·응답 확인·채점·다운로드는 **수업도구 → 4. 퀴즈**에 그대로 있습니다.
+
+적용: [TEACHER_PROGRESS_UPDATE.md](TEACHER_PROGRESS_UPDATE.md) · 검증: [TEACHER_PROGRESS_TEST_RESULTS.md](TEACHER_PROGRESS_TEST_RESULTS.md).
+`storage.py`, `views/dashboard.py`, `views/teacher.py`와 신규 진도 모듈 3개를 함께 반영하세요.
+기존 데이터·Secrets·퀴즈 기록은 유지합니다. 아래의 이전 업데이트 안내와 충돌하면 이번 안내가 우선합니다.
+
 ## 퀴즈 v2 업데이트
 
 학생 JSON 버튼 제거, 유형별 1회·최대 10문항, 학생 문제 카드, 교사 출제 문항 다운로드를 추가했습니다.

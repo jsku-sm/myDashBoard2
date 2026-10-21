@@ -466,7 +466,7 @@ def test_generation_callback_selects_new_draft_and_followup_targets(env):
 def test_source_integration_and_no_classroom_resurrection():
     tools=(ROOT/'views/tools.py').read_text()
     assert 'if key == "tool_quiz":' in tools and 'quiz.page(user)' in tools
-    assert 'quiz.teacher_dashboard(user)' in (ROOT/'views/dashboard.py').read_text()
+    assert 'quiz.teacher_dashboard(user)' not in (ROOT/'views/dashboard.py').read_text()
     assert 'quiz.student_home(user)' in (ROOT/'views/home.py').read_text()
     assert not (ROOT/'classroom_core').exists()
     assert (ROOT/'views/evaluation_plans.py').exists()

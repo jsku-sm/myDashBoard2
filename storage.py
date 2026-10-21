@@ -23,6 +23,10 @@ import streamlit as st
 from config import TZ
 
 SCHEMAS: dict[str, list[str]] = {
+    "teaching_progress": ["id", "author_id", "batch_id", "created_at", "updated_at", "revision",
+                          "date", "class", "subject", "period", "content", "status",
+                          "assessment_title", "assessment_date", "assessment_period", "assessment_status",
+                          "memo", "deleted_at"],
     "quiz_sets": ["id", "teacher_id", "subject", "unit", "bank_unit", "title", "state", "created_at", "updated_at", "parent_id", "round", "question_json", "targets_json", "classes_json", "generator"],
     "quiz_attempts": ["id", "quiz_id", "student_id", "name", "class", "state", "answers_json", "revision", "started_at", "updated_at", "submitted_at", "graded_at", "graded_by", "score", "marks_json", "released_at"],
     "users": ["id", "name", "class", "role", "pw_hash", "must_change", "created_at"],
@@ -46,7 +50,7 @@ SCHEMAS: dict[str, list[str]] = {
                   "q1", "q2", "q3", "q4", "q5"],
 }
 
-CACHE_TTL = {"users": 60, "settings": 60, "quiz_sets": 0, "quiz_attempts": 0}
+CACHE_TTL = {"users": 60, "settings": 60, "quiz_sets": 0, "quiz_attempts": 0, "teaching_progress": 0}
 DEFAULT_TTL = 20
 
 
@@ -537,6 +541,19 @@ def _record_author():
     return user["id"]
 
 
+def _private_record_author(table):
+    if table == "teaching_progress":
+        # Fresh account-store validation; do not trust a cached teacher role.
+        backend = _ready_backend()
+        session = st.session_state.get("user") or {}
+        actor = next((u for u in backend.read("users") if u.get("id") == session.get("id")), None)
+        if (not actor or actor.get("role") != "teacher" or session.get("role") != "teacher"
+                or actor.get("must_change") == "1"):
+            raise PermissionError("진도관리 기록에 접근할 권한이 없습니다.")
+        return actor["id"]
+    return _record_author()
+
+
 def _scope_private_records(table, rows):
     if table in ("quiz_sets", "quiz_attempts"):
         # Raw question keys/other students' records must never go through generic
@@ -548,19 +565,21 @@ def _scope_private_records(table, rows):
             return []
         owned = {q["id"] for q in backend.read("quiz_sets") if q["teacher_id"] == uid}
         return [r for r in rows if (r["id"] if table == "quiz_sets" else r["quiz_id"]) in owned]
-    if table not in ("observations", "records"):
+    if table not in ("observations", "records", "teaching_progress"):
         return rows
     try:
-        author = _record_author()
+        author = _private_record_author(table)
     except PermissionError:
         return []
+    if table == "teaching_progress":
+        return [r for r in rows if r.get("author_id") == author]
     from think_app.ownership import legacy_teacher_id
     return [r for r in rows if (r.get("author_id") or legacy_teacher_id()) == author]
 
 
 def _check_private_change(table, row_id):
-    if table in ("observations", "records"):
-        _record_author()
+    if table in ("observations", "records", "teaching_progress"):
+        _private_record_author(table)
         if not any(row["id"] == row_id for row in read(table)):
             raise PermissionError("이 교사 개인 기록을 수정할 권한이 없습니다.")
 
@@ -573,8 +592,8 @@ def invalidate(table: str):
 
 def append(table: str, row: dict):
     row = dict(row)
-    if table in ("observations", "records"):
-        row["author_id"] = _record_author()
+    if table in ("observations", "records", "teaching_progress"):
+        row["author_id"] = _private_record_author(table)
     row.setdefault("id", new_id())
     _ready_backend().append(table, row)
     invalidate(table)
@@ -583,8 +602,8 @@ def append(table: str, row: dict):
 
 def append_many(table: str, rows: list[dict]):
     if rows:
-        if table in ("observations", "records"):
-            author = _record_author()
+        if table in ("observations", "records", "teaching_progress"):
+            author = _private_record_author(table)
             rows = [dict(row, author_id=author) for row in rows]
         _ready_backend().append_many(table, rows)
         invalidate(table)
@@ -592,7 +611,7 @@ def append_many(table: str, rows: list[dict]):
 
 def update(table: str, row_id: str, changes: dict):
     _check_private_change(table, row_id)
-    if table in ("observations", "records") and "author_id" in changes:
+    if table in ("observations", "records", "teaching_progress") and "author_id" in changes:
         raise PermissionError("개인 기록의 소유자는 변경할 수 없습니다.")
     ok = _ready_backend().update(table, row_id, changes)
     invalidate(table)
