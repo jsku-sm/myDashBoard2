@@ -60,6 +60,10 @@ def styles():
 {s} .as-count-title {{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:2px 0 14px;}}
 {s} .as-count-title h4 {{margin:0;font-size:20px;}}
 {s} .as-count {{background:#ece3f9;border:1px solid #d5c3eb;border-radius:30px;padding:6px 15px;font-weight:700;color:#634a86;}}
+{s} .as-management-context {{background:#f4effa;border:1px solid #daceed;border-left:5px solid #aa92cc;border-radius:16px;padding:16px 20px;margin:0 0 18px;}}
+{s} .as-management-context strong {{display:block;font-size:20px;line-height:1.5;margin:7px 0;color:#44355f;overflow-wrap:anywhere;}}
+{s} .as-management-context p {{font-size:13px;line-height:1.65;margin:7px 0 0;color:#65718a;}}
+{s} .as-enrollment-target {{color:#376550;font-size:14px;line-height:1.8;overflow-wrap:anywhere;}}
 {s} .as-person {{display:flex;align-items:center;gap:13px;min-height:46px;}}
 {s} .as-avatar {{background:#e8e1f5;border-radius:13px;color:#6e5990;width:40px;min-width:40px;height:40px;display:grid;place-items:center;font-size:15px;font-weight:700;}}
 {s} .as-person strong {{color:#343b52;font-size:16px;}}
@@ -96,12 +100,29 @@ def stats(items):
         for label,value in items)+'</div>'
 
 
-def roster_heading(total, shown=None):
+def roster_heading(total, shown=None, cohort=None):
     extra='' if shown is None or shown==total else f'<span class="as-chip">검색 결과 {int(shown)}명</span>'
-    return f'<div class="as-count-title"><h4>현재 배정 명단</h4><div>{extra}<span class="as-count">총 {int(total)}명</span></div></div>'
+    title='현재 배정 명단' if cohort is None else f'{escape(cohort["name"])} · 현재 배정 명단'
+    return f'<div class="as-count-title"><h4>{title}</h4><div>{extra}<span class="as-count">총 {int(total)}명</span></div></div>'
 
 
 def person(student):
     name=str(student['name']); cls=student.get('class') or '학급 확인 필요'
     return (f'<div class="as-person"><span class="as-avatar">{escape(name[:1])}</span><div>'
             f'<strong>{escape(name)}</strong><small>{escape(cls)} · {escape(student["id"])}</small></div></div>')
+
+
+def management_context(cohort):
+    """Persistent visible scope for every management action (escaped user text)."""
+    c=cohort
+    return (f'<section class="as-management-context" aria-label="현재 관리 대상">'
+            f'<span class="as-overline">현재 관리 중인 기수</span>'
+            f'<strong>{escape(c["year"])}학년도 · {escape(c["subject"])} · {escape(c["name"])}</strong>'
+            f'<span class="as-chip mint">이 기수 배정 {int(c["member_count"])}명</span>'
+            '<p>기수 설정 · 참여 학생 · 자료·과제 · 질문·댓글 · 제출 확인은 모두 위 기수에 연결됩니다.</p></section>')
+
+
+def enrollment_target(cohort):
+    return (f'<p class="as-enrollment-target">배정 대상: <strong>{escape(cohort["year"])}학년도 · '
+            f'{escape(cohort["subject"])} · {escape(cohort["name"])}</strong><br>'
+            '아래에서 추가하는 학생은 이 기수에만 저장됩니다. 다른 기수 명단은 변경하지 않습니다.</p>')

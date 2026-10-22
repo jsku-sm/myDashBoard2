@@ -318,11 +318,12 @@ def test_create_and_edit_subject_through_teacher_form(env):
     env.st.events.add(prefix+':기수 추가')
     with pytest.raises(Rerun):env.view.teacher_page(env.t)
     c=env.svc.list_cohorts(env.t)[0];assert c['subject']=='공통수학1'
+    env.view.teacher_page(env.t)  # creation now opens the new cohort's enrollment page
     env.st.session_state['as_manage_menu']='기수 설정'
     env.view.teacher_page(env.t)
     env.st.session_state['as_edit_'+c['id']+'_'+c['revision']+'subject']='공통수학2'
-    # This legacy settings checkbox uses Streamlit's label identity (no key).
-    env.st.session_state[None]=True
+    # Confirmation is cohort/revision-scoped, never shared with another cohort.
+    env.st.session_state['as_settings_confirm_'+c['id']+'_'+c['revision']]=True
     env.st.events.add('as_settings_'+c['id']+'_'+c['revision']+':기수 설정 저장')
     with pytest.raises(Rerun):env.view.teacher_page(env.t)
     assert env.svc.get_cohort(env.t,c['id'])['subject']=='공통수학2'

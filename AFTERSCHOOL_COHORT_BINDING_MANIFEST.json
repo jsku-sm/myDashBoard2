@@ -1,0 +1,47 @@
+{
+  "baseline_zip": "myDashBoard2_afterschool_student_link_full.zip",
+  "changes": [
+    {
+      "path": "afterschool_core/admin_navigation.py",
+      "action": "added",
+      "sha256": "cf3ee3b7121e8d1739cf4f1228985f00ea82002eae71d29d6e32cd10bf8cf0ed",
+      "baseline_sha256": null
+    },
+    {
+      "path": "afterschool_core/presentation.py",
+      "action": "modified",
+      "sha256": "6f4c7dcccde7509d0fe22e52cfb5e464ae872c45558c7e347ee27d7773ad260c",
+      "baseline_sha256": "42e707127f8fc43ef4f3b1d1569260e75c6b756841e5c9ee76e0b4755008a9f6"
+    },
+    {
+      "path": "views/afterschool.py",
+      "action": "modified",
+      "sha256": "1b97be383b0ed85d962468ac55035138c36dc50d1f55b945d4524c181ff7c9f5",
+      "baseline_sha256": "ce8b5f2f7c9c878b18f6ec31194784eccfbb2a0a40ade29f30d108f5e447e700"
+    },
+    {
+      "path": "tests/test_afterschool_cohort_binding.py",
+      "action": "added",
+      "sha256": "bfd1d19dddcdbfd9d5c13e8d04e571db079516fd045184004399810f1ee9e0f9",
+      "baseline_sha256": null
+    },
+    {
+      "path": "tests/test_afterschool_v2.py",
+      "action": "modified",
+      "sha256": "4b7a2628dc4c00c4699546cd207877c7095384e27afc945b1c82bd8469ef002c",
+      "baseline_sha256": "7f462ede5d7806f14b90178b436d1da9464df6ed47fefaa3bc98d20f59e8965c"
+    },
+    {
+      "path": "AFTERSCHOOL_COHORT_BINDING_UPDATE.md",
+      "action": "added",
+      "sha256": "a130045e253585ade75355479b3b6873282efdb407b0c43f46dbb0dbb167fcbb",
+      "baseline_sha256": null
+    },
+    {
+      "path": "AFTERSCHOOL_COHORT_BINDING_TEST_RESULTS.md",
+      "action": "added",
+      "sha256": "a6f40571f01698c00e9afc646bc3a83c5a67fdbb1f1444a2e98845ded292cc1a",
+      "baseline_sha256": null
+    }
+  ]
+}

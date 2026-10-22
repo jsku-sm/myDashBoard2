@@ -10,17 +10,19 @@ import streamlit as st
 from config import CLASSES, TZ
 from afterschool_core import service as svc
 from afterschool_core import presentation as design
+from afterschool_core import admin_navigation as nav
 
 
 def _token(key):
     return st.session_state.setdefault('_as_op_'+key,uuid.uuid4().hex)
 
 
-def _action(fn,message,token_key=None,clear_keys=()):
+def _action(fn,message,token_key=None,clear_keys=(),open_created_cohort=False):
     try:
         result=fn()
     except svc.SavePendingError as exc:
-        st.session_state['_as_pending']={'id':exc.record_id,'token_key':token_key,'message':message,'clear_keys':list(clear_keys)}
+        st.session_state['_as_pending']={'id':exc.record_id,'token_key':token_key,'message':message,'clear_keys':list(clear_keys),
+                                            'open_created_cohort':open_created_cohort}
         st.rerun()
     except (ValueError,PermissionError) as exc:
         st.error(str(exc)); return False
@@ -28,6 +30,8 @@ def _action(fn,message,token_key=None,clear_keys=()):
         st.error('처리하지 못했어요. 연결 상태를 확인해 주세요. 입력 내용은 유지됩니다.'); return False
     if token_key:
         st.session_state.pop('_as_op_'+token_key,None)
+    if open_created_cohort:
+        nav.request_open(st.session_state,st.session_state['user']['id'],result,'참여 학생')
     st.session_state['_as_clear_keys']=list(clear_keys)
     st.session_state['_as_flash']=message+(f' · 기록번호 {result[:8]}' if isinstance(result,str) and result else '')
     st.rerun()
@@ -54,6 +58,8 @@ def _notice(user):
             except Exception: st.error('아직 저장을 확인하지 못했어요. GitHub 설정과 연결을 확인해 주세요.')
             else:
                 if pending.get('token_key'): st.session_state.pop('_as_op_'+pending['token_key'],None)
+                if pending.get('open_created_cohort') and pending.get('id'):
+                    nav.request_open(st.session_state,user['id'],pending['id'],'참여 학생')
                 st.session_state['_as_clear_keys']=pending.get('clear_keys',[])
                 st.session_state.pop('_as_pending',None)
                 st.session_state['_as_flash']=pending.get('message','저장을 확인했어요.')
@@ -116,18 +122,26 @@ def _teacher_page(user):
         st.subheader('🌙 방과후 관리')
         st.caption('과목과 기수를 정하고 학생을 배정하세요. 자료·과제·질문·제출까지 이곳에서 관리합니다.')
         rows=svc.list_cohorts(user)
+        nav.restore(st.session_state,user['id'],rows)
         with st.expander('＋ 새 기수 만들기',expanded=not rows):
             opkey='create_cohort'; op=_token(opkey)
             with st.form('as_new_'+op,enter_to_submit=False):
                 payload=_cohort_fields({},'as_new_'+op)
                 ok=st.form_submit_button('기수 추가',type='primary')
-            if ok: _action(lambda:svc.create_cohort(user,payload,op),'새 기수를 만들었어요.',opkey)
+            if ok:
+                _action(lambda:svc.create_cohort(user,payload,op),
+                        f'{payload["subject"]} · {payload["name"]} 기수를 만들었어요. 이 기수에 학생을 배정하세요.',
+                        opkey,open_created_cohort=True)
         if not rows:
             st.info('아직 기수가 없어요. 필요한 기수를 하나씩 만들어 주세요.'); return
-        c=_pick(rows,'as_manage_cohort')
+        _cohort_overview(user,rows)
+        c=_pick(rows,'as_manage_cohort',label='관리할 기수 선택 (아래 모든 메뉴에 적용)')
+        nav.remember(st.session_state,user['id'],c['id'])
         _header(c,True)
+        st.markdown(design.management_context(c),unsafe_allow_html=True)
         _publication_panel(user,c)
         menu=st.radio('관리 메뉴',['기수 설정','참여 학생','자료·과제','질문·댓글','제출 확인'],horizontal=True,key='as_manage_menu')
+        nav.remember(st.session_state,user['id'],c['id'],menu)
         if menu=='기수 설정': _settings(user,c)
         elif menu=='참여 학생': _members(user,c)
         elif menu=='자료·과제': _materials(user,c)
@@ -136,6 +150,24 @@ def _teacher_page(user):
     except (PermissionError,ValueError) as exc: st.error(str(exc))
     except Exception: st.error('방과후 정보를 불러오지 못했어요. 저장소 연결 상태를 확인해 주세요.')
 
+
+
+def _cohort_overview(user,rows):
+    """Show saved counts per cohort, never a global student assignment count."""
+    with st.expander('기수별 배정 현황 · 기수를 확인하고 학생 배정하기'):
+        st.caption('학생 명단은 기수별로 따로 저장됩니다. 기수 설정과 참여 학생은 아래에서 선택한 같은 기수를 관리합니다.')
+        st.dataframe(pd.DataFrame([{'학년도':c['year'],'과목':c['subject'],'기수':c['name'],
+                                   '배정 인원':f'{c["member_count"]}명','상태':svc.STATES[c['state']]}
+                                  for c in rows]),hide_index=True,width='stretch')
+        for c in rows:
+            if st.button(f'{c["year"]} · {c["subject"]} · {c["name"]} — 학생 배정 ({c["member_count"]}명)',
+                         key='as_open_members_'+c['id']):
+                nav.request_open(st.session_state,user['id'],c['id'],'참여 학생')
+                st.rerun()
+
+
+def _cohort_label(c):
+    return f'{c["year"]}학년도 · {c["subject"]} · {c["name"]}'
 
 
 def _publication_panel(user,c):
@@ -174,9 +206,11 @@ def _publication_panel(user,c):
                         '배정 학생의 과목 화면에 연결하고 선택 자료를 공개했어요.')
 
 def _settings(user,c):
+    st.caption(_cohort_label(c)+'의 설정입니다. 기수명 변경은 새 기수 생성이 아니며 기존 명단이 유지됩니다. 새 기수는 위의 ‘＋ 새 기수 만들기’를 이용하세요.')
     with st.form('as_settings_'+c['id']+'_'+c['revision'],enter_to_submit=False):
         payload=_cohort_fields(c,'as_edit_'+c['id']+'_'+c['revision'])
-        confirm=st.checkbox('설정과 학생 접근 범위 변경을 확인했습니다.')
+        confirm=st.checkbox('설정과 학생 접근 범위 변경을 확인했습니다.',
+                            key='as_settings_confirm_'+c['id']+'_'+c['revision'])
         ok=st.form_submit_button('기수 설정 저장',type='primary')
     if ok:
         if not confirm: st.warning('접근 범위 변경을 확인해 주세요.')
@@ -187,6 +221,7 @@ def _settings(user,c):
 def _members(user,c):
     """Enter only submits this form; blur/filter changes never assign a student."""
     cid=c['id']
+    scope=_cohort_label(c)
     roster=svc.roster(user,cid)
     selected=[r for r in roster if r['selected']]
     candidates=[r for r in roster if not r.get('unavailable')]
@@ -199,6 +234,7 @@ def _members(user,c):
 
     with st.container(key='as_add_panel_'+cid):
         st.markdown('#### 학번으로 바로 배정')
+        st.markdown(design.enrollment_target(c),unsafe_allow_html=True)
         st.caption('정확한 학번 + Enter → 배정 저장. 이름은 검색 결과에서 확인한 뒤 선택하세요.')
         with st.form('as_quick_add_'+cid,enter_to_submit=True):
             query=st.text_input('학번·이름 검색',placeholder='학번 입력 후 Enter / 이름 입력 후 Enter로 검색',
@@ -209,11 +245,11 @@ def _members(user,c):
                 st.warning('학번 또는 이름을 입력해 주세요.')
             elif query in allby and not allby[query].get('unavailable'):
                 if allby[query]['selected']:
-                    st.info(f'{allby[query]["name"]} ({query}) 학생은 이미 배정되어 있어요. 인원은 늘어나지 않습니다.')
+                    st.info(f'{allby[query]["name"]} ({query}) 학생은 {scope}에 이미 배정되어 있어요. 인원은 늘어나지 않습니다.')
                     st.session_state[search_key]=''
                 else:
                     _action(lambda:svc.add_member(user,cid,query,c['revision']),
-                            f'{allby[query]["name"]} ({query}) 학생을 배정했어요.',
+                            f'{allby[query]["name"]} ({query}) 학생을 {scope}에 배정했어요.',
                             clear_keys=(input_key,search_key))
             else:
                 st.session_state[search_key]=query
@@ -231,7 +267,7 @@ def _members(user,c):
                     if right.button('이미 배정됨' if r['selected'] else '이 학생 배정',
                                     key='as_add_candidate_'+cid+'_'+r['id'],disabled=r['selected']):
                         _action(lambda sid=r['id']:svc.add_member(user,cid,sid,c['revision']),
-                                f'{r["name"]} 학생을 배정했어요.',clear_keys=(input_key,search_key))
+                                f'{r["name"]} 학생을 {scope}에 배정했어요.',clear_keys=(input_key,search_key))
         with st.expander('여러 학생을 한 번에 추가하기'):
             cls=st.selectbox('추가할 학생의 학급',['전체']+CLASSES,key='as_bulk_class_'+cid)
             visible=[r for r in candidates if not r['selected'] and (cls=='전체' or r['class']==cls)]
@@ -242,7 +278,7 @@ def _members(user,c):
             st.caption('현재 명단에서 선택을 해제하는 방식이 아닙니다. 선택한 학생만 추가하고 다른 배정은 그대로 유지합니다.')
             if st.button('선택 학생 추가',key='as_bulk_add_'+cid,disabled=not choices):
                 _action(lambda:svc.add_members(user,cid,choices,c['revision']),
-                        f'{len(choices)}명의 학생을 추가했어요.',clear_keys=(choice_key,input_key,search_key))
+                        f'{scope}에 {len(choices)}명의 학생을 추가했어요.',clear_keys=(choice_key,input_key,search_key))
 
     with st.container(key='as_roster_panel_'+cid):
         a,b=st.columns(2)
@@ -250,7 +286,7 @@ def _members(user,c):
         query=b.text_input('배정 명단에서 찾기',key='as_list_search_'+cid,placeholder='학번 또는 이름 (목록 필터)').strip()
         shown=[r for r in selected if (cls=='전체' or r['class']==cls) and
                (not query or query.casefold() in r['id'].casefold() or query.casefold() in r['name'].casefold())]
-        st.markdown(design.roster_heading(len(selected),len(shown)),unsafe_allow_html=True)
+        st.markdown(design.roster_heading(len(selected),len(shown),cohort=c),unsafe_allow_html=True)
         st.caption('배정 취소는 이 기수에서만 제외합니다. 학생 계정·다른 기수·기존 제출 기록은 삭제하지 않습니다.')
         pending=st.session_state.get(remove_key)
         if pending:
@@ -259,11 +295,11 @@ def _members(user,c):
                 st.session_state.pop(remove_key,None)
             else:
                 with st.container(border=True):
-                    st.warning(f'{target["class"]} · {target["id"]} {target["name"]} 학생의 배정을 취소할까요?')
+                    st.warning(f'{scope}에서 {target["class"]} · {target["id"]} {target["name"]} 학생의 배정을 취소할까요?')
                     yes,no=st.columns(2)
                     if yes.button('배정 취소 확정',key='as_remove_confirm_'+cid,type='primary'):
                         _action(lambda:svc.remove_member(user,cid,target['id'],pending['revision']),
-                                f'{target["name"]} 학생을 이 기수에서 제외했어요.',clear_keys=(remove_key,))
+                                f'{target["name"]} 학생을 {scope}에서 제외했어요.',clear_keys=(remove_key,))
                     if no.button('유지하기',key='as_remove_keep_'+cid):
                         st.session_state.pop(remove_key,None);st.rerun()
                     if pending['revision'] != c['revision']:
@@ -313,6 +349,7 @@ def _post_fields(kind,prefix,p=None,edit=False):
 
 
 def _materials(user,c):
+    st.caption('등록 대상: '+_cohort_label(c)+' · 이 기수의 배정 학생에게만 자료·과제를 공개합니다.')
     if c['state'] in ('draft','active'):
         with st.expander('＋ 수업자료 또는 과제 등록',expanded=False):
             kind=st.radio('등록 유형',['material','assignment'],format_func=lambda k:svc.KINDS[k],horizontal=True,key='as_kind_'+c['id'])
