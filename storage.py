@@ -21,6 +21,7 @@ from datetime import datetime
 import streamlit as st
 
 from config import TZ
+from afterschool_core.schema import SCHEMAS as AS_SCHEMAS, TABLES as AS_TABLES, PARTITIONED as AS_PARTITIONED
 
 SCHEMAS: dict[str, list[str]] = {
     "teaching_progress": ["id", "author_id", "batch_id", "created_at", "updated_at", "revision",
@@ -50,7 +51,10 @@ SCHEMAS: dict[str, list[str]] = {
                   "q1", "q2", "q3", "q4", "q5"],
 }
 
+SCHEMAS.update(AS_SCHEMAS)
+
 CACHE_TTL = {"users": 60, "settings": 60, "quiz_sets": 0, "quiz_attempts": 0, "teaching_progress": 0}
+CACHE_TTL.update({table: 0 for table in AS_TABLES})
 DEFAULT_TTL = 20
 
 
@@ -90,7 +94,7 @@ class LocalBackend:
 
     def read(self, table):
         with self.lock:
-            if table in ("quiz_sets", "quiz_attempts"):
+            if table in ("quiz_sets", "quiz_attempts") or table in AS_PARTITIONED:
                 from pathlib import Path
                 rows = []
                 for path in sorted(Path(self.root, table).glob("*.csv")):
@@ -104,7 +108,7 @@ class LocalBackend:
                 return [_norm(r, table) for r in csv.DictReader(f)]
 
     def _write_all(self, table, rows):
-        if table in ("quiz_sets", "quiz_attempts"):
+        if table in ("quiz_sets", "quiz_attempts") or table in AS_PARTITIONED:
             # Local tests use the same per-person/per-quiz file layout as GitHub.
             from pathlib import Path
             directory = Path(self.root, table)
@@ -315,6 +319,10 @@ class GitHubBackend:
 
     @staticmethod
     def _path(table, row):
+        if table in AS_PARTITIONED:
+            identity = row.get("student_id", "") if table == "as_submissions" else row.get("cohort_id", "")
+            key = hashlib.sha256(str(identity).encode("utf-8")).hexdigest()
+            return f"data/{table}/{key}.csv"
         if table == "quiz_sets":
             key = hashlib.sha256(str(row.get("id", "")).encode("utf-8")).hexdigest()
             return f"data/quiz_sets/{key}.csv"
@@ -555,6 +563,15 @@ def _private_record_author(table):
 
 
 def _scope_private_records(table, rows):
+    if table in AS_TABLES:
+        # Generic exports are teacher-owned only. Students use service projections.
+        backend = _ready_backend()
+        session = st.session_state.get("user") or {}
+        actor = next((u for u in backend.read("users") if u.get("id") == session.get("id")), None)
+        if (not actor or actor.get("role") != "teacher" or session.get("role") != "teacher"
+                or actor.get("must_change") == "1"):
+            return []
+        return [r for r in rows if r.get("owner_id") == actor["id"]]
     if table in ("quiz_sets", "quiz_attempts"):
         # Raw question keys/other students' records must never go through generic
         # student-facing table helpers. quiz_core.service supplies projections.
@@ -578,6 +595,8 @@ def _scope_private_records(table, rows):
 
 
 def _check_private_change(table, row_id):
+    if table in AS_TABLES:
+        raise PermissionError("방과후 기록은 기수 권한을 검사하는 전용 서비스에서만 수정할 수 있어요.")
     if table in ("observations", "records", "teaching_progress"):
         _private_record_author(table)
         if not any(row["id"] == row_id for row in read(table)):
@@ -591,6 +610,8 @@ def invalidate(table: str):
 
 
 def append(table: str, row: dict):
+    if table in AS_TABLES:
+        raise PermissionError("방과후 전용 서비스를 사용해 주세요.")
     row = dict(row)
     if table in ("observations", "records", "teaching_progress"):
         row["author_id"] = _private_record_author(table)
@@ -601,6 +622,8 @@ def append(table: str, row: dict):
 
 
 def append_many(table: str, rows: list[dict]):
+    if table in AS_TABLES:
+        raise PermissionError("방과후 전용 서비스를 사용해 주세요.")
     if rows:
         if table in ("observations", "records", "teaching_progress"):
             author = _private_record_author(table)

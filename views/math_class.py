@@ -290,8 +290,20 @@ def tab_questions(user, subject):
 
 def page(user, subject):
     with st.container(key="pastel_math1" if subject == "공통수학1" else "pastel_math2"):
-        ui.page_title(subject, "평가계획 · 단원별 학습지 · 학급 게시판 · 질문 게시판")
-        t1, t2, t3, t4 = st.tabs(["📋 평가계획", "📚 학습지", "📤 학급 게시판", "❓ 질문 게시판"])
+        # Never send another cohort's content to a hidden tab. Membership is
+        # checked before creating this tab and again inside each service call.
+        show_after = False
+        if subject == "공통수학2":
+            from afterschool_core.service import has_access
+            show_after = has_access(user)
+        subtitle = "평가계획 · 단원별 학습지 · 학급 게시판 · 질문 게시판"
+        labels = ["📋 평가계획", "📚 학습지", "📤 학급 게시판", "❓ 질문 게시판"]
+        if show_after:
+            labels.append("🌙 방과후 게시판")
+            subtitle += " · 방과후 게시판"
+        ui.page_title(subject, subtitle)
+        tabs = st.tabs(labels)
+        t1, t2, t3, t4 = tabs[:4]
         with t1:
             tab_plan(user, subject)
         with t2:
@@ -300,3 +312,8 @@ def page(user, subject):
             tab_board(user, subject)
         with t4:
             tab_questions(user, subject)
+
+        if show_after:
+            with tabs[4]:
+                from views.afterschool import student_board
+                student_board(user)

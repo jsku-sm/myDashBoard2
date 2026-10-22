@@ -1,0 +1,24 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+body{margin:0;font:14px/1.5 system-ui,-apple-system,'Malgun Gothic',sans-serif;color:#334155}button,a{font:inherit;border-radius:9px;padding:10px 14px;border:1px solid #cbd5e1;background:#fff;color:#1e3a5f;min-height:44px;cursor:pointer;text-decoration:none;display:inline-block}button:hover,a:hover{background:#f0f9ff}button:disabled{opacity:.6;cursor:wait}#note{margin:7px 0;color:#64748b;font-size:12px;overflow-wrap:anywhere}a{background:#edf8f6;color:#0f766e}a[hidden]{display:none}
+</style></head><body><button id="prepare" type="button">첨부파일 받기</button> <a id="save" hidden>기기에 저장</a><p id="note" role="status" aria-live="polite"></p><script>
+const send=(type,data={})=>parent.postMessage({isStreamlitMessage:true,type,...data},'*');
+const value=v=>send('streamlit:setComponentValue',{value:v,dataType:'json'});
+const button=document.getElementById('prepare'),save=document.getElementById('save'),note=document.getElementById('note');
+let binding='',busy=false,last='',blobUrl='',timer=null;
+function clear(){if(blobUrl)URL.revokeObjectURL(blobUrl);blobUrl='';save.hidden=true;save.removeAttribute('href');if(timer)clearTimeout(timer);}
+button.onclick=()=>{clear();busy=true;button.disabled=true;note.textContent='기수 배정과 파일 권한을 확인하고 있어요…';value({action:'prepare',request_id:crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2)});};
+window.addEventListener('message',e=>{if(e.source!==parent||e.data.type!=='streamlit:render')return;
+ const a=e.data.args||{};if(binding!==a.binding){clear();last='';busy=false;binding=a.binding;}
+ button.textContent=a.label||'첨부파일 받기';button.disabled=!!a.disabled||busy;
+ const r=a.result;
+ if(r&&r.request_id!==last){last=r.request_id;busy=false;button.disabled=!!a.disabled;
+  if(r.error){clear();note.textContent=r.error;}else{
+   try{const bytes=Uint8Array.from(atob(r.data),c=>c.charCodeAt(0));clear();blobUrl=URL.createObjectURL(new Blob([bytes],{type:r.mime||'application/octet-stream'}));save.href=blobUrl;save.download=r.name;save.textContent='기기에 저장';save.hidden=false;note.textContent='권한 확인 완료. ‘기기에 저장’을 눌러 주세요. 준비한 링크는 60초 후 닫힙니다.';timer=setTimeout(()=>{clear();note.textContent='파일 준비 시간이 지났어요. 다시 눌러 주세요.';},60000);}catch(_){note.textContent='파일 준비에 실패했어요. 다시 눌러 주세요.';}
+  }
+  value({action:'received',request_id:last});
+ }
+ if(!busy&&!r&&!blobUrl)note.textContent='클릭할 때 기수 배정을 확인합니다. 파일 주소는 외부에 공개하지 않습니다.';
+ send('streamlit:setFrameHeight',{height:100});
+});
+send('streamlit:componentReady',{apiVersion:1});send('streamlit:setFrameHeight',{height:100});
+</script></body></html>

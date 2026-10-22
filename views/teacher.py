@@ -11,6 +11,7 @@ import ui
 from views.record import tab_record
 from views.announcements import tab_announcements
 from views.teaching_progress import page as tab_teaching_progress
+from views.afterschool import teacher_page as tab_afterschool
 from config import CLASSES, DEFAULT_UNITS, OBSERVATION_CATEGORIES, POINT_REASONS, SUBJECTS
 
 
@@ -268,11 +269,13 @@ def page(user):
     if user["role"] != "teacher":
         st.error("선생님만 볼 수 있는 화면이에요.")
         return
-    ui.page_title("교사전용", "진도관리, 화면 잠금, 공지사항, 관찰기록, 상점·벌점, 생기부 생성기, 학생 명단, 설정")
-    tp, t0, t6, t1, t2, t5, t3, t4 = st.tabs(["📅 진도관리", "🔒 화면 잠금", "📢 공지사항", "📒 관찰기록", "⭐ 상점·벌점", "📝 생기부 생성기",
+    ui.page_title("교사전용", "진도관리, 방과후 관리, 화면 잠금, 공지사항, 관찰기록, 상점·벌점, 생기부 생성기, 학생 명단, 설정")
+    tp, ta, t0, t6, t1, t2, t5, t3, t4 = st.tabs(["📅 진도관리", "🌙 방과후 관리", "🔒 화면 잠금", "📢 공지사항", "📒 관찰기록", "⭐ 상점·벌점", "📝 생기부 생성기",
                                       "👥 학생 명단", "⚙️ 설정"])
     with tp:
         tab_teaching_progress(user)
+    with ta:
+        tab_afterschool(user)
     with t0:
         tab_lock()
     with t6:

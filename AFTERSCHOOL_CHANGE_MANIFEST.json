@@ -1,0 +1,60 @@
+{
+  "source_archive": "myDashBoard2-main.zip",
+  "source_sha256": "09f12e41d4955bde73ef27e7358e1758fa6dbdbb81efb446887dcdbb909a7fe7",
+  "files": [
+    {
+      "path": "storage.py",
+      "operation": "modify",
+      "old_sha256": "2c0ddb0c9312e1b9752c273a439e808bf73840abf4817e3c075bd9c7655e4acc",
+      "new_sha256": "db1b5f208667e5fb794d3a4f717507d539c5807cc1b3f97dcb9708805f60c43b"
+    },
+    {
+      "path": "views/math_class.py",
+      "operation": "modify",
+      "old_sha256": "9d518434ddb0e23b05be54c20daf4e1008ecb851aa7bfd581595e0e64b337bfa",
+      "new_sha256": "5169abc7b9b5a9123218555a9e4c2016a0f24b521868be38164fb497e1dd7e95"
+    },
+    {
+      "path": "views/teacher.py",
+      "operation": "modify",
+      "old_sha256": "1a990f070ad81c8f147844095603647d7bed8e301957400f21bfac94914fdbe7",
+      "new_sha256": "0de35287c66b531fc076cc0a8f31323a591315419e0bc54e06f29b49d2b90014"
+    },
+    {
+      "path": "views/afterschool.py",
+      "operation": "add",
+      "old_sha256": null,
+      "new_sha256": "6a59cad892b2cf512f5e2809eda13ab542c8335cfc0127bb90adb60f3b162686"
+    },
+    {
+      "path": "afterschool_core/__init__.py",
+      "operation": "add",
+      "old_sha256": null,
+      "new_sha256": "df41b4ac29df908dc299b91b654f13b93b88766d6ffad8b1a2c78e8c63a61da9"
+    },
+    {
+      "path": "afterschool_core/schema.py",
+      "operation": "add",
+      "old_sha256": null,
+      "new_sha256": "8b7bd51e7f876b9b83f94ad33a9dbfecdf0215f7348e10244d38893f5474b96f"
+    },
+    {
+      "path": "afterschool_core/service.py",
+      "operation": "add",
+      "old_sha256": null,
+      "new_sha256": "971a3b170b4a6b0222779bf3d8e173f80a745aab863298cce84d43eb6bbde8c1"
+    },
+    {
+      "path": "afterschool_core/downloads.py",
+      "operation": "add",
+      "old_sha256": null,
+      "new_sha256": "6555fa1df74f913e71e3af4adc853347d4f24c9e7eb92774c8cec7106f9f3cc7"
+    },
+    {
+      "path": "afterschool_core/download_component/index.html",
+      "operation": "add",
+      "old_sha256": null,
+      "new_sha256": "6f033a7b4a70b7da9f27e96f5901ca8b562f9c27cccaf4bdb477780ba39a713d"
+    }
+  ]
+}
