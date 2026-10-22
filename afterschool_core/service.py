@@ -261,6 +261,101 @@ def get_cohort(user, cid, subject=None):
         return _summary(c,a)
 
 
+
+def publication_status(user, cid):
+    """Owner-only readiness view. Never treat teacher access as student access."""
+    b = db._ready_backend()
+    with b.lock:
+        a = _actor(b, user); _teacher(a)
+        c = _cohort(b, a, cid, manage=True)
+        members = set(_array(c['members_json']))
+        students = {u['id'] for u in b.read('users') if u.get('role') == 'student'}
+        posts = [p for p in b.read('as_posts') if p['cohort_id'] == cid
+                 and p['kind'] in ('material', 'assignment') and not p.get('deleted_at')]
+        published = [p for p in posts if p['published'] == '1']
+        return {
+            'cohort_id': cid, 'revision': c['revision'], 'state': c['state'],
+            'subject': c['subject'], 'name': c['name'],
+            'path': f'{c["subject"]} → 방과후 게시판 → {c["name"]}',
+            'member_count': len(members), 'valid_member_count': len(members & students),
+            'student_tab_visible': c['state'] in ('active', 'archived') and bool(members & students),
+            'published_count': len(published),
+            'drafts': [{'id': p['id'], 'title': p['title'], 'kind': p['kind'],
+                        'revision': p['revision']} for p in posts if p['published'] != '1'],
+        }
+
+
+def publish_to_students(user, cid, post_revisions, expected_revision, *, open_board=False):
+    """Explicit owner action: open this cohort / publish ONLY selected posts.
+
+    No migration or automatic disclosure of existing drafts. All authorization
+    and version checks happen before a mutation; the same post IDs/files remain.
+    Durable save errors are propagated as SavePendingError (existing contract).
+    """
+    if not isinstance(open_board, bool) or not isinstance(post_revisions, dict):
+        raise ValueError('공개할 게시글과 게시판 연결 여부를 확인해 주세요.')
+    if not post_revisions and not open_board:
+        raise ValueError('공개할 자료·과제를 선택해 주세요.')
+    b = db._ready_backend()
+    with b.lock:
+        a = _actor(b, user); _teacher(a)
+        c = _cohort(b, a, cid, manage=True); _version(c, expected_revision)
+        members = set(_array(c['members_json']))
+        known = {u['id'] for u in b.read('users') if u.get('role') == 'student'}
+        if not members.intersection(known):
+            raise ValueError('먼저 참여 학생 메뉴에서 가입된 학생을 배정해 주세요.')
+        if c['state'] == 'archived':
+            raise PermissionError('종료한 기수는 읽기 전용입니다. 운영 상태는 기수 설정에서 변경하세요.')
+        if c['state'] in ('draft', 'closed') and not open_board:
+            raise ValueError('학생에게 게시판도 열기 항목을 확인해 주세요.')
+        selected = []
+        for pid, revision in post_revisions.items():
+            p, _ = _post(b, a, pid)
+            if p['cohort_id'] != cid or p['kind'] not in ('material', 'assignment'):
+                raise PermissionError('선택한 기수의 자료·과제만 공개할 수 있어요.')
+            _version(p, revision)
+            selected.append(p)
+        for p in selected:
+            if p['published'] != '1':
+                b.update('as_posts', p['id'], _bump(p, {'published': '1'}))
+        history = _array(c['history_json'])
+        history.append({'at': db.now_str(), 'action': 'student_publication',
+                        'post_ids': [p['id'] for p in selected],
+                        'previous_state': c['state'], 'state': 'active'})
+        b.update('as_cohorts', cid, _bump(c, {'state': 'active', 'history_json': _json(history)}))
+    return _persist(cid)
+
+
+def student_snapshot(user, subject):
+    """Small permission-filtered signature, read locally from the existing store.
+
+    Does not fetch GitHub on each poll and never returns students' identities,
+    private questions by other users, draft titles or other students' answers.
+    """
+    if subject not in SUBJECTS:
+        raise ValueError('지원하는 과목을 선택해 주세요.')
+    b = db._ready_backend()
+    with b.lock:
+        a = _actor(b, user)
+        if a['role'] != 'student':
+            raise PermissionError('학생 화면에서만 확인할 수 있어요.')
+        cohorts = [c for c in b.read('as_cohorts') if c['state'] in ('active', 'archived')
+                   and a['id'] in _array(c['members_json']) and cohort_subject(c) == subject]
+        allowed = {c['id'] for c in cohorts}
+        # Only effective permissions change this key. Adding another classmate
+        # must not refresh this student's in-progress answer form.
+        access = tuple(sorted((c['id'], c['state']) for c in cohorts))
+        posts = [p for p in b.read('as_posts') if p['cohort_id'] in allowed and not p.get('deleted_at')
+                 and p['published'] == '1' and (p['visibility'] != 'private' or p['author_id'] == a['id'])]
+        pids = {p['id'] for p in posts}
+        content = [sorted((c['id'], c['name'], c['description'], c['start_date'], c['end_date']) for c in cohorts),
+                   sorted((p['id'], p['revision']) for p in posts),
+                   sorted((r['id'], r['revision']) for r in b.read('as_comments')
+                          if r['post_id'] in pids and not r.get('deleted_at')),
+                   sorted((r['id'], r['revision']) for r in b.read('as_submissions')
+                          if r['post_id'] in pids and r['student_id'] == a['id'])]
+        return {'access': access, 'content': hashlib.sha256(_json(content).encode()).hexdigest()}
+
 def _cohort_payload(payload):
     subject=payload.get('subject', LEGACY_SUBJECT)
     if subject not in SUBJECTS:
@@ -272,7 +367,7 @@ def _cohort_payload(payload):
     start=_date(payload.get('start_date',''),'시작일'); end=_date(payload.get('end_date',''),'종료일')
     if start and end and end<start:
         raise ValueError('종료일이 시작일보다 빠를 수 없어요.')
-    state=payload.get('state','draft')
+    state=payload.get('state','active')
     if state not in STATES:
         raise ValueError('기수 상태를 확인해 주세요.')
     return dict(name=name,year=year,subject=subject,description=_text(payload.get('description',''),'안내문',4000),
@@ -298,7 +393,8 @@ def update_cohort(user,cid,payload,expected_revision):
     b=db._ready_backend()
     with b.lock:
         a=_actor(b,user); c=_cohort(b,a,cid,manage=True); _version(c,expected_revision)
-        p=_cohort_payload(dict(payload,subject=payload.get('subject',c['subject'])))
+        p=_cohort_payload(dict(payload,subject=payload.get('subject',c['subject']),
+                                  state=payload.get('state',c['state'])))
         if any(r['id']!=cid and r['owner_id']==a['id'] and r['year']==p['year'] and cohort_subject(r)==p['subject'] and r['name'].casefold()==p['name'].casefold()
                for r in b.read('as_cohorts')):
             raise ValueError('같은 학년도·과목에 같은 기수명이 있어요.')

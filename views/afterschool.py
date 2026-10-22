@@ -96,8 +96,9 @@ def _cohort_fields(c,prefix):
     x,y=st.columns(2)
     start=x.date_input('시작일 (선택)',value=date.fromisoformat(c['start_date']) if c.get('start_date') else None,key=prefix+'start')
     end=y.date_input('종료일 (선택)',value=date.fromisoformat(c['end_date']) if c.get('end_date') else None,key=prefix+'end')
-    state=st.selectbox('운영 상태',list(svc.STATES),index=list(svc.STATES).index(c.get('state','draft')),
+    state=st.selectbox('운영 상태',list(svc.STATES),index=list(svc.STATES).index(c.get('state','active')),
                        format_func=lambda v:svc.STATES[v],key=prefix+'state')
+    st.caption('새 기수는 기본적으로 운영 중입니다. 학생을 배정하면 해당 과목에 탭이 표시됩니다. 준비 중은 학생에게 숨기는 선택입니다.')
     st.caption('종료일은 안내용입니다. 종료 시 직접 ‘종료 · 읽기 전용’으로 변경하세요. ‘학생 접근 종료’는 자료 열람도 막습니다.')
     return dict(year=year,name=name,subject=subject,description=desc,start_date=start,end_date=end,state=state)
 
@@ -125,6 +126,7 @@ def _teacher_page(user):
             st.info('아직 기수가 없어요. 필요한 기수를 하나씩 만들어 주세요.'); return
         c=_pick(rows,'as_manage_cohort')
         _header(c,True)
+        _publication_panel(user,c)
         menu=st.radio('관리 메뉴',['기수 설정','참여 학생','자료·과제','질문·댓글','제출 확인'],horizontal=True,key='as_manage_menu')
         if menu=='기수 설정': _settings(user,c)
         elif menu=='참여 학생': _members(user,c)
@@ -134,6 +136,42 @@ def _teacher_page(user):
     except (PermissionError,ValueError) as exc: st.error(str(exc))
     except Exception: st.error('방과후 정보를 불러오지 못했어요. 저장소 연결 상태를 확인해 주세요.')
 
+
+
+def _publication_panel(user,c):
+    """Explicit repair path for already saved draft cohorts/unpublished posts."""
+    state=svc.publication_status(user,c['id'])
+    st.caption('학생 화면 경로: '+state['path'])
+    if state['student_tab_visible']:
+        st.success(f'배정 학생 {state["valid_member_count"]}명의 {state["subject"]}에 '
+                   f'{state["name"]} 게시판이 표시됩니다. · 공개 자료·과제 {state["published_count"]}개')
+    elif not state['valid_member_count']:
+        st.warning('아직 배정된 가입 학생이 없어 학생 화면에 표시되지 않습니다. 참여 학생에서 먼저 배정하세요.')
+    else:
+        st.warning(f'현재 {svc.STATES[state["state"]]} 상태라 배정 학생에게도 기수가 숨겨져 있어요. 아래에서 학생에게 열 수 있습니다.')
+    if state['drafts']:
+        st.caption(f'비공개 초안 {len(state["drafts"])}개는 학생에게 보이지 않습니다. 기존 글은 선택한 것만 공개합니다.')
+    if c['state']=='archived':
+        return
+    with st.expander('학생 화면 연결 · 기존 자료 공개',expanded=not state['student_tab_visible'] and bool(state['valid_member_count'])):
+        options={p['id']:p for p in state['drafts']}
+        with st.form('as_publish_'+c['id']+'_'+c['revision'],enter_to_submit=False):
+            chosen=st.multiselect('학생에게 공개할 기존 자료·과제',list(options),default=[],
+                                  format_func=lambda pid:svc.KINDS[options[pid]['kind']]+' · '+options[pid]['title'],
+                                  key='as_publish_posts_'+c['id']+'_'+c['revision'])
+            open_board=False
+            if c['state'] in ('draft','closed'):
+                open_board=st.checkbox('학생에게 게시판도 열기 (운영 중으로 변경)',key='as_publish_open_'+c['id']+'_'+c['revision'])
+            confirm=st.checkbox('배정 학생에게만 게시판과 선택한 글을 공개하는 것을 확인했습니다.',
+                                key='as_publish_confirm_'+c['id']+'_'+c['revision'])
+            ok=st.form_submit_button('배정 학생에게 연결 · 선택 글 공개',type='primary')
+        if ok:
+            if not confirm:
+                st.warning('공개 범위를 확인해 주세요.')
+            else:
+                revisions={pid:options[pid]['revision'] for pid in chosen if pid in options}
+                _action(lambda:svc.publish_to_students(user,c['id'],revisions,c['revision'],open_board=open_board),
+                        '배정 학생의 과목 화면에 연결하고 선택 자료를 공개했어요.')
 
 def _settings(user,c):
     with st.form('as_settings_'+c['id']+'_'+c['revision'],enter_to_submit=False):
@@ -263,7 +301,11 @@ def _post_fields(kind,prefix,p=None,edit=False):
         due=datetime.combine(d,t) if d else ''
         late=st.checkbox('마감 후 제출 허용',value=p.get('allow_late')=='1',key=prefix+'late')
     x,y,z=st.columns(3)
-    published=x.checkbox('학생에게 공개',value=p.get('published')=='1',key=prefix+'pub')
+    if edit:
+        published=x.checkbox('학생에게 공개',value=p.get('published')=='1',key=prefix+'pub')
+    else:
+        published=True
+        x.caption('공개 등록 / 초안 저장은 아래 버튼에서 선택합니다.')
     pinned=y.checkbox('상단 고정',value=p.get('pinned')=='1',key=prefix+'pin')
     comments=z.checkbox('댓글 허용',value=p.get('comments_enabled','1')=='1',key=prefix+'comments')
     return dict(kind=kind,title=title,body=body,lesson_date=lesson,links=links,published=published,pinned=pinned,
@@ -278,11 +320,18 @@ def _materials(user,c):
             with st.form('as_post_'+op,enter_to_submit=False):
                 payload,files=_post_fields(kind,'as_post_'+op)
                 preview=st.form_submit_button('내용 미리보기')
-                ok=st.form_submit_button('자료·과제 저장',type='primary')
+                publish=st.form_submit_button('등록하고 학생에게 공개',type='primary')
+                draft=st.form_submit_button('초안으로 저장')
             if preview:
                 st.markdown('##### 학생에게 보일 내용 미리보기'); st.text(payload['title']);st.text(payload['body'])
-                st.caption('공개 체크를 켜도 기수가 준비 중이면 학생은 접근할 수 없어요.')
-            if ok: _action(lambda:svc.create_post(user,c['id'],payload,files,op),'자료·과제를 저장했어요.',opkey)
+                st.caption('미리보기는 저장하지 않습니다. 등록하고 학생에게 공개 버튼을 눌러 주세요. 준비 중인 기수는 위에서 게시판도 열어야 합니다.')
+            if publish or draft:
+                # Explicit submit buttons determine disclosure; preview never saves.
+                payload['published']=bool(publish)
+                message=('자료·과제를 등록하고 배정 학생에게 공개했어요.' if publish and c['state']=='active' else
+                         '공개 글로 저장했지만 기수가 준비 중입니다. 위의 학생 화면 연결에서 게시판도 열어 주세요.' if publish else
+                         '비공개 초안으로 저장했어요. 학생에게는 보이지 않습니다.')
+                _action(lambda:svc.create_post(user,c['id'],payload,files,op),message,opkey)
     else: st.info('이 기수는 읽기 전용입니다. 새 자료를 등록하려면 기수 상태를 운영 중으로 바꾸세요.')
     _post_list(user,c,None,'manage_materials',manage=True,exclude_questions=True)
 
@@ -304,6 +353,8 @@ def _student_board(user,subject):
         if not rows:
             if user['role']=='teacher':
                 st.info('이 과목의 기수가 없어요. 교사전용 → 방과후 관리에서 기수를 추가하세요.')
+            else:
+                st.info('현재 이 과목에 열람 가능한 방과후 기수가 없습니다. 배정 또는 운영 상태가 변경되었을 수 있어요.')
             return
         suffix='math1' if subject=='공통수학1' else 'math2'
         st.subheader('🌙 방과후 게시판')
@@ -313,9 +364,12 @@ def _student_board(user,subject):
         selected=_pick(rows,'as_student_cohort_'+suffix)
         c=svc.get_cohort(user,selected['id'],subject=subject)
         _header(c,user['role']=='teacher')
-        menu=st.radio('게시판',['자료·과제','질문·댓글','내 제출 확인'],horizontal=True,
-                      key='as_board_section_'+suffix+'_'+c['id'])
-        if menu=='내 제출 확인':
+        st.caption(f'{subject} → 방과후 게시판 → {c["name"]}')
+        section_key='as_board_section_'+suffix+'_'+c['id']
+        if st.session_state.get(section_key)=='내 제출 확인':
+            st.session_state[section_key]='내 과제 제출'
+        menu=st.radio('게시판',['자료·과제','질문·댓글','내 과제 제출'],horizontal=True,key=section_key)
+        if menu=='내 과제 제출':
             if user['role']=='teacher':
                 st.info('학생은 이곳에서 본인 기록만 확인합니다. 전체 제출 현황과 피드백 관리는 교사전용 → 방과후 관리 → 제출 확인에서 합니다.')
             else:
@@ -359,8 +413,11 @@ def _student_receipts(user,c,prefix):
     byid={p['id']:p for p in assignments};key='as_receipt_assignment_'+c['id']
     if st.session_state.get(key) not in byid:st.session_state.pop(key,None)
     pid=st.selectbox('내 제출 상세 확인',list(byid),format_func=lambda i:byid[i]['title'],key=key)
-    st.caption('본인의 제출 이력과 공개된 피드백만 표시됩니다. 답안 작성·재제출은 자료·과제에서 합니다.')
-    _student_submission(user,c,byid[pid],prefix,allow_write=False)
+    st.caption('이곳에서 과제를 제출·재제출하고 본인의 제출 이력과 피드백을 확인합니다. 다른 학생의 답안은 표시되지 않습니다.')
+    st.markdown('#### '+html.escape(byid[pid]['title']))
+    st.text(byid[pid]['body'])
+    _files(user,byid[pid],'post',prefix+'_assignment')
+    _student_submission(user,c,byid[pid],prefix,allow_write=True)
 
 
 def _post_list(user,c,kind,prefix,manage=False,exclude_questions=False):

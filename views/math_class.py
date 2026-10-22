@@ -296,6 +296,11 @@ def page(user, subject):
         if subject in ("공통수학1", "공통수학2"):
             from afterschool_core.service import has_access
             show_after = has_access(user, subject)
+        # A newly assigned student may already have this subject page open.
+        # Poll permissions even when the afterschool tab is currently hidden.
+        if user.get("role") == "student":
+            from afterschool_core.student_sync import watch
+            watch(user, subject)
         subtitle = "평가계획 · 단원별 학습지 · 학급 게시판 · 질문 게시판"
         labels = ["📋 평가계획", "📚 학습지", "📤 학급 게시판", "❓ 질문 게시판"]
         if show_after:
