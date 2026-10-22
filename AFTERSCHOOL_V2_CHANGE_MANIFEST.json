@@ -1,0 +1,66 @@
+{
+  "base": "myDashBoard2_afterschool_full.zip",
+  "date": "2026-10-22",
+  "runtime_files": [
+    "afterschool_core/schema.py",
+    "afterschool_core/service.py",
+    "afterschool_core/presentation.py",
+    "views/afterschool.py",
+    "views/math_class.py"
+  ],
+  "files": [
+    {
+      "path": "afterschool_core/schema.py",
+      "before": "8b7bd51e7f876b9b83f94ad33a9dbfecdf0215f7348e10244d38893f5474b96f",
+      "after": "c263a173161c875288056ced95c87491faceb3c0f308e2bb8f27206bf41fef9e"
+    },
+    {
+      "path": "afterschool_core/service.py",
+      "before": "971a3b170b4a6b0222779bf3d8e173f80a745aab863298cce84d43eb6bbde8c1",
+      "after": "4edc9ed8143f8d6d1d9b6e45a93ad9b933d7decddfa822360a6f66b0c45a37c5"
+    },
+    {
+      "path": "afterschool_core/presentation.py",
+      "before": null,
+      "after": "42e707127f8fc43ef4f3b1d1569260e75c6b756841e5c9ee76e0b4755008a9f6"
+    },
+    {
+      "path": "views/afterschool.py",
+      "before": "6a59cad892b2cf512f5e2809eda13ab542c8335cfc0127bb90adb60f3b162686",
+      "after": "eaafa699e6e3dad5786e9daecc3421fa16451d2ea71ddde4028901583ecd069c"
+    },
+    {
+      "path": "views/math_class.py",
+      "before": "5169abc7b9b5a9123218555a9e4c2016a0f24b521868be38164fb497e1dd7e95",
+      "after": "bcce8febffb3f72e777c72e75008cd568a006be7923ba91e82dd61d453934315"
+    },
+    {
+      "path": "tests/test_afterschool.py",
+      "before": "a4007963ef58bad1dccf14db1227f22c1cb36e3308237f90000b55cb9d4ec3dc",
+      "after": "4b42000aab983b2d3cfdec83282e3f5dc37ae56b6511801eb0466c194c6b72fc"
+    },
+    {
+      "path": "tests/test_afterschool_v2.py",
+      "before": null,
+      "after": "7f462ede5d7806f14b90178b436d1da9464df6ed47fefaa3bc98d20f59e8965c"
+    },
+    {
+      "path": "tests/test_afterschool_v2_browser.py",
+      "before": null,
+      "after": "5521f702348375afa79881b0c9e2bd3f06e63ca933c38bfa22e98c0ddab6fd47"
+    },
+    {
+      "path": "AFTERSCHOOL_V2_UPDATE.md",
+      "before": null,
+      "after": "4a40e3f32994c0d847a42f96a5b67acb26907f335ffa4d6421d3ce26a9e0a123"
+    },
+    {
+      "path": "AFTERSCHOOL_V2_TEST_RESULTS.md",
+      "before": null,
+      "after": "498413742a861f5ea1d0724f62391e57ba1efa98fc16b6a3ac0e4384e20c03a0"
+    }
+  ],
+  "data_migration": "legacy empty/missing cohort subject reads as 공통수학2; no bulk rewrite",
+  "deletions": [],
+  "deployment_performed": false
+}

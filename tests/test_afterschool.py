@@ -322,7 +322,7 @@ def test_hidden_tab_integration_source_and_runtime_double(env):
     math=load('views.math_class',ROOT/'views/math_class.py',env.mp)
     for fn in ('tab_plan','tab_sheets','tab_board','tab_questions'):env.mp.setattr(math,fn,lambda *a:None)
     cid=env.cohort(members=[env.s[0]])
-    board=ModuleType('views.afterschool');board.student_board=lambda user:env.st._out('as_called',user['id'])
+    board=ModuleType('views.afterschool');board.student_board=lambda user,subject='공통수학2':env.st._out('as_called',user['id'])
     env.mp.setitem(sys.modules,'views.afterschool',board)
     for user,subject,expected in [(env.s[0],'공통수학2',True),(env.s[1],'공통수학2',False),(env.s[0],'공통수학1',False),(env.t,'공통수학2',True)]:
         env.actor(user);env.st.outputs=[];math.page(user,subject)
@@ -343,8 +343,8 @@ def test_teacher_ui_menu_views_and_student_board_no_admin_controls(env):
         env.view.teacher_page(env.t)
         assert not [x for x in env.st.outputs if x[0]=='error'],env.st.outputs
     env.actor(env.s[0])
-    for menu in ('수업자료','질문·댓글','과제 제출'):
-        env.st.outputs=[];env.st.session_state['as_board_section']=menu;env.view.student_board(env.s[0])
+    for menu in ('자료·과제','질문·댓글','내 제출 확인'):
+        env.st.outputs=[];env.st.session_state['as_board_section_math2_'+cid]=menu;env.view.student_board(env.s[0])
         assert not [x for x in env.st.outputs if x[0]=='error'],env.st.outputs
         buttons=[x[1] for x in env.st.outputs if x[0]=='button']
         assert '학생 배정 저장' not in buttons and '기수 추가' not in buttons and '피드백 저장 · 학생에게 공개' not in buttons
@@ -352,7 +352,7 @@ def test_teacher_ui_menu_views_and_student_board_no_admin_controls(env):
 
 def test_archived_ui_read_only(env):
     cid=env.cohort(members=[env.s[0]]);env.post(cid,'assignment');env.state(cid,'archived');env.actor(env.s[0])
-    env.st.session_state['as_board_section']='과제 제출';env.view.student_board(env.s[0])
+    env.st.session_state['as_board_section_math2_'+cid]='자료·과제';env.view.student_board(env.s[0])
     buttons=[x[1] for x in env.st.outputs if x[0]=='button']
     assert '과제 제출' not in buttons and '댓글 등록' not in buttons
     assert any('읽고' in x[1] for x in env.st.outputs if x[0]=='info')
@@ -368,19 +368,20 @@ def test_teacher_can_create_cohort_through_form(env):
     assert env.svc.list_cohorts(env.t)[0]['name']=='방학 1기'
 
 
-def test_roster_filter_preserves_students_in_other_classes(env):
+def test_roster_filter_addition_preserves_students_in_other_classes(env):
     cid=env.cohort(members=env.s[:2]);c=env.svc.get_cohort(env.t,cid)
-    env.st.session_state['as_manage_menu']='참여 학생';env.st.session_state['as_roster_class']='1-1'
-    key=f'as_members_{cid}_{c["revision"]}_1-1_'
+    env.st.session_state['as_manage_menu']='참여 학생'
+    env.st.session_state['as_bulk_class_'+cid]='1-1'
+    key=f'as_bulk_ids_{cid}_{c["revision"]}_1-1'
     env.st.session_state[key]=[env.s[7]['id']]
-    env.st.session_state[key+'_confirm']=True;env.st.events.add(key+'_save')
+    env.st.events.add('as_bulk_add_'+cid)
     with pytest.raises(Rerun):env.view.teacher_page(env.t)
     selected={r['id'] for r in env.svc.roster(env.t,cid) if r['selected']}
-    assert selected=={env.s[1]['id'],env.s[7]['id']}
+    assert selected=={env.s[0]['id'],env.s[1]['id'],env.s[7]['id']}
 
 
 def test_student_question_submit_form_then_home_has_no_settings(env):
-    cid=env.cohort(members=[env.s[0]]);env.actor(env.s[0]);env.st.session_state['as_board_section']='질문·댓글'
+    cid=env.cohort(members=[env.s[0]]);env.actor(env.s[0]);env.st.session_state['as_board_section_math2_'+cid]='질문·댓글'
     env.view.student_board(env.s[0]);op=env.st.session_state['_as_op_question_'+cid]
     env.st.session_state['as_q_title_'+op]='역함수 질문'
     env.st.session_state['as_q_body_'+op]='x와 y를 바꾸는 이유가 궁금해요.'
@@ -392,7 +393,7 @@ def test_student_question_submit_form_then_home_has_no_settings(env):
 
 def test_student_submission_ui_produces_receipt(env):
     cid=env.cohort(members=[env.s[0]]);p=env.post(cid,'assignment');env.actor(env.s[0])
-    env.st.session_state['as_board_section']='과제 제출';env.view.student_board(env.s[0])
+    env.st.session_state['as_board_section_math2_'+cid]='자료·과제';env.view.student_board(env.s[0])
     op=env.st.session_state['_as_op_submit_'+p];env.st.session_state['as_answer_'+op]='내 풀이'
     env.st.events.add('as_submit_'+op+':과제 제출')
     with pytest.raises(Rerun):env.view.student_board(env.s[0])
@@ -416,7 +417,7 @@ def test_save_failure_ui_keeps_pending_and_no_success(env):
 
 def test_teacher_public_board_read_only_configuration_ui(env):
     cid=env.cohort(members=[env.s[0]]);env.post(cid,'assignment')
-    env.st.session_state['as_board_section']='과제 제출';env.view.student_board(env.t)
+    env.st.session_state['as_board_section_math2_'+cid]='자료·과제';env.view.student_board(env.t)
     buttons=[x[1] for x in env.st.outputs if x[0]=='button']
     assert not any(x in buttons for x in ['기수 추가','기수 설정 저장','자료·과제 저장','댓글 등록','과제 제출'])
 

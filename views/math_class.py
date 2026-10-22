@@ -293,9 +293,9 @@ def page(user, subject):
         # Never send another cohort's content to a hidden tab. Membership is
         # checked before creating this tab and again inside each service call.
         show_after = False
-        if subject == "공통수학2":
+        if subject in ("공통수학1", "공통수학2"):
             from afterschool_core.service import has_access
-            show_after = has_access(user)
+            show_after = has_access(user, subject)
         subtitle = "평가계획 · 단원별 학습지 · 학급 게시판 · 질문 게시판"
         labels = ["📋 평가계획", "📚 학습지", "📤 학급 게시판", "❓ 질문 게시판"]
         if show_after:
@@ -316,4 +316,4 @@ def page(user, subject):
         if show_after:
             with tabs[4]:
                 from views.afterschool import student_board
-                student_board(user)
+                student_board(user, subject)

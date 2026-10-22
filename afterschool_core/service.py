@@ -22,6 +22,9 @@ import storage as db
 from config import TZ
 from afterschool_core.schema import TABLES
 
+SUBJECTS = ('공통수학1', '공통수학2')
+LEGACY_SUBJECT = '공통수학2'
+
 STATES = {'draft': '준비 중', 'active': '운영 중', 'archived': '종료 · 읽기 전용', 'closed': '학생 접근 종료'}
 KINDS = {'material': '수업자료', 'assignment': '과제', 'question': '질문'}
 EXTENSIONS = ('pdf','png','jpg','jpeg','txt','docx','hwp','hwpx','xlsx','pptx')
@@ -139,8 +142,18 @@ def _row(b, table, rid):
     return dict(row)
 
 
+def cohort_subject(row):
+    # Legacy cohorts were only available in Common Mathematics 2. Do not
+    # rewrite data on reads, and do not silently reassign invalid values.
+    value = row.get('subject') or LEGACY_SUBJECT
+    if value not in SUBJECTS:
+        raise ValueError('기수의 과목 정보를 확인해 주세요. 공통수학1 또는 공통수학2만 가능합니다.')
+    return value
+
+
 def _cohort(b, actor, cid, write=False, manage=False):
     c = _row(b, 'as_cohorts', cid)
+    c['subject'] = cohort_subject(c)
     if actor['role'] == 'teacher':
         if c['owner_id'] != actor['id']:
             raise PermissionError('본인이 만든 기수만 관리할 수 있어요.')
@@ -207,13 +220,16 @@ def has_pending(user):
 def _summary(c, actor):
     keys = ('id','year','name','description','start_date','end_date','state','revision')
     out = {k:c[k] for k in keys}
+    out['subject'] = cohort_subject(c)
     out['writable'] = c['state']=='active'
     if actor['role']=='teacher':
         out['member_count'] = len(_array(c['members_json']))
     return out
 
 
-def list_cohorts(user):
+def list_cohorts(user, subject=None):
+    if subject is not None and subject not in SUBJECTS:
+        raise ValueError('공통수학1 또는 공통수학2를 선택해 주세요.')
     b = db._ready_backend()
     with b.lock:
         actor = _actor(b,user)
@@ -221,28 +237,34 @@ def list_cohorts(user):
         for c in b.read('as_cohorts'):
             allowed = (c['owner_id']==actor['id']) if actor['role']=='teacher' else (
                 c['state'] in ('active','archived') and actor['id'] in _array(c['members_json']))
-            if allowed:
+            if allowed and (subject is None or cohort_subject(c) == subject):
                 rows.append(_summary(c,actor))
     def natural(c):
         return (-int(c['year']), tuple((0,int(s)) if s.isdigit() else (1,s) for s in re.split(r'(\d+)', c['name'])))
     return sorted(rows,key=natural)
 
 
-def has_access(user):
+def has_access(user, subject=None):
     try:
-        return user.get('role')=='teacher' and bool(require_teacher(user)) or bool(list_cohorts(user))
+        return bool(list_cohorts(user, subject))
     except PermissionError:
         return False
 
 
-def get_cohort(user,cid):
+def get_cohort(user, cid, subject=None):
     b=db._ready_backend()
     with b.lock:
         a=_actor(b,user)
-        return _summary(_cohort(b,a,cid),a)
+        c=_cohort(b,a,cid)
+        if subject is not None and c['subject'] != subject:
+            raise PermissionError('이 과목의 방과후 기수가 아닙니다. 과목과 배정 정보를 다시 확인해 주세요.')
+        return _summary(c,a)
 
 
 def _cohort_payload(payload):
+    subject=payload.get('subject', LEGACY_SUBJECT)
+    if subject not in SUBJECTS:
+        raise ValueError('운영 과목은 공통수학1 또는 공통수학2 중 하나를 선택해 주세요.')
     name=_text(payload.get('name',''),'기수명',80,True)
     year=str(payload.get('year',''))
     if not year.isdigit() or not 2000<=int(year)<=2100:
@@ -253,7 +275,7 @@ def _cohort_payload(payload):
     state=payload.get('state','draft')
     if state not in STATES:
         raise ValueError('기수 상태를 확인해 주세요.')
-    return dict(name=name,year=year,description=_text(payload.get('description',''),'안내문',4000),
+    return dict(name=name,year=year,subject=subject,description=_text(payload.get('description',''),'안내문',4000),
                 start_date=start,end_date=end,state=state)
 
 
@@ -264,9 +286,9 @@ def create_cohort(user,payload,request_id):
         p=_cohort_payload(payload)
         rid=_identity(a,'cohort','',request_id); digest=_fingerprint(p,[])
         if not _existing(b,'as_cohorts',rid,digest):
-            if any(r['owner_id']==a['id'] and r['year']==p['year'] and r['name'].casefold()==p['name'].casefold()
+            if any(r['owner_id']==a['id'] and r['year']==p['year'] and cohort_subject(r)==p['subject'] and r['name'].casefold()==p['name'].casefold()
                    for r in b.read('as_cohorts')):
-                raise ValueError('같은 학년도에 같은 기수명이 있어요. 기존 기수를 선택하거나 이름을 바꿔 주세요.')
+                raise ValueError('같은 학년도·과목에 같은 기수명이 있어요. 기존 기수를 선택하거나 이름을 바꿔 주세요.')
             b.append('as_cohorts',dict(p,id=rid,owner_id=a['id'],members_json='[]',history_json='[]',revision='1',
                                      created_at=db.now_str(),updated_at=db.now_str(),request_hash=digest))
     return _persist(rid)
@@ -276,12 +298,13 @@ def update_cohort(user,cid,payload,expected_revision):
     b=db._ready_backend()
     with b.lock:
         a=_actor(b,user); c=_cohort(b,a,cid,manage=True); _version(c,expected_revision)
-        p=_cohort_payload(payload)
-        if any(r['id']!=cid and r['owner_id']==a['id'] and r['year']==p['year'] and r['name'].casefold()==p['name'].casefold()
+        p=_cohort_payload(dict(payload,subject=payload.get('subject',c['subject'])))
+        if any(r['id']!=cid and r['owner_id']==a['id'] and r['year']==p['year'] and cohort_subject(r)==p['subject'] and r['name'].casefold()==p['name'].casefold()
                for r in b.read('as_cohorts')):
-            raise ValueError('같은 학년도에 같은 기수명이 있어요.')
+            raise ValueError('같은 학년도·과목에 같은 기수명이 있어요.')
         history=_array(c['history_json'])
-        history.append({'at':db.now_str(),'action':'settings','previous_state':c['state'],'state':p['state']})
+        history.append({'at':db.now_str(),'action':'settings','previous_state':c['state'],'state':p['state'],
+                        'previous_subject':c['subject'],'subject':p['subject']})
         b.update('as_cohorts',cid,_bump(c,dict(p,history_json=_json(history))))
     return _persist(cid)
 
@@ -293,6 +316,9 @@ def roster(user,cid):
         selected=set(_array(c['members_json']))
         students=[{'id':u['id'],'name':u['name'],'class':u.get('class',''),'selected':u['id'] in selected}
                   for u in b.read('users') if u['role']=='student']
+        known={u['id'] for u in students}
+        students.extend({'id':sid,'name':'가입 정보 확인 필요','class':'','selected':True,'unavailable':True}
+                        for sid in sorted(selected-known))
     return sorted(students,key=lambda u:(u['class'],u['id']))
 
 
@@ -312,6 +338,46 @@ def set_members(user,cid,ids,expected_revision):
         b.update('as_cohorts',cid,_bump(c,{'members_json':_json(sorted(selected)),'history_json':_json(history)}))
     return _persist(cid)
 
+
+
+def _membership_delta(user, cid, ids, expected_revision, *, remove=False):
+    """Atomic within the app server. Never replace a filtered roster snapshot.
+
+    Only cohort membership/history is updated; user accounts, other cohorts,
+    posts and submission versions are not modified. Flush occurs outside lock.
+    """
+    b=db._ready_backend()
+    with b.lock:
+        a=_actor(b,user); _teacher(a)
+        c=_cohort(b,a,cid,manage=True); _version(c,expected_revision)
+        if not isinstance(ids,(list,tuple)) or not ids:
+            raise ValueError('학생을 한 명 이상 선택해 주세요.')
+        values={_text(sid,'학번',100,True) for sid in ids}
+        known={u['id'] for u in b.read('users') if u['role']=='student'}
+        if not remove and not values.issubset(known):
+            raise ValueError('가입된 학생의 학번과 정확히 일치하지 않습니다. 이름은 검색 후 학생을 선택해 주세요.')
+        prev=set(_array(c['members_json']))
+        selected=(prev-values) if remove else (prev|values)
+        if selected != prev:
+            history=_array(c['history_json'])
+            history.append({'at':db.now_str(),'action':'members','added':sorted(selected-prev),
+                            'removed':sorted(prev-selected)})
+            b.update('as_cohorts',cid,_bump(c,{'members_json':_json(sorted(selected)),
+                                              'history_json':_json(history)}))
+    # Idempotent no-op still confirms any pending durable save.
+    return _persist(cid)
+
+
+def add_members(user, cid, student_ids, expected_revision):
+    return _membership_delta(user,cid,student_ids,expected_revision)
+
+
+def add_member(user, cid, student_id, expected_revision):
+    return add_members(user,cid,[student_id],expected_revision)
+
+
+def remove_member(user, cid, student_id, expected_revision):
+    return _membership_delta(user,cid,[student_id],expected_revision,remove=True)
 
 def _uploads(files):
     if not isinstance(files,(list,tuple)) or len(files)>MAX_FILES:

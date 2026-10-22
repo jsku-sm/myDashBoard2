@@ -1,6 +1,6 @@
 """No runtime dependencies: imported by the existing storage backend."""
 SCHEMAS = {
-    'as_cohorts': ['id','owner_id','year','name','description','start_date','end_date','state',
+    'as_cohorts': ['id','owner_id','year','subject','name','description','start_date','end_date','state',
                    'members_json','revision','created_at','updated_at','history_json','request_hash'],
     'as_posts': ['id','cohort_id','owner_id','author_id','author_name','kind','title','body',
                  'visibility','published','pinned','lesson_date','due_at','allow_late',

@@ -1,4 +1,4 @@
-"""방과후 게시판(공통수학2)과 기수 관리(교사전용)를 분리한 화면."""
+"""과목별 방과후 게시판과 교사전용 기수 관리. 기존 기록은 공통수학2로 호환."""
 from __future__ import annotations
 
 import html
@@ -9,17 +9,18 @@ import pandas as pd
 import streamlit as st
 from config import CLASSES, TZ
 from afterschool_core import service as svc
+from afterschool_core import presentation as design
 
 
 def _token(key):
     return st.session_state.setdefault('_as_op_'+key,uuid.uuid4().hex)
 
 
-def _action(fn,message,token_key=None):
+def _action(fn,message,token_key=None,clear_keys=()):
     try:
         result=fn()
     except svc.SavePendingError as exc:
-        st.session_state['_as_pending']={'id':exc.record_id,'token_key':token_key,'message':message}
+        st.session_state['_as_pending']={'id':exc.record_id,'token_key':token_key,'message':message,'clear_keys':list(clear_keys)}
         st.rerun()
     except (ValueError,PermissionError) as exc:
         st.error(str(exc)); return False
@@ -27,11 +28,22 @@ def _action(fn,message,token_key=None):
         st.error('처리하지 못했어요. 연결 상태를 확인해 주세요. 입력 내용은 유지됩니다.'); return False
     if token_key:
         st.session_state.pop('_as_op_'+token_key,None)
+    st.session_state['_as_clear_keys']=list(clear_keys)
     st.session_state['_as_flash']=message+(f' · 기록번호 {result[:8]}' if isinstance(result,str) and result else '')
     st.rerun()
 
 
 def _notice(user):
+    # Apply input resets before their widgets are created on the next run.
+    for key in st.session_state.pop('_as_clear_keys',[]):
+        # Deleting an existing widget key can restore its old frontend value.
+        # Assign explicit defaults before the widget is rendered instead.
+        if key.startswith('as_member_input_'):
+            st.session_state[key]=''
+        elif key.startswith('as_bulk_ids_'):
+            st.session_state[key]=[]
+        else:
+            st.session_state.pop(key,None)
     flash=st.session_state.pop('_as_flash',None)
     if flash: st.success(flash)
     pending=st.session_state.get('_as_pending')
@@ -42,6 +54,7 @@ def _notice(user):
             except Exception: st.error('아직 저장을 확인하지 못했어요. GitHub 설정과 연결을 확인해 주세요.')
             else:
                 if pending.get('token_key'): st.session_state.pop('_as_op_'+pending['token_key'],None)
+                st.session_state['_as_clear_keys']=pending.get('clear_keys',[])
                 st.session_state.pop('_as_pending',None)
                 st.session_state['_as_flash']=pending.get('message','저장을 확인했어요.')
                 st.rerun()
@@ -51,22 +64,18 @@ def _notice(user):
 
 def _pick(rows,key,label='기수 선택'):
     byid={c['id']:c for c in rows}
-    if st.session_state.get(key) not in byid: st.session_state.pop(key,None)
-    selected=st.radio(label,list(byid),format_func=lambda cid:f'{byid[cid]["year"]} · {byid[cid]["name"]}',
+    if st.session_state.get(key) not in byid: st.session_state[key]=next(iter(byid))
+    selected=st.radio(label,list(byid),format_func=lambda cid:f'{byid[cid]["subject"]} · {byid[cid]["year"]} · {byid[cid]["name"]}',
                       horizontal=True,key=key)
     return byid[selected]
 
 
 def _header(c,teacher=False):
-    esc=html.escape
-    period=' ~ '.join(x or '미정' for x in (c['start_date'],c['end_date']))
-    st.markdown(f'''<section style="padding:22px 24px;border-radius:16px;background:linear-gradient(115deg,#eef7fa,#f3efff);border:1px solid #e2e8f0;margin:8px 0 18px">
-    <div style="color:#64748b;font-size:13px">공통수학2 · {esc(c['year'])}학년도 방과후</div>
-    <h3 style="margin:6px 0;color:#243957">{esc(c['name'])} <span style="font-size:13px;font-weight:500">{esc(svc.STATES[c['state']])}</span></h3>
-    <div style="color:#52637b">{esc(period)}{(' · 배정 '+str(c['member_count'])+'명') if teacher else ''}</div>
-    <p style="margin:10px 0 0;white-space:pre-wrap;color:#334155">{esc(c['description'])}</p></section>''',unsafe_allow_html=True)
-    if c['state']=='archived': st.info('종료한 기수입니다. 자료·질문·본인의 제출/피드백을 읽고 내려받을 수 있지만 새 글·댓글·과제 제출은 할 수 없어요.')
-    elif c['state'] in ('draft','closed'): st.caption('이 기수는 학생에게 보이지 않습니다. 설정에서 운영 중으로 바꾸면 배정 학생에게 공개됩니다.')
+    st.markdown(design.hero(c,svc.STATES[c['state']],teacher),unsafe_allow_html=True)
+    if c['state']=='archived':
+        st.info('종료한 기수입니다. 자료·질문·본인의 제출/피드백을 읽고 내려받을 수 있지만 새 글·댓글·과제 제출은 할 수 없어요.')
+    elif c['state'] in ('draft','closed'):
+        st.caption('이 기수는 학생에게 보이지 않습니다. 설정에서 운영 중으로 바꾸면 배정 학생에게 공개됩니다.')
 
 
 def _files(user,record,kind,prefix):
@@ -80,6 +89,9 @@ def _cohort_fields(c,prefix):
     a,b=st.columns([1,2])
     year=a.number_input('학년도',min_value=2000,max_value=2100,value=int(c.get('year',datetime.now(TZ).year)),step=1,key=prefix+'year')
     name=b.text_input('기수명',value=c.get('name',''),placeholder='예: 1기, 2기, 겨울방학반',max_chars=80,key=prefix+'name')
+    subject=st.selectbox('운영 과목 (한 기수에 한 과목)',list(svc.SUBJECTS),
+                         index=list(svc.SUBJECTS).index(c.get('subject',svc.LEGACY_SUBJECT)),key=prefix+'subject')
+    st.caption('배정 학생의 해당 과목에만 방과후 탭이 표시됩니다. 과목을 바꾸면 기존 명단·자료·제출물 전체가 새 과목에서 열립니다.')
     desc=st.text_area('기수 안내',value=c.get('description',''),key=prefix+'desc',height=90)
     x,y=st.columns(2)
     start=x.date_input('시작일 (선택)',value=date.fromisoformat(c['start_date']) if c.get('start_date') else None,key=prefix+'start')
@@ -87,15 +99,21 @@ def _cohort_fields(c,prefix):
     state=st.selectbox('운영 상태',list(svc.STATES),index=list(svc.STATES).index(c.get('state','draft')),
                        format_func=lambda v:svc.STATES[v],key=prefix+'state')
     st.caption('종료일은 안내용입니다. 종료 시 직접 ‘종료 · 읽기 전용’으로 변경하세요. ‘학생 접근 종료’는 자료 열람도 막습니다.')
-    return dict(year=year,name=name,description=desc,start_date=start,end_date=end,state=state)
+    return dict(year=year,name=name,subject=subject,description=desc,start_date=start,end_date=end,state=state)
 
 
 def teacher_page(user):
+    st.markdown(design.styles(),unsafe_allow_html=True)
+    with st.container(key='as_admin_shell'):
+        _teacher_page(user)
+
+
+def _teacher_page(user):
     try:
         svc.require_teacher(user)
         if _notice(user): return
         st.subheader('🌙 방과후 관리')
-        st.caption('기수 생성 → 학생 명단 배정 → 자료·과제 등록 → 운영 시작. 설정은 이 교사전용 화면에서만 합니다.')
+        st.caption('과목과 기수를 정하고 학생을 배정하세요. 자료·과제·질문·제출까지 이곳에서 관리합니다.')
         rows=svc.list_cohorts(user)
         with st.expander('＋ 새 기수 만들기',expanded=not rows):
             opkey='create_cohort'; op=_token(opkey)
@@ -129,31 +147,103 @@ def _settings(user,c):
 
 
 def _members(user,c):
-    roster=svc.roster(user,c['id'])
-    a,b=st.columns(2)
-    cls=a.selectbox('명단 학급',['전체']+CLASSES,key='as_roster_class')
-    query=b.text_input('학번·이름 검색',key='as_roster_search').strip()
-    visible=[r for r in roster if (cls=='전체' or r['class']==cls) and (not query or query in r['id'] or query in r['name'])]
-    allby={r['id']:r for r in roster}; assigned={r['id'] for r in roster if r['selected']}
-    candidates=[r['id'] for r in visible]
-    key=f'as_members_{c["id"]}_{c["revision"]}_{cls}_{query}'
-    choices=st.multiselect('배정할 학생 (여러 명 선택)',candidates,default=[i for i in candidates if i in assigned],
-                          format_func=lambda sid:f'{allby[sid]["class"]} · {sid} {allby[sid]["name"]}',key=key)
-    final=(assigned-set(candidates)) | set(choices)
-    added=final-assigned; removed=assigned-final
-    st.caption(f'현재 {len(assigned)}명 → 저장 후 {len(final)}명 · 추가 {len(added)}명 / 제외 {len(removed)}명')
-    if added: st.write('추가: '+', '.join(allby[i]['name']+' ('+i+')' for i in sorted(added)))
-    if removed: st.warning('제외: '+', '.join(allby[i]['name']+' ('+i+')' for i in sorted(removed)))
-    st.caption('검색·학급 필터 밖의 기존 배정은 유지됩니다. 제외되면 이후 열람·제출·파일 요청이 차단되고, 과거 제출 기록은 보존됩니다.')
-    confirm=st.checkbox('추가·제외 명단을 확인했습니다.',key=key+'_confirm')
-    if st.button('학생 배정 저장',key=key+'_save',disabled=not confirm or not (added or removed),type='primary'):
-        _action(lambda:svc.set_members(user,c['id'],sorted(final),c['revision']),'참여 학생 명단을 저장했어요.')
-    selected=[{'학급':r['class'],'학번':r['id'],'이름':r['name']} for r in roster if r['selected']]
-    st.markdown('#### 현재 배정 명단')
-    if selected:
-        st.dataframe(pd.DataFrame(selected),hide_index=True,width='stretch')
-        st.download_button('배정 명단 CSV',svc.export_roster(user,c['id']),file_name=f'방과후_{c["year"]}_{c["name"]}_명단.csv',mime='text/csv',key='as_roster_dl_'+c['id'])
-    else: st.info('배정된 학생이 없어요. 기존 가입 학생 목록에서 선택하세요.')
+    """Enter only submits this form; blur/filter changes never assign a student."""
+    cid=c['id']
+    roster=svc.roster(user,cid)
+    selected=[r for r in roster if r['selected']]
+    candidates=[r for r in roster if not r.get('unavailable')]
+    allby={r['id']:r for r in roster}
+    st.markdown(design.stats([('현재 배정 인원',f'{len(selected)}명'),
+                             ('운영 과목',c['subject']),('기수 상태',svc.STATES[c['state']])]),unsafe_allow_html=True)
+    input_key='as_member_input_'+cid
+    search_key='as_member_search_'+cid
+    remove_key='as_remove_pending_'+cid
+
+    with st.container(key='as_add_panel_'+cid):
+        st.markdown('#### 학번으로 바로 배정')
+        st.caption('정확한 학번 + Enter → 배정 저장. 이름은 검색 결과에서 확인한 뒤 선택하세요.')
+        with st.form('as_quick_add_'+cid,enter_to_submit=True):
+            query=st.text_input('학번·이름 검색',placeholder='학번 입력 후 Enter / 이름 입력 후 Enter로 검색',
+                                key=input_key,max_chars=100).strip()
+            entered=st.form_submit_button('배정 / 검색 ↵',type='primary')
+        if entered:
+            if not query:
+                st.warning('학번 또는 이름을 입력해 주세요.')
+            elif query in allby and not allby[query].get('unavailable'):
+                if allby[query]['selected']:
+                    st.info(f'{allby[query]["name"]} ({query}) 학생은 이미 배정되어 있어요. 인원은 늘어나지 않습니다.')
+                    st.session_state[search_key]=''
+                else:
+                    _action(lambda:svc.add_member(user,cid,query,c['revision']),
+                            f'{allby[query]["name"]} ({query}) 학생을 배정했어요.',
+                            clear_keys=(input_key,search_key))
+            else:
+                st.session_state[search_key]=query
+        # Name/partial-id entry must not auto-assign even a single result.
+        search=st.session_state.get(search_key,'')
+        if search:
+            matches=[r for r in candidates if search.casefold() in r['id'].casefold() or search.casefold() in r['name'].casefold()]
+            if not matches:
+                st.warning('일치하는 가입 학생이 없어요. 정확한 학번을 확인하세요. 새 학생 계정은 자동으로 만들지 않습니다.')
+            else:
+                st.caption(f'검색 결과 {len(matches)}명 · 이름만 입력한 경우 아래에서 배정할 학생을 확인하세요.')
+                for r in matches:
+                    left,right=st.columns([4,1])
+                    left.markdown(design.person(r),unsafe_allow_html=True)
+                    if right.button('이미 배정됨' if r['selected'] else '이 학생 배정',
+                                    key='as_add_candidate_'+cid+'_'+r['id'],disabled=r['selected']):
+                        _action(lambda sid=r['id']:svc.add_member(user,cid,sid,c['revision']),
+                                f'{r["name"]} 학생을 배정했어요.',clear_keys=(input_key,search_key))
+        with st.expander('여러 학생을 한 번에 추가하기'):
+            cls=st.selectbox('추가할 학생의 학급',['전체']+CLASSES,key='as_bulk_class_'+cid)
+            visible=[r for r in candidates if not r['selected'] and (cls=='전체' or r['class']==cls)]
+            choice_key='as_bulk_ids_'+cid+'_'+c['revision']+'_'+cls
+            choices=st.multiselect('추가할 학생 (여러 명 선택)',[r['id'] for r in visible],
+                                  format_func=lambda sid:f'{allby[sid]["class"]} · {sid} {allby[sid]["name"]}',
+                                  key=choice_key,placeholder='이름이나 학번으로 선택하세요')
+            st.caption('현재 명단에서 선택을 해제하는 방식이 아닙니다. 선택한 학생만 추가하고 다른 배정은 그대로 유지합니다.')
+            if st.button('선택 학생 추가',key='as_bulk_add_'+cid,disabled=not choices):
+                _action(lambda:svc.add_members(user,cid,choices,c['revision']),
+                        f'{len(choices)}명의 학생을 추가했어요.',clear_keys=(choice_key,input_key,search_key))
+
+    with st.container(key='as_roster_panel_'+cid):
+        a,b=st.columns(2)
+        cls=a.selectbox('배정 명단 학급',['전체']+CLASSES,key='as_list_class_'+cid)
+        query=b.text_input('배정 명단에서 찾기',key='as_list_search_'+cid,placeholder='학번 또는 이름 (목록 필터)').strip()
+        shown=[r for r in selected if (cls=='전체' or r['class']==cls) and
+               (not query or query.casefold() in r['id'].casefold() or query.casefold() in r['name'].casefold())]
+        st.markdown(design.roster_heading(len(selected),len(shown)),unsafe_allow_html=True)
+        st.caption('배정 취소는 이 기수에서만 제외합니다. 학생 계정·다른 기수·기존 제출 기록은 삭제하지 않습니다.')
+        pending=st.session_state.get(remove_key)
+        if pending:
+            target=allby.get(pending['id'])
+            if not target or not target['selected']:
+                st.session_state.pop(remove_key,None)
+            else:
+                with st.container(border=True):
+                    st.warning(f'{target["class"]} · {target["id"]} {target["name"]} 학생의 배정을 취소할까요?')
+                    yes,no=st.columns(2)
+                    if yes.button('배정 취소 확정',key='as_remove_confirm_'+cid,type='primary'):
+                        _action(lambda:svc.remove_member(user,cid,target['id'],pending['revision']),
+                                f'{target["name"]} 학생을 이 기수에서 제외했어요.',clear_keys=(remove_key,))
+                    if no.button('유지하기',key='as_remove_keep_'+cid):
+                        st.session_state.pop(remove_key,None);st.rerun()
+                    if pending['revision'] != c['revision']:
+                        st.caption('명단이나 설정이 변경되었습니다. 유지하기를 누른 뒤 최신 명단에서 다시 선택하세요.')
+        if not selected:
+            st.info('아직 배정한 학생이 없어요. 위에서 학번을 입력하고 Enter를 눌러 보세요.')
+        elif not shown:
+            st.info('검색 조건에 맞는 배정 학생이 없어요. 전체 배정 인원은 그대로 유지됩니다.')
+        for r in shown:
+            with st.container(key='as_member_row_'+cid+'_'+r['id']):
+                left,right=st.columns([4,1])
+                left.markdown(design.person(r),unsafe_allow_html=True)
+                if right.button('배정 취소',key='as_remove_'+cid+'_'+r['id'],help='이 기수에서만 제외합니다.'):
+                    st.session_state[remove_key]={'id':r['id'],'revision':c['revision']};st.rerun()
+        if selected:
+            st.download_button('배정 명단 CSV',svc.export_roster(user,cid),
+                               file_name=f'방과후_{c["year"]}_{c["subject"]}_{c["name"]}_명단.csv',
+                               mime='text/csv',key='as_roster_dl_'+cid)
 
 
 def _post_fields(kind,prefix,p=None,edit=False):
@@ -197,21 +287,41 @@ def _materials(user,c):
     _post_list(user,c,None,'manage_materials',manage=True,exclude_questions=True)
 
 
-def student_board(user):
-    """Teachers get a read-only view here; administrative actions stay in teacher page."""
+def student_board(user,subject='공통수학2'):
+    """Subject-filtered student workspace. Teacher controls never appear here."""
+    if subject not in svc.SUBJECTS:
+        st.warning('지원하는 과목을 선택해 주세요.');return
+    st.markdown(design.styles(),unsafe_allow_html=True)
+    shell='as_student_math1' if subject=='공통수학1' else 'as_student_math2'
+    with st.container(key=shell):
+        _student_board(user,subject)
+
+
+def _student_board(user,subject):
     try:
         if _notice(user): return
-        rows=svc.list_cohorts(user)
+        rows=svc.list_cohorts(user,subject)
         if not rows:
-            if user['role']=='teacher': st.info('아직 만든 기수가 없어요. 교사전용 → 방과후 관리에서 기수를 추가하세요.')
+            if user['role']=='teacher':
+                st.info('이 과목의 기수가 없어요. 교사전용 → 방과후 관리에서 기수를 추가하세요.')
             return
+        suffix='math1' if subject=='공통수학1' else 'math2'
         st.subheader('🌙 방과후 게시판')
-        if st.button('게시판 새로고침',key='as_board_refresh'): st.rerun()
-        if user['role']=='teacher': st.caption('열람 화면입니다. 기수·학생·자료 설정과 답변/피드백은 교사전용 → 방과후 관리에서 합니다.')
-        c=_pick(rows,'as_student_cohort'); _header(c,user['role']=='teacher')
-        menu=st.radio('게시판',['수업자료','질문·댓글','과제 제출'],horizontal=True,key='as_board_section')
-        kind={'수업자료':'material','질문·댓글':'question','과제 제출':'assignment'}[menu]
-        if kind=='question' and c['writable'] and user['role']=='student':
+        if st.button('게시판 새로고침',key='as_board_refresh_'+suffix): st.rerun()
+        if user['role']=='teacher':
+            st.caption('열람 화면입니다. 기수·학생·자료 설정과 답변/피드백은 교사전용 → 방과후 관리에서 합니다.')
+        selected=_pick(rows,'as_student_cohort_'+suffix)
+        c=svc.get_cohort(user,selected['id'],subject=subject)
+        _header(c,user['role']=='teacher')
+        menu=st.radio('게시판',['자료·과제','질문·댓글','내 제출 확인'],horizontal=True,
+                      key='as_board_section_'+suffix+'_'+c['id'])
+        if menu=='내 제출 확인':
+            if user['role']=='teacher':
+                st.info('학생은 이곳에서 본인 기록만 확인합니다. 전체 제출 현황과 피드백 관리는 교사전용 → 방과후 관리 → 제출 확인에서 합니다.')
+            else:
+                _student_receipts(user,c,'board_receipts_'+suffix)
+            return
+        if menu=='질문·댓글' and c['writable'] and user['role']=='student':
             with st.expander('✋ 질문 작성'):
                 opkey='question_'+c['id']; op=_token(opkey)
                 with st.form('as_q_'+op,enter_to_submit=False):
@@ -220,10 +330,37 @@ def student_board(user):
                     scope=st.radio('질문 공개 범위',['private','cohort'],format_func=lambda v:'선생님과 나만' if v=='private' else '이 기수 참여 학생',horizontal=True,key='as_q_scope_'+op)
                     files=st.file_uploader('질문 첨부 (선택 · 합계 10 MiB)',type=list(svc.EXTENSIONS),accept_multiple_files=True,key='as_q_files_'+op)
                     ok=st.form_submit_button('질문 올리기',type='primary')
-                if ok: _action(lambda:svc.create_post(user,c['id'],{'kind':'question','title':title,'body':body,'visibility':scope},files,op),'질문을 올렸어요.',opkey)
-        _post_list(user,c,kind,'board_'+kind,manage=False)
+                if ok:
+                    _action(lambda:svc.create_post(user,c['id'],{'kind':'question','title':title,'body':body,'visibility':scope},files,op),'질문을 올렸어요.',opkey)
+        kind='question' if menu=='질문·댓글' else None
+        _post_list(user,c,kind,'board_'+suffix+'_'+str(kind),manage=False,exclude_questions=kind is None)
     except (ValueError,PermissionError) as exc: st.warning(str(exc))
     except Exception: st.error('방과후 게시판을 불러오지 못했어요. 연결 상태를 확인해 주세요.')
+
+
+def _student_receipts(user,c,prefix):
+    """No all-student roster or answers are requested by this view."""
+    assignments=svc.list_posts(user,c['id'],'assignment')
+    if not assignments:
+        st.info('공개된 과제가 없어요.');return
+    summaries=[];records_by={}
+    for p in assignments:
+        records=svc.submissions(user,p['id'])  # service returns only caller's own attempts
+        records_by[p['id']]=records
+        latest=records[0] if records else None
+        summaries.append({'과제':p['title'],'상태':'제출 완료' if latest else '미제출',
+                          '최근 제출':latest['created_at'] if latest else '—',
+                          '제출 차수':str(latest['attempt'])+'차' if latest else '—',
+                          '피드백':'도착' if latest and latest['feedback'] else '—'})
+    submitted=sum(bool(records_by[p['id']]) for p in assignments)
+    st.markdown(design.stats([('전체 과제',f'{len(assignments)}개'),('제출 완료',f'{submitted}개'),
+                             ('미제출',f'{len(assignments)-submitted}개')]),unsafe_allow_html=True)
+    st.dataframe(pd.DataFrame(summaries),hide_index=True,width='stretch')
+    byid={p['id']:p for p in assignments};key='as_receipt_assignment_'+c['id']
+    if st.session_state.get(key) not in byid:st.session_state.pop(key,None)
+    pid=st.selectbox('내 제출 상세 확인',list(byid),format_func=lambda i:byid[i]['title'],key=key)
+    st.caption('본인의 제출 이력과 공개된 피드백만 표시됩니다. 답안 작성·재제출은 자료·과제에서 합니다.')
+    _student_submission(user,c,byid[pid],prefix,allow_write=False)
 
 
 def _post_list(user,c,kind,prefix,manage=False,exclude_questions=False):
@@ -278,7 +415,7 @@ def _post_list(user,c,kind,prefix,manage=False,exclude_questions=False):
                 _action(lambda:svc.delete_post(user,pid,p['revision']),'게시글을 숨겼어요. 원본 파일은 보존합니다.')
 
 
-def _student_submission(user,c,p,prefix):
+def _student_submission(user,c,p,prefix,allow_write=True):
     records=svc.submissions(user,p['id'])
     st.markdown('##### 나의 제출 기록')
     if not records: st.caption('아직 제출하지 않았어요.')
@@ -286,7 +423,7 @@ def _student_submission(user,c,p,prefix):
         with st.expander(f'{r["attempt"]}차 제출 · {r["created_at"]}'+(' · 기한 후' if r['late']=='1' else ''),expanded=r==records[0]):
             st.caption('제출번호: '+r['id']); st.text(r['body']); _files(user,r,'submission',prefix)
             if r['feedback']: st.info('선생님 피드백\n\n'+r['feedback'])
-    if c['writable']:
+    if c['writable'] and allow_write:
         opkey='submit_'+p['id'];op=_token(opkey)
         with st.form('as_submit_'+op,enter_to_submit=False):
             body=st.text_area('과제 답안',key='as_answer_'+op,height=150)
