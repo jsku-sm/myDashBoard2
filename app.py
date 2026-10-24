@@ -1,3 +1,4 @@
+# GOOD_RECORDS_1.1_FINAL5
 """구쌤의 수학 교실 — 수업용 대시보드 (Streamlit)
 
 실행:  streamlit run app.py
@@ -5,6 +6,39 @@
 import time
 
 import streamlit as st
+
+# This preflight runs BEFORE importing views/storage. It never reads Secrets.
+from pathlib import Path
+
+DASHBOARD_UPDATE = 'GOOD_RECORDS_1.1_FINAL5'
+_UPDATE_FILES = ('ui.py', 'storage.py', 'views/record.py', 'views/teacher.py', 'views/sudanote.py', 'think_app/storage.py', 'think_app/embedded.py', 'record_core/__init__.py', 'record_core/archive.py', 'record_core/assessment.py', 'record_core/checkpoint.py', 'record_core/evidence.py', 'record_core/ai.py', 'record_core/service.py', 'record_core/view.py')
+
+def dashboard_update_issues(root=None):
+    root = Path(root) if root is not None else Path(__file__).resolve().parent
+    issues = []
+    for relative in _UPDATE_FILES:
+        path = root / relative
+        if not path.is_file():
+            issues.append(relative + "  — 파일 없음")
+        else:
+            try:
+                header = path.read_text(encoding="utf-8")[:256]
+            except (OSError, UnicodeError):
+                issues.append(relative + "  — 읽기 실패")
+                continue
+            if DASHBOARD_UPDATE not in header:
+                issues.append(relative + "  — 이전 파일이거나 수정본 표시 없음")
+    return issues
+
+_update_issues = dashboard_update_issues()
+if _update_issues:
+    st.set_page_config(page_title="구쌤의 수학 교실 · 업데이트 확인", page_icon="📐", layout="wide")
+    st.title("Good쌤을 만나, 수학이 달라졌다")
+    st.error("로그인 파일은 수정되었지만, 학생 자료함·생기부 파일 일부가 아직 적용되지 않았습니다.")
+    st.code("\n".join(_update_issues), language="text")
+    st.info("이번 수정본의 파일·하위 폴더를 앱 코드 저장소의 같은 위치에 모두 덮어쓰세요. 데이터 저장소에는 코드 파일을 올리지 않습니다. Secrets나 기존 학생 자료는 삭제하지 마세요.")
+    st.caption(DASHBOARD_UPDATE + " · 부분 업로드 확인됨")
+    st.stop()
 
 import auth
 import login_bg
@@ -24,11 +58,20 @@ try:
     db.get_backend()
 except Exception as e:
     ui.page_title("설정을 확인해 주세요", "앱이 데이터 저장소에 연결하지 못했어요.")
+    st.caption(DASHBOARD_UPDATE + " · 코드 적용 완료 / 저장소 설정 확인 필요")
     st.error(str(e))
+    if "학생별 자료함 암호화키가 없습니다" in str(e):
+        st.info("새 학생별 자료함을 처음 연결할 때 한 번만 키를 만드세요. 이미 자료함이 있다면 최초 키를 복구하고, 기존 수행평가 키는 바꾸지 마세요.")
+        if st.button("새 학생 자료함용 암호화키 만들기"):
+            from cryptography.fernet import Fernet
+            st.session_state["new_student_archive_key"] = Fernet.generate_key().decode("ascii")
+        if st.session_state.get("new_student_archive_key"):
+            st.code('[student_archive]\nencryption_key = "' + st.session_state["new_student_archive_key"] + '"', language="toml")
+            st.caption("위 두 줄을 Streamlit Secrets에만 넣고 안전하게 별도 보관하세요. 자동 저장되지 않습니다. 기존 같은 구역이 있으면 값을 수정하세요.")
     st.markdown(
         "**확인할 것**\n\n"
         "1. Streamlit Cloud 앱의 **Settings → Secrets**에 `[app]`과 `[github]`이 들어 있나요?\n"
-        "2. `repo`는 `내아이디/저장소이름` 형식인가요?\n"
+        "2. 저장 대상은 `jsku-sm/class-dashboard-data`인가요?\n"
         "3. 데이터 저장소가 **비공개(Private)** 인가요?\n"
         "4. 토큰의 **Contents** 권한이 **Read and write**이고, 데이터 저장소가 선택되어 있나요?\n\n"
         "고친 뒤 오른쪽 아래 **Manage app → ⋮ → Reboot app**을 누르세요."
@@ -48,7 +91,7 @@ def login_page():
     left, right = st.columns([1.15, 1], gap="large")
     with left:
         st.markdown(
-            '<div class="hero">오늘도<br><span>생각하는 수학 시간</span></div>'
+            '<div class="hero">Good쌤을 만나,<br><span>수학이 달라졌다</span></div>'
             '<p class="formula">f(x) = 나의 질문 + 나의 언어</p>',
             unsafe_allow_html=True,
         )
@@ -86,6 +129,7 @@ def login_page():
                     st.session_state["_login_fail"] = 0
                 st.error("학번 또는 비밀번호가 맞지 않아요. 잊어버렸다면 선생님께 초기화를 부탁하세요.")
         st.caption("선생님은 교사 아이디로 같은 곳에서 로그인합니다.")
+        st.caption(DASHBOARD_UPDATE + " · 학생별 자료함·생기부 C 연결본")
         st.caption("🌗 화면 밝기는 오른쪽 위 ⋮ 메뉴에서 고를 수 있어요. "
                    "(System = 기기 설정 따라가기 · Light = 밝게 · Dark = 어둡게)")
         if db.get_backend().is_local:

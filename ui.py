@@ -1,3 +1,4 @@
+# GOOD_RECORDS_1.1_FINAL5
 """화면 꾸미기와 공용 위젯."""
 import html
 import random
@@ -522,7 +523,7 @@ def sidebar_header(title: str, user: dict):
         '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">'
         '<path d="M5 25h23M8 28V4M6 20c8 0 9-12 20-12"/>'
         '<circle cx="19" cy="11" r="2.3" fill="currentColor" stroke="none"/></svg></span>'
-        '<div><small>함께 생각하는 수학</small>'
+        '<div><small>스스로 발견한 가능성과 자신감</small>'
         f'<h2>{html.escape(title)}</h2></div></div>'
         '<div class="sb-user">'
         f'<span class="sb-avatar" aria-hidden="true">{html.escape(name[:1] or role[:1])}</span>'

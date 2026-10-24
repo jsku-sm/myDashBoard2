@@ -1,0 +1,210 @@
+{
+  "version": "GOOD_RECORDS_1.1_FINAL5",
+  "base_archive": "myDashBoard2-main (5).zip",
+  "base_sha256": "c914cdb98a6c0a239a0b6b6d7c8e362a8809d1e340dbcc0947686a56df5515ac",
+  "data_repository": "jsku-sm/class-dashboard-data",
+  "entrypoints": [
+    "app.py",
+    "streamlit_app.py"
+  ],
+  "tests": {
+    "new_and_archive_passed": 109,
+    "regression_passed": 574,
+    "module_skipped": 1,
+    "live_streamlit": false,
+    "live_github": false,
+    "live_ai": false
+  },
+  "preserved": [
+    "game_core",
+    "quiz_core",
+    "afterschool_core",
+    "classroom_core",
+    "views/tools.py",
+    "requirements.txt",
+    "streamlit_app.py"
+  ],
+  "packaging_excluded": [
+    "data/users.csv",
+    "__pycache__",
+    "*.pyc",
+    ".pytest_cache"
+  ],
+  "changes": [
+    {
+      "path": ".gitignore",
+      "action": "replace",
+      "sha256": "dc426032dae65ad297f2f0c5fab55c127e10cd7766ac6cd75e091dea09b9fed1",
+      "original_sha256": "100392a809228c7e2c2d82b5669e164913ff4acffeb23e685574dd9cca7e7cbf",
+      "bytes": 142
+    },
+    {
+      "path": ".streamlit/student_records.secrets.toml.example",
+      "action": "add",
+      "sha256": "f91ffd2bf93b8045356b3154f792b583dd43dd2689a4b3ef941e3723a2296033",
+      "original_sha256": null,
+      "bytes": 1057
+    },
+    {
+      "path": "FINAL5_Secrets_추가설정_예시.txt",
+      "action": "add",
+      "sha256": "22a3c4200758df1c9142b4f75af9a82cb9f9164dfe871e74c32d2ee338dfe47e",
+      "original_sha256": null,
+      "bytes": 720
+    },
+    {
+      "path": "FINAL5_TEST_REPORT.md",
+      "action": "add",
+      "sha256": "497e77c6779036af92737fa846546343e0b40425a4e80f65bfa3fe5fac732723",
+      "original_sha256": null,
+      "bytes": 3124
+    },
+    {
+      "path": "FINAL5_확인결과_및_적용안내.md",
+      "action": "add",
+      "sha256": "0607248eff212398d1120b9ec486d7a054ce2cb16c5a28bc86ba257f697b6515",
+      "original_sha256": null,
+      "bytes": 7265
+    },
+    {
+      "path": "app.py",
+      "action": "replace",
+      "sha256": "aecbeb0268a2c3879fa2c7374a3f23a87e73f9cd932cffc7d193ca7b84fad87d",
+      "original_sha256": "994652ac04d66c9563ca116cc226403a4f2250c7351929dacf3c46a669f66efa",
+      "bytes": 12719
+    },
+    {
+      "path": "generate_student_archive_key.py",
+      "action": "add",
+      "sha256": "6e6d2082a0b8da1eff740df153f62b85c4645a2c864dc9017f29e7ed19ea2407",
+      "original_sha256": null,
+      "bytes": 520
+    },
+    {
+      "path": "record_core/__init__.py",
+      "action": "add",
+      "sha256": "d4e610c7cc0dcf78ac9daaf344e1b72bbba5cec31fb169378e8a5a5326c48d07",
+      "original_sha256": null,
+      "bytes": 137
+    },
+    {
+      "path": "record_core/ai.py",
+      "action": "add",
+      "sha256": "d13ee132d358e02623d74741f10738cc7c5f8f49ff83cc31fa8712c6eb7a3324",
+      "original_sha256": null,
+      "bytes": 17209
+    },
+    {
+      "path": "record_core/archive.py",
+      "action": "add",
+      "sha256": "5c4d72d732dde1853ffce9ce60881b9b1dcee3eb2010af1faf9a7dadbca9a90d",
+      "original_sha256": null,
+      "bytes": 8119
+    },
+    {
+      "path": "record_core/assessment.py",
+      "action": "add",
+      "sha256": "c45c28daeade2060a3d61b697e14c830ebecd9ac36f4ac6c05101a37ddfa2585",
+      "original_sha256": null,
+      "bytes": 5026
+    },
+    {
+      "path": "record_core/checkpoint.py",
+      "action": "add",
+      "sha256": "7521d4b5fcc27e7bf836fb5abecb7c45a1e716f6ddbfe3c92f078ed24c0c27bc",
+      "original_sha256": null,
+      "bytes": 852
+    },
+    {
+      "path": "record_core/evidence.py",
+      "action": "add",
+      "sha256": "f2a15b188f3392cc912fc8a93c13cfbbea3074915a8467116ed972257753e861",
+      "original_sha256": null,
+      "bytes": 9713
+    },
+    {
+      "path": "record_core/service.py",
+      "action": "add",
+      "sha256": "0b42b31dd61403837204bb636554f715e60951feca57184fbe9d4f5c58d3ca4e",
+      "original_sha256": null,
+      "bytes": 14937
+    },
+    {
+      "path": "record_core/view.py",
+      "action": "add",
+      "sha256": "638393392e028db27dbde7b21a64fd4981f3dc61e15140916e391de5275d4347",
+      "original_sha256": null,
+      "bytes": 23017
+    },
+    {
+      "path": "storage.py",
+      "action": "replace",
+      "sha256": "12236ca718959bf8055811861578b7b629479ff998dbc2bfd1f40971dfaee05b",
+      "original_sha256": "38d306ad225dc02c25869ef6c082e2dbab2ccec39c741b8b7fe5f0c358e1414a",
+      "bytes": 39490
+    },
+    {
+      "path": "tests/test_final5_update.py",
+      "action": "add",
+      "sha256": "869a6ffff02f300b1151e031b2a79d1a561c6757ab877e74ef043e0c2f3f569a",
+      "original_sha256": null,
+      "bytes": 6476
+    },
+    {
+      "path": "tests/test_student_record_vault.py",
+      "action": "add",
+      "sha256": "5e326b38fd838344586f94e08a4612ecb994328b4c549bb9888858c85fd3afed",
+      "original_sha256": null,
+      "bytes": 33768
+    },
+    {
+      "path": "think_app/embedded.py",
+      "action": "replace",
+      "sha256": "1b9b8308e9d6634f9f21f9a13179bd142c24a687e08bc2cc72848ee9e0cb3361",
+      "original_sha256": "240080457da0c8568992b7a26c87328c6b3f68fe20a3a9093e0a432899f71e9f",
+      "bytes": 14611
+    },
+    {
+      "path": "think_app/storage.py",
+      "action": "replace",
+      "sha256": "dcac2a5e17f423d88915f19b1f6f3f9595ba3abb47892854e5d04cfb866442c4",
+      "original_sha256": "17e01a7016f59e21bfa506eb8ad59b6d2a05091f3c3358482bace87b456f08ca",
+      "bytes": 28395
+    },
+    {
+      "path": "ui.py",
+      "action": "replace",
+      "sha256": "c7c8e94f5e5b0a925cc432619e268823ea81808ce956c64ebb71b23557745e7d",
+      "original_sha256": "ba54708dcdc735c06257993ef926c1f1373193ea18a7ff3d8ebb854fae37a19d",
+      "bytes": 36003
+    },
+    {
+      "path": "verify_dashboard_update.py",
+      "action": "add",
+      "sha256": "e77c666a7e58e95317e8d5031bf5a40194095e2a877b2eec638a0d10661f52f9",
+      "original_sha256": null,
+      "bytes": 1460
+    },
+    {
+      "path": "views/record.py",
+      "action": "replace",
+      "sha256": "fcdc52ff2b2ab28d949bdb629cafd388428a98957d1c0064f62830bd6584433a",
+      "original_sha256": "1352f3a97270f4c8cc655f5790efe29de6382433fbf56e80e2f4791223913558",
+      "bytes": 182
+    },
+    {
+      "path": "views/sudanote.py",
+      "action": "replace",
+      "sha256": "8ab91910d323d7107f2cd47a5358f3a75c335e4a3532a81a93b641fb3fe38443",
+      "original_sha256": "55235675a798eb383ac3e9da2c3caefce67926f9ca9404580840d0589fed12fc",
+      "bytes": 16524
+    },
+    {
+      "path": "views/teacher.py",
+      "action": "replace",
+      "sha256": "36809172a6d95d7fc585e08b554a57e60ad14e7b9c0a4bf1e00e52274f4e777a",
+      "original_sha256": "0de35287c66b531fc076cc0a8f31323a591315419e0bc54e06f29b49d2b90014",
+      "bytes": 16034
+    }
+  ]
+}

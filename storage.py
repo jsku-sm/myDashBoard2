@@ -1,3 +1,4 @@
+# GOOD_RECORDS_1.1_FINAL5
 """데이터 저장소.
 
 - GitHubBackend : 별도의 비공개 깃허브 저장소  ← 실제 배포용
@@ -241,13 +242,102 @@ class GitHubBackend:
         self.dirty: dict[str, int] = {}
         self.pending_files: list[tuple[str, str | None]] = []
         self.ver = 0
+        self.archive_crypto = None
+        self.archive_dirty = {}
+        self.archive_pending = {}
+        self.archive_known = set()
         self.last_saved = ""
         self.last_error = ""
 
         self._check_repo()
+        from record_core.archive import ArchiveCrypto, ArchiveError, EXPECTED_REPO
+        if self.repo.casefold() != EXPECTED_REPO.casefold():
+            raise SetupError("이번 학생 자료함의 저장소는 jsku-sm/class-dashboard-data입니다. [github] repo를 확인하세요. 기존 자료는 자동으로 이동하지 않습니다.")
+        try:
+            self.archive_crypto = ArchiveCrypto(cfg.get("archive_key", ""))
+            self._check_archive_key()
+        except ArchiveError as error:
+            raise SetupError(str(error)) from None
         self._load_all()
         threading.Thread(target=self._loop, daemon=True).start()
         atexit.register(self.flush)
+
+    def _archive_get(self, path):
+        from urllib.parse import quote
+        r = self._req("GET", f"/repos/{self.repo}/contents/{quote(path, safe='/')}", params={"ref": self.branch})
+        if r.status_code == 404:
+            return None
+        if r.status_code != 200:
+            raise SetupError("학생 자료함 읽기에 실패했습니다. 토큰·브랜치·요청 제한을 확인하세요.")
+        value = r.json()
+        if not isinstance(value, dict):
+            raise SetupError("학생 자료 경로가 파일이 아닙니다.")
+        return self._blob(value["sha"]) if value.get("encoding") == "none" else base64.b64decode(value["content"])
+
+    def _check_archive_key(self):
+        from record_core.archive import SENTINEL
+        raw = self._archive_get(SENTINEL)
+        if raw is not None:
+            self.archive_crypto.verify_sentinel(raw)
+        else:
+            # Fail closed if an archive already exists but its key check was removed.
+            r = self._req("GET", f"/repos/{self.repo}/contents/students", params={"ref": self.branch})
+            if r.status_code == 200 and r.json():
+                raise SetupError("기존 students 폴더가 있으나 자료함 키 확인 파일이 없습니다. 기존 자료를 보존하고 설정을 확인하세요.")
+            if r.status_code not in (200, 404):
+                raise SetupError("기존 학생 자료함 상태를 확인하지 못했습니다.")
+        self.archive_pending[SENTINEL] = self.archive_crypto.sentinel() if raw is None else raw.decode("ascii")
+
+    def queue_archive(self, student_id, category, logical_id, payload, attachments=()):
+        if not self.archive_crypto:
+            raise SetupError("학생 자료함 암호화 설정을 확인하세요.")
+        entries, envelope = self.archive_crypto.bundle(student_id, category, logical_id, payload, attachments)
+        with self.lock:
+            # Immutable attachments/history already on GitHub need not be rewritten.
+            for path, value in entries.items():
+                if path not in self.archive_known or path.endswith("/current.json.enc"):
+                    self.archive_pending[path] = value
+            self.ver += 1
+        return envelope
+
+    def archive_student_tables(self, student_id):
+        from record_core.archive import TABLE_CATEGORIES
+        with self.lock:
+            self.ver += 1
+            for table in TABLE_CATEGORIES:
+                if any(str(r.get("student_id")) == str(student_id) for r in self.rows.get(table, [])):
+                    self.archive_dirty[(table, str(student_id))] = self.ver
+
+    def archive_read_student(self, student_id):
+        """Raw server interface. UI must validate current teacher before calling."""
+        from record_core.archive import ArchiveError
+        self._check_repo()
+        head = self._head()
+        response = self._req("GET", f"/repos/{self.repo}/git/trees/{head}", params={"recursive": "1"})
+        if response.status_code != 200 or response.json().get("truncated"):
+            raise ArchiveError("자료함 목록을 완전히 읽지 못했습니다. 불완전한 목록으로 세특을 작성하지 않습니다.")
+        prefix = self.archive_crypto.student_dir(student_id) + "/"
+        items = []
+        for entry in response.json().get("tree", []):
+            path = entry.get("path", "")
+            if entry.get("type") == "blob" and path.startswith(prefix) and path.endswith("/current.json.enc"):
+                item = self.archive_crypto.open_bundle(self._blob(entry["sha"]), student_id, path)
+                item["_path"] = path
+                items.append(item)
+        return items
+
+    def archive_load_attachment(self, student_id, description):
+        from record_core.archive import ArchiveError
+        # Validate path BEFORE making any remote request.
+        expected = self.archive_crypto.student_dir(student_id) + "/attachments/"
+        path = str(description.get("path", ""))
+        import re
+        if not re.fullmatch(re.escape(expected) + r"[a-f0-9]{64}\.bin\.enc", path):
+            raise ArchiveError("첨부파일 접근 권한이 없습니다.")
+        raw = self._archive_get(path)
+        if raw is None:
+            raise ArchiveError("자료함에서 첨부파일을 찾지 못했습니다.")
+        return self.archive_crypto.open_attachment(raw, description, student_id)
 
     # 기본 요청
     def _req(self, method, path, **kw):
@@ -300,8 +390,12 @@ class GitHubBackend:
         head = self._head()
         r = self._req("GET", f"/repos/{self.repo}/git/trees/{head}", params={"recursive": "1"})
         r.raise_for_status()
+        if r.json().get("truncated"):
+            raise SetupError("GitHub 파일 목록이 너무 커 일부가 누락되었습니다. 자동 저장을 중단하고 보관 이력을 정리한 뒤 연결을 확인하세요.")
         for e in sorted(r.json().get("tree", []), key=lambda e: e["path"]):
             p = e["path"]
+            if getattr(self, "archive_crypto", None) and p.startswith("students/"):
+                self.archive_known.add(p)
             if e["type"] != "blob" or not p.startswith("data/") or not p.endswith(".csv"):
                 continue
             parts = p[5:-4].split("/")
@@ -347,6 +441,13 @@ class GitHubBackend:
         self.ver += 1
         for r in rows:
             self.dirty[self._path(table, r)] = self.ver
+            from record_core.archive import TABLE_CATEGORIES
+            if getattr(self, "archive_crypto", None) and table in TABLE_CATEGORIES and r.get("student_id"):
+                self.archive_dirty[(table, str(r["student_id"]))] = self.ver
+            if getattr(self, "archive_crypto", None) and table == "quiz_sets":
+                for attempt in self.rows.get("quiz_attempts", []):
+                    if attempt.get("quiz_id") == r.get("id"):
+                        self.archive_dirty[("quiz_attempts", str(attempt["student_id"]))] = self.ver
 
     # 표 데이터
     def read(self, table):
@@ -420,19 +521,38 @@ class GitHubBackend:
 
     def pending_count(self):
         with self.lock:
-            return len(self.dirty) + len(self.pending_files)
+            return len(self.dirty) + len(self.pending_files) + len(getattr(self, "archive_dirty", {})) + len(getattr(self, "archive_pending", {}))
 
     def flush(self):
         with self.flush_lock:
             with self.lock:
-                if not self.dirty and not self.pending_files:
+                if not self.dirty and not self.pending_files and not getattr(self, "archive_dirty", {}) and not getattr(self, "archive_pending", {}):
                     return
+                archive_versions = dict(getattr(self, "archive_dirty", {}))
+                archive_queued = dict(getattr(self, "archive_pending", {}))
+                import copy
+                archive_rows = copy.deepcopy(self.rows) if archive_versions else {}
                 versions = dict(self.dirty)
                 entries = [{"path": p, "mode": "100644", "type": "blob", "content": self._csv(p)}
                            for p in versions]
                 files = list(self.pending_files)
             entries += [{"path": p, "mode": "100644", "type": "blob", "sha": sha} for p, sha in files]
+            extra_entries = dict(archive_queued)
+            if archive_versions:
+                from record_core.archive import table_bundle
+                for table, sid in archive_versions:
+                    extra, _ = table_bundle(self.archive_crypto, table, sid, archive_rows.get(table, []), archive_rows, self.load_file)
+                    extra_entries.update({p: v for p, v in extra.items()
+                                          if p not in self.archive_known or p.endswith("/current.json.enc")})
+            entries += [{"path": p, "mode": "100644", "type": "blob", "content": content} for p, content in extra_entries.items()]
+            if getattr(self, "archive_crypto", None):
+                self._check_repo()
             for attempt in range(4):
+                if getattr(self, "archive_crypto", None):
+                    from record_core.archive import SENTINEL
+                    check = self._archive_get(SENTINEL)
+                    if check is not None:
+                        self.archive_crypto.verify_sentinel(check)
                 head = self._head()
                 c = self._req("GET", f"/repos/{self.repo}/git/commits/{head}")
                 c.raise_for_status()
@@ -458,6 +578,14 @@ class GitHubBackend:
                     if self.dirty.get(p) == v:
                         del self.dirty[p]
                 self.pending_files = [f for f in self.pending_files if f not in files]
+                for key, value in archive_versions.items():
+                    if self.archive_dirty.get(key) == value:
+                        del self.archive_dirty[key]
+                for key, value in archive_queued.items():
+                    if self.archive_pending.get(key) == value:
+                        del self.archive_pending[key]
+                if getattr(self, "archive_crypto", None):
+                    self.archive_known.update(extra_entries)
             self.last_saved = now_str()
             self.last_error = ""
 
@@ -475,13 +603,21 @@ class GitHubBackend:
 def get_backend():
     try:
         secrets = st.secrets
-        mode = secrets["app"].get("storage", "local") if "app" in secrets else "local"
+        mode = secrets["app"].get("storage", "github") if "app" in secrets else secrets.get("STORAGE_MODE", "github" if "github" in secrets or "GITHUB_REPO" in secrets else "local")
     except Exception:
         secrets, mode = None, "local"
     if mode == "github":
-        if "github" not in secrets:
-            raise SetupError("secrets 에 [github] 부분(token, repo)이 없어요.")
-        return GitHubBackend(dict(secrets["github"]))
+        from record_core.archive import encryption_key, ArchiveError, EXPECTED_REPO
+        values = secrets.to_dict() if hasattr(secrets, "to_dict") else dict(secrets)
+        cfg = dict(values.get("github", {}))
+        cfg.setdefault("repo", values.get("GITHUB_REPO", EXPECTED_REPO))
+        cfg.setdefault("token", values.get("GITHUB_TOKEN", ""))
+        cfg.setdefault("branch", values.get("GITHUB_BRANCH", "main"))
+        try:
+            cfg["archive_key"] = encryption_key(values)
+        except ArchiveError as error:
+            raise SetupError(str(error)) from None
+        return GitHubBackend(cfg)
     return LocalBackend()
 
 
@@ -497,6 +633,8 @@ def _ready_backend():
         if type(backend) is not current:
             backend.__class__ = current
         if current is GitHubBackend:
+            if not getattr(backend, "archive_crypto", None):
+                raise SetupError("이전 버전의 저장소 연결이 캐시에 남아 있습니다. Streamlit의 Reboot app으로 다시 시작하세요. 기존 암호화키는 변경하지 마세요.")
             missing = set(SCHEMAS).difference(backend.rows)
             if missing:
                 backend._load_all(tables=missing)
@@ -568,6 +706,15 @@ def _private_record_author(table):
 
 
 def _scope_private_records(table, rows):
+    if table in ("sudanotes", "points", "logins", "emotions"):
+        uid = (st.session_state.get("user") or {}).get("id")
+        actor = next((u for u in _ready_backend().read("users") if u.get("id") == uid), None)
+        if not actor:
+            return []
+        if actor.get("role") != "teacher":
+            if table in ("logins", "emotions"):
+                return []
+            return [r for r in rows if r.get("student_id") == uid]
     if table in GAME_TABLES:
         # Never expose raw answer keys or peer profiles through generic tables.
         return []

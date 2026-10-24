@@ -1,3 +1,4 @@
+# GOOD_RECORDS_1.1_FINAL5
 """Encrypted JSON files. GitHub writes use SHA compare-and-swap retries."""
 import base64
 import copy
@@ -430,6 +431,8 @@ class GitHubStore:
             r = self._put("state.enc", encrypted, sha)
             if r.status_code in (200, 201):
                 self.invalidate()
+                from record_core.assessment import after_commit
+                after_commit(self, previous, state)
                 return copy.deepcopy(result)
             if r.status_code not in (409, 422):
                 raise AppError("GitHub 저장 실패: 토큰 쓰기 권한과 요청 제한을 확인하세요.")

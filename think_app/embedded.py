@@ -1,3 +1,4 @@
+# GOOD_RECORDS_1.1_FINAL5
 """Authenticated, in-process Snorkl renderer for myDashBoard2.
 
 No second login, app-wide page config, separate server, iframe app, or sidebar.
@@ -43,6 +44,15 @@ def persistent_store(mode, data_dir, repo, branch, token, key):
 
 def get_store(settings):
     mode = "local" if settings.mode == "demo" else settings.mode
+    import storage as dashboard_storage
+    vault_backend = dashboard_storage._ready_backend()
+    if not vault_backend.is_local:
+        # Verify BEFORE initializing/migrating any assessment store or its key.
+        if (mode != "github" or settings.repo.casefold() != vault_backend.repo.casefold()
+                or settings.branch != vault_backend.branch):
+            raise AppError("수행평가도 jsku-sm/class-dashboard-data의 같은 브랜치에 연결하세요. [snorkl] mode/repo 설정과 최상위 GITHUB_REPO를 확인하세요. 원본을 다른 곳으로 자동 이동하지 않습니다.")
+    elif mode == "github":
+        raise AppError("대시보드와 수행평가 모두 같은 GitHub 저장소에 연결한 뒤 사용하세요.")
     arguments = (mode, settings.data_dir, settings.repo,
                  settings.branch, settings.github_token, settings.encryption_key)
     store = persistent_store(*arguments)
@@ -63,6 +73,9 @@ def get_store(settings):
     # The unchanged cached factory lets a running app recover its previous
     # memory-only records when this update is loaded.
     migrate_memory_store(memory_store(), store)
+    if mode == "github":
+        from record_core.assessment import bind
+        bind(store, vault_backend)
     return store
 
 
@@ -85,7 +98,7 @@ mode = "github"
 ai_enabled = false
 # 기존 대시보드의 [github] repo, branch, token을 자동 사용합니다.
 # 기존 암호화 자료가 있을 때만 원래 encryption_key를 추가하세요.
-# 다른 저장소를 쓰면 github_repo, github_branch, github_token을 여기에 설정하세요.''', language="toml")
+# 저장소·브랜치는 대시보드와 동일하게 연결합니다.''', language="toml")
     st.caption("기존 소노클 기록을 불러오려면 원래 저장소·브랜치·암호화 키를 그대로 사용하세요. 키를 바꾸면 이전 기록을 읽을 수 없습니다.")
     st.caption("원본 앱의 THINK_MODE, GITHUB_REPO, GITHUB_TOKEN, ENCRYPTION_KEY, OPENAI_API_KEY 등 최상위 Secrets도 지원합니다.")
     st.caption("데이터 형식은 유지합니다. 대시보드 CSV와 소노클 think-learning-v1/ 암호화 파일은 별도로 저장됩니다.")

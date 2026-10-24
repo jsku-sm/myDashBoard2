@@ -1,3 +1,4 @@
+# GOOD_RECORDS_1.1_FINAL5
 """수다노트: 다섯 가지 질문에 답하는 수업 성찰 게시판.
 학생이 쓴 내용은 날짜·시간·학번·이름과 함께 학생별 파일(data/sudanotes/<학번>.csv)로 저장됩니다.
 """
@@ -167,7 +168,29 @@ def _sync(key):
     st.session_state.setdefault("_sn_draft", {})[key] = st.session_state.get(f"sn_{key}", "")
 
 
+def _finish_note(rows):
+    answers=rows[0]
+    short=[i for i,k in enumerate(QKEYS,start=1) if len(answers.get(k,""))<15]
+    for k in QKEYS:
+        st.session_state.pop(f"sn_{k}",None)
+    st.session_state["_sn_draft"]={}
+    st.session_state["_sn_done"]=short
+
+
 def _student(user):
+    from record_core.checkpoint import append_confirmed
+    pending_key="sn_commit_"+user["id"]
+    if st.session_state.get(pending_key):
+        st.warning("제출한 수다노트의 GitHub 저장 확인이 아직 끝나지 않았어요. 새로 제출하지 말고 아래에서 저장만 다시 확인해 주세요.")
+        if st.button("수다노트 저장 재시도 (중복 제출 안 함)",key=pending_key+"retry"):
+            try:
+                rows=append_confirmed(db,st.session_state,pending_key,"sudanotes")
+                _finish_note(rows)
+            except Exception:
+                st.error("아직 저장을 확인하지 못했어요. 창을 닫지 말고 선생님에게 알려 주세요.")
+            else:
+                st.rerun()
+        return
     drafts = st.session_state.setdefault("_sn_draft", {})
     with st.container(border=True, key="sn_form"):
         st.markdown("#### ✍️ 오늘의 수다노트")
@@ -187,16 +210,16 @@ def _student(user):
                 st.error("아직 쓰지 않은 질문이 있어요: " + ", ".join(f"질문{i}" for i in empty))
             else:
                 now = db.now()
-                db.append("sudanotes", {
+                row={"id":db.new_id(),
                     "created_at": now.strftime("%Y-%m-%d %H:%M:%S"), "date": now.strftime("%Y-%m-%d"),
                     "time": now.strftime("%H:%M"), "class": user["class"], "student_id": user["id"],
                     "name": user["name"], "subject": subject, **answers,
-                })
-                short = [i for i, k in enumerate(QKEYS, start=1) if len(answers[k]) < 15]
-                for k in QKEYS:
-                    st.session_state.pop(f"sn_{k}", None)
-                st.session_state["_sn_draft"] = {}
-                st.session_state["_sn_done"] = short
+                }
+                try:
+                    rows=append_confirmed(db,st.session_state,pending_key,"sudanotes",[row])
+                    _finish_note(rows)
+                except Exception:
+                    st.error("저장 확인이 끝나지 않았어요. 입력은 유지합니다. 다음 화면의 저장 재시도를 이용하세요.")
                 st.rerun()
 
     if "_sn_done" in st.session_state:

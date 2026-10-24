@@ -1,3 +1,4 @@
+# GOOD_RECORDS_1.1_FINAL5
 """교사전용: 진도관리 / 화면 잠금 / 공지사항 / 관찰기록 / 상점·벌점 / 생기부 생성기 / 학생 명단 / 설정"""
 import io
 
@@ -82,15 +83,28 @@ def tab_observe():
 
 # ------------------------------------------------------------ 상벌점 ---
 def _give(students, kind, score, reason, cls):
-    rows = []
-    for u in students:
-        rows.append({"id": db.new_id(), "created_at": db.now_str(), "class": cls, "student_id": u["id"],
-                     "name": u["name"], "kind": kind, "score": str(score), "reason": reason})
-        rt.push(u["id"], {"kind": kind, "score": score, "reason": reason})
-    db.append_many("points", rows)
+    from record_core.checkpoint import append_confirmed
+    key="points_commit_"+str((st.session_state.get("user") or {}).get("id",""))
+    rows=[{"id":db.new_id(),"created_at":db.now_str(),"class":cls,"student_id":u["id"],
+           "name":u["name"],"kind":kind,"score":str(score),"reason":reason} for u in students]
+    try:
+        saved=append_confirmed(db,st.session_state,key,"points",rows)
+    except Exception:
+        st.error("상벌점 저장 확인이 끝나지 않았습니다. 아래 저장 재시도로 같은 요청을 확인하세요. 새로 부여하지 마세요.")
+        return False
+    for row in saved:
+        rt.push(row["student_id"],{"kind":row["kind"],"score":int(row["score"]),"reason":row["reason"]})
+    return True
 
 
 def tab_points():
+    pending_key="points_commit_"+str((st.session_state.get("user") or {}).get("id",""))
+    if st.session_state.get(pending_key):
+        st.warning("이전 상벌점 요청의 GitHub 저장 확인이 남아 있습니다. 새 부여 대신 저장만 재시도하세요.")
+        if st.button("상벌점 저장 재시도 (중복 부여 안 함)",key=pending_key+"retry"):
+            if _give([],"",0,"",""):
+                st.rerun()
+        return
     cls = st.radio("학급", CLASSES, horizontal=True, key="pt_cls")
     roster = auth.students(cls)
     if not roster:
@@ -103,8 +117,10 @@ def tab_points():
         cols = st.columns(6)
         for i, u in enumerate(roster):
             if cols[i % 6].button(f"⭐ {u['name']}", key=f"qp_{u['id']}", width="stretch"):
-                _give([u], "상점", 1, "칭찬해요", cls)
-                st.toast(f"🎉 {u['name']} 상점 +1")
+                if _give([u], "상점", 1, "칭찬해요", cls):
+                    st.toast(f"🎉 {u['name']} 상점 +1 · 저장 확인됨")
+                else:
+                    st.rerun()
 
     with st.container(border=True):
         st.markdown("#### 상점·벌점 주기")
@@ -116,8 +132,10 @@ def tab_points():
         if reason == "직접 입력":
             reason = st.text_input("사유 직접 입력", key="pt_reason_txt")
         if st.button(f"{kind} 주기", type="primary", disabled=not targets or not reason):
-            _give(targets, kind, int(score), reason, cls)
-            st.success(f"{len(targets)}명에게 {kind} {score}점을 줬어요. 학생 화면에 곧 표시돼요.")
+            if _give(targets, kind, int(score), reason, cls):
+                st.success(f"{len(targets)}명의 {kind} {score}점을 저장했어요. 학생 화면에 곧 표시돼요.")
+            else:
+                st.rerun()
 
     pts = [p for p in db.read("points") if p["class"] == cls]
     st.markdown("#### 학급 현황")
@@ -138,7 +156,12 @@ def tab_points():
                        f"<span class='meta'>{p['created_at'][5:16]}</span>", unsafe_allow_html=True)
             if b.button("삭제", key=f"ptd_{p['id']}"):
                 db.delete("points", p["id"])
-                st.rerun()
+                try:
+                    db.flush_now()
+                except Exception:
+                    st.error("삭제 기록의 GitHub 저장은 아직 확인되지 않았습니다. 교사 관리의 '지금 바로 저장하기'로 재시도하세요.")
+                else:
+                    st.rerun()
 
 
 # ---------------------------------------------------------- 학생 명단 ---
