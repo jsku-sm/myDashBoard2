@@ -10,8 +10,8 @@ from snorkl_navigation import ACTIVE_TOOL, clear_link
 
 TOOLS = [
     ("tool_desmos", "1. 데스모스", "그래프를 직접 그려 보며 생각해요."),
-    ("tool_activity", "2. 데스모스 액티비티", "선생님이 알려 준 코드로 입장해요."),
-    ("snorkl", "3. 수행평가", ""),
+    ("snorkl", "2. 수행평가", ""),
+    ("tool_games", "3. 게임으로 배우기", "나의 속도로 배우고, 작은 성장을 기록해요."),
     ("tool_quiz", "4. 퀴즈", "배운 내용을 퀴즈로 확인해요."),
     ("tool_apps", "5. 앱 (by Good쌤)", "Good쌤이 직접 만든 수학 앱이에요."),
 ]
@@ -19,8 +19,8 @@ ACTIVE_APP = "_tool_apps_active_app"
 
 TOOL_PRESENTATION = (
     ("∿", "그래프를 그리며 탐구해요", "그래프 탐구"),
-    ("✦", "코드를 입력하고 함께 활동해요", "함께하는 활동"),
     ("✎", "생각을 설명하고 기록해요", "생각과 표현"),
+    ("✦", "한 문제씩, 나의 속도로 배워요", "배움과 성장"),
     ("?", "배운 내용을 가볍게 확인해요", "개념 확인"),
     ("▦", "직접 움직이며 수학을 만나요", "수학 앱 모음"),
 )
@@ -401,6 +401,9 @@ def _page(user):
     ui.page_title("수업도구", "메뉴를 선택하면 해당 도구의 내용이 보여요.")
 
     tools = {key: (title, desc) for key, title, desc in TOOLS}
+    if st.session_state.get(ACTIVE_TOOL) == "tool_activity":
+        st.session_state[ACTIVE_TOOL] = "tool_desmos"
+        st.session_state["_tool_desmos_sub"] = "tool_activity"
     if st.session_state.get(ACTIVE_TOOL) not in tools:
         st.session_state[ACTIVE_TOOL] = TOOLS[0][0]
     # 공유 수업 링크도 같은 선택값을 사용하므로 수행평가가 바로 열립니다.
@@ -433,6 +436,21 @@ def _page(user):
                 from views import quiz
                 quiz.page(user)
                 return
+
+            if key == "tool_games":
+                from game_core import view as games
+                games.page(user)
+                return
+
+            if key == "tool_desmos":
+                key = st.radio(
+                    "데스모스 하위 메뉴", ["tool_desmos", "tool_activity"],
+                    format_func=lambda item: "그래프·기하 도구" if item == "tool_desmos" else "데스모스 액티비티",
+                    key="_tool_desmos_sub", horizontal=True,
+                )
+                if key == "tool_activity":
+                    title = "데스모스 액티비티"
+                    st.caption("선생님이 안내한 외부 활동에 참여해요. 학습게임은 ‘3. 게임으로 배우기’에서 만나요.")
 
             raw = db.get_setting(key)
             if key == "tool_apps" and not raw.strip():

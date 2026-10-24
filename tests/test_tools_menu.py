@@ -15,12 +15,13 @@ from config import DEFAULT_SETTINGS
 from snorkl_navigation import ACTIVE_TOOL, LINK_SEEN, REQUESTED_COURSE
 from ui import parse_links
 from views import snorkl, tools, quiz
+from game_core import view as game_view
 
 
 MENU = [
     ("tool_desmos", "1. 데스모스"),
-    ("tool_activity", "2. 데스모스 액티비티"),
-    ("snorkl", "3. 수행평가"),
+    ("snorkl", "2. 수행평가"),
+    ("tool_games", "3. 게임으로 배우기"),
     ("tool_quiz", "4. 퀴즈"),
     ("tool_apps", "5. 앱 (by Good쌤)"),
 ]
@@ -34,6 +35,7 @@ SETTINGS = {
 }
 SENTINEL = "수행평가 연동 확인"
 QUIZ_SENTINEL = "내장 개념퀴즈 연동 확인"
+GAME_SENTINEL = "개념 학습게임 연동 확인"
 
 
 @pytest.fixture
@@ -56,6 +58,8 @@ def menu_app(monkeypatch):
     monkeypatch.setattr(tools.db, "set_setting", save_setting)
     monkeypatch.setattr(snorkl, "page", embedded_page)
     monkeypatch.setattr(quiz, "page", lambda user: st.markdown(QUIZ_SENTINEL))
+
+    monkeypatch.setattr(game_view, "page", lambda user: st.markdown(GAME_SENTINEL))
 
     def make(role="teacher", query=None, active=None):
         app = AppTest.from_string(
@@ -140,6 +144,9 @@ def test_menu_order_and_only_selected_content_is_rendered(menu_app, role):
             assert not buttons(app) and not table_links(app) and not app_names(app)
             assert not app.text_area
             assert menu_app.calls[-1][0] == dict(app.session_state["user"])
+        elif key == "tool_games":
+            assert GAME_SENTINEL in [element.value for element in app.markdown]
+            assert not buttons(app) and not app.text_area
         elif key == "tool_quiz":
             assert QUIZ_SENTINEL in [element.value for element in app.markdown]
             assert not buttons(app) and not app.text_area and not table_links(app)
@@ -163,32 +170,36 @@ def test_menu_order_and_only_selected_content_is_rendered(menu_app, role):
 @pytest.mark.parametrize("key", ["tool_desmos", "tool_activity", "tool_apps"])
 def test_teacher_can_save_selected_links_and_return_to_saved_values(menu_app, key):
     app = menu_app.make()
-    app.radio[0].set_value(key).run()
-    assert len(app.text_area) == 1
+    def select(effective):
+        top = "tool_desmos" if effective == "tool_activity" else effective
+        app.radio[0].set_value(top).run()
+        if top == "tool_desmos":
+            app.radio(key="_tool_desmos_sub").set_value(effective).run()
+        assert not app.exception
+    select(key)
     assert app.text_area[0].value == SETTINGS[key]
     updated = "새 수업 링크|https://lesson.example.com/updated"
     app.text_area[0].set_value(updated)
     app.button(key=f"save_{key}").click().run()
-    assert not app.exception
-    assert menu_app.writes == [(key, updated)]
-    assert app.radio[0].value == key
-    if key == "tool_apps":
-        assert app_names(app) == [name for name, _ in parse_links(updated)]
-        assert not table_links(app) and not buttons(app)
-    else:
-        assert buttons(app) == parse_links(updated)
-
-    other = "tool_activity" if key != "tool_activity" else "tool_desmos"
-    app.radio[0].set_value(other).run()
+    assert not app.exception and menu_app.writes == [(key, updated)]
+    other = "tool_desmos" if key == "tool_activity" else "tool_activity"
+    select(other)
     assert app.text_area[0].value == SETTINGS[other]
-    app.radio[0].set_value(key).run()
-    assert not app.exception
+    select(key)
     assert app.text_area[0].value == updated
     if key == "tool_apps":
         assert app_names(app) == [name for name, _ in parse_links(updated)]
-        assert not table_links(app) and not buttons(app)
     else:
         assert buttons(app) == parse_links(updated)
+
+
+def test_activity_is_child_of_desmos_and_old_selection_migrates(menu_app):
+    app = menu_app.make("student", active="tool_activity")
+    assert not app.exception
+    assert app.radio[0].value == "tool_desmos"
+    assert app.radio(key="_tool_desmos_sub").value == "tool_activity"
+    assert buttons(app) == parse_links(SETTINGS["tool_activity"])
+    assert "tool_activity" not in dict(MENU)
 
 
 @pytest.mark.parametrize("role", ["teacher", "student"])
@@ -200,7 +211,7 @@ def test_teacher_can_save_selected_links_and_return_to_saved_values(menu_app, ke
 def test_shared_link_selects_assessment_and_user_selection_clears_link(menu_app, role, query):
     app = menu_app.make(role, query=query)
     assert app.radio[0].value == "snorkl"
-    assert headings(app) == ["#### 3. 수행평가"]
+    assert headings(app) == ["#### 2. 수행평가"]
     assert menu_app.calls == [(dict(app.session_state["user"]), query.get("course_id"))]
     assert LINK_SEEN in app.session_state
     assert REQUESTED_COURSE not in app.session_state

@@ -1,0 +1,125 @@
+{
+  "version": "GOOD_GAMES_1.0",
+  "date": "2026-10-24",
+  "base_archive": "myDashBoard2-main (4)(2).zip",
+  "base_sha256": "a6ff13e2a751a12494a3a7f322066fd6669ad103795ca7240ff30f48c2379bff",
+  "runtime_dependencies_changed": false,
+  "remote_deployment_performed": false,
+  "student_data_included": false,
+  "files": [
+    {
+      "path": "storage.py",
+      "operation": "replace",
+      "sha256": "38d306ad225dc02c25869ef6c082e2dbab2ccec39c741b8b7fe5f0c358e1414a",
+      "base_sha256": "db1b5f208667e5fb794d3a4f717507d539c5807cc1b3f97dcb9708805f60c43b"
+    },
+    {
+      "path": "views/tools.py",
+      "operation": "replace",
+      "sha256": "39357ed764f51b00ab250fdcb2d869d76582e90f791a43ea5c8f5a18828a6d7d",
+      "base_sha256": "f2e9ecd4065efcbba03697ce14c01f91c6eefcb6f670b4d3b59e38ea0d3940ae"
+    },
+    {
+      "path": ".gitignore",
+      "operation": "replace",
+      "sha256": "4e816e647b2350591bba9af14234ca5e42e00a119500a18ccf01d00b6ea205f7",
+      "base_sha256": "100392a809228c7e2c2d82b5669e164913ff4acffeb23e685574dd9cca7e7cbf"
+    },
+    {
+      "path": "tests/test_tools_menu.py",
+      "operation": "replace",
+      "sha256": "eb88e4784d2b64a881c76244dda05d218c9c83900798f2ef5a18d31128f09272",
+      "base_sha256": "f728f3fb787636d39f33e78d3be1f214e6448e0f03285ab0258496063a085eb2"
+    },
+    {
+      "path": "game_core/__init__.py",
+      "operation": "add",
+      "sha256": "61f71f009e1317a9985ab98226cba8c36885744290264f4495804b0fd04ce7fe",
+      "base_sha256": null
+    },
+    {
+      "path": "game_core/bank.py",
+      "operation": "add",
+      "sha256": "6dbd1cc4ce39d41834a40e61a0ff7dd7e22e91b4b79e6b520a8dba2d70f315d5",
+      "base_sha256": null
+    },
+    {
+      "path": "game_core/curriculum.py",
+      "operation": "add",
+      "sha256": "7eae24358dea64079dd5fe876556a647e3f01fefadc8f876c202dde2182cdb04",
+      "base_sha256": null
+    },
+    {
+      "path": "game_core/engine.py",
+      "operation": "add",
+      "sha256": "f7539f75bce11fa84a6d5fb055cb08d35cc29179b699647f19a2c94abc8c8327",
+      "base_sha256": null
+    },
+    {
+      "path": "game_core/presentation.py",
+      "operation": "add",
+      "sha256": "badc9d7f62b662893b3b443825c19dbdb944d72a6ee655da7a39b367d6554e86",
+      "base_sha256": null
+    },
+    {
+      "path": "game_core/schema.py",
+      "operation": "add",
+      "sha256": "0c8e61449564033c49bbcf4a8b00a0862a8cc3c6dbde32573976f84753281e34",
+      "base_sha256": null
+    },
+    {
+      "path": "game_core/service.py",
+      "operation": "add",
+      "sha256": "aad1dad9220878acf9be3933ac4ab15aac14a548cb0de5114e9d6fadeb9f1bf0",
+      "base_sha256": null
+    },
+    {
+      "path": "game_core/view.py",
+      "operation": "add",
+      "sha256": "f7d97a2267bf79fe1a81d847e782d0e30b24ebc3caa78d26530f064c4d69ed20",
+      "base_sha256": null
+    },
+    {
+      "path": "tests/test_game_learning.py",
+      "operation": "add",
+      "sha256": "cc81e56b3d771a4fee2bddfdbdbbd14f17a257011e0d4aad0d9fea68112732a0",
+      "base_sha256": null
+    },
+    {
+      "path": "tests/test_game_visuals.py",
+      "operation": "add",
+      "sha256": "f116d68993ac23b90938751c32d9d113cf5058e07d5d457c662a1dd7120465f9",
+      "base_sha256": null
+    },
+    {
+      "path": "GAME_UPDATE.md",
+      "operation": "add",
+      "sha256": "33bca9298354a94bd86636c4a47659dfa040ee07e73516e66e13fe6f0e4f2b0f",
+      "base_sha256": null
+    },
+    {
+      "path": "GAME_CONTENT_SOURCES.md",
+      "operation": "add",
+      "sha256": "511ddbb8bac20bebd94cf02010b449d105e36df4811807408231ee267a95fd6e",
+      "base_sha256": null
+    },
+    {
+      "path": "GAME_TEST_REPORT.md",
+      "operation": "add",
+      "sha256": "a6f87ace892a0d14e48ec44bc542b90f8d27b85471161ffb16ac007c39217641",
+      "base_sha256": null
+    },
+    {
+      "path": "game_preview/게임화면_구성요소_미리보기.html",
+      "operation": "add",
+      "sha256": "7b39881a0bbdd2eaa9c2968f4ab9b7da1b0ba906de4cab275d5d9a9ddee2d8a3",
+      "base_sha256": null
+    },
+    {
+      "path": "game_preview/게임화면_구성요소_미리보기.png",
+      "operation": "add",
+      "sha256": "3ef9de0793376eb957af1b7d22c9d6769a3ea199b224fc479c2d319dbebde65e",
+      "base_sha256": null
+    }
+  ]
+}
