@@ -1,0 +1,161 @@
+diff --git a/game_core/engine.py b/game_core/engine.py
+index 77a95e9..ae580b1 100644
+--- a/game_core/engine.py
++++ b/game_core/engine.py
+@@ -193,3 +193,15 @@ def growth(p):
+             if any(k!="independent" for k in entry["trajectory"][:-1]):entry["message"]="도움을 받던 개념을 스스로 해결했어요"
+         if len(recent)>=3 and all(x=="independent" for x in recent[-3:]):entry["message"]="최근 3문항을 스스로 해결했어요"
+     return list(topics.values())
++
++
++def summarize(s):
++    """Teacher-facing counts for one session. Never returns answer text or keys."""
++    answers=s["answers"]
++    wrong=sum(1 for i,a in enumerate(answers) for c in a["choices"] if c!=s["questions"][i]["answer"])
++    return dict(status=s["status"],index=s["index"],mode=s["mode"],updated_at=s["updated_at"],
++        submitted=sum(1 for a in answers if a["choices"]),
++        solved=sum(1 for a in answers if a["solved"]),
++        wrong=wrong,
++        hints=sum(a["hints"] for a in answers),
++        revealed=sum(1 for a in answers if a["revealed"]))
+diff --git a/game_core/service.py b/game_core/service.py
+index 42324e1..642662d 100644
+--- a/game_core/service.py
++++ b/game_core/service.py
+@@ -198,6 +198,32 @@ def close_mission(user,mid):
+         m["active"]="0";_put(b,"game_missions",m)
+ 
+ 
++def mission_progress(user,mid):
++    """Submission and learning status for each student targeted by one mission (author teacher only)."""
++    b=db._ready_backend()
++    with b.lock:
++        u=_actor(user,b,"teacher");m=_mission(b,mid)
++        if m["owner_id"]!=u["id"]:raise PermissionError("미션 작성 교사만 제출 상태를 볼 수 있습니다.")
++        accounts={r["id"]:r for r in b.read("users")}
++        profiles={r["student_id"]:r for r in b.read("game_profiles")}
++        rows=[]
++        for t in _load(m["targets_json"],[]):
++            account=accounts.get(t["id"],{})
++            row=profiles.get(t["id"])
++            session=None
++            if row:
++                session=next((s for s in _load(row["state_json"],engine.new_profile())["sessions"] if s.get("mission_id")==mid),None)
++            reassigned=account.get("class",t.get("class"))!=t.get("class")
++            if reassigned:state="reassigned"
++            elif session is None:state="not_started"
++            elif session["status"]=="done":state="done"
++            elif session["status"]=="paused":state="paused"
++            else:state="working"
++            info=engine.summarize(session) if session else None
++            rows.append({"id":t["id"],"name":account.get("name",t.get("name","")),"class":t.get("class",""),"state":state,"info":info})
++        return dict(id=m["id"],title=m["title"],topic_id=m["topic_id"],active=m["active"]=="1",rows=rows)
++
++
+ def teacher_questions(user,topic_id):
+     topic(topic_id);b=db._ready_backend()
+     with b.lock:
+diff --git a/game_core/view.py b/game_core/view.py
+index c1e8477..6404a36 100644
+--- a/game_core/view.py
++++ b/game_core/view.py
+@@ -334,6 +334,37 @@ def _content_manager(user):
+         _resources(user,tid,manage=True)
+ 
+ 
++STATE_LABEL={"not_started":"아직 시작 안 함","working":"진행 중","paused":"쉬어 가는 중","done":"완료","reassigned":"배정 변경 · 접근 중단"}
++
++
++def _mission_row(r,active):
++    info=r["info"]
++    state="시작 마감 · 미시작" if r["state"]=="not_started" and not active else STATE_LABEL[r["state"]]
++    base={"학생":r["name"],"학급":r["class"],"상태":state}
++    if info is None:
++        return {**base,"현재 학습":"—","진행":"0/5","제출":"0/5","정답":"0/5","오답 제출":0,"힌트·해설":"0 · 0","마지막 활동":"—"}
++    if r["state"]=="reassigned":now="학급 변경으로 중단"
++    elif r["state"]=="done":now="5문항 완료"
++    else:now=f"{info['index']+1}번 문항 · {engine.MODES[info['mode']]}"
++    return {**base,"현재 학습":now,"진행":f"{info['index']}/5","제출":f"{info['submitted']}/5","정답":f"{info['solved']}/5",
++            "오답 제출":info["wrong"],"힌트·해설":f"{info['hints']} · {info['revealed']}",
++            "마지막 활동":info["updated_at"].split(".")[0].replace("T"," ")}
++
++
++def _mission_dashboard(user,mid,active=True):
++    data=svc.mission_progress(user,mid)
++    rows=sorted(data["rows"],key=lambda r:(r["class"],r["name"]))
++    if not rows:st.info("이 미션의 대상 학생이 없습니다.");return
++    def count(*states):return sum(r["state"] in states for r in rows)
++    c=st.columns(4)
++    c[0].metric("완료",count("done"))
++    c[1].metric("진행 중",count("working","paused"))
++    c[2].metric("아직 시작 안 함",count("not_started"))
++    c[3].metric("배정 변경",count("reassigned"))
++    st.dataframe([_mission_row(r,active) for r in rows],hide_index=True,width="stretch")
++    st.caption("제출 = ‘내 생각 확인하기’를 누른 문항 수 · 정답 = 맞힌 문항 수 · 진행 = 완료한 문항 수. 학생의 답 내용과 정답 번호는 여기에 표시하지 않습니다.")
++
++
+ def _mission_manager(user):
+     tid=_pick_topic("gg_mission")
+     with st.form("gg_mission_form"):
+@@ -349,6 +380,9 @@ def _mission_manager(user):
+         st.caption(TOPICS[m["topic_id"]]["label"]+" · "+("교사 승인 상점 가능" if m["allow_points"]=="1" else "캐릭터 보상만"))
+         if m["active"]=="1" and st.button("새 미션 시작 종료",key="close_"+m["id"]):
+             _change(svc.close_mission,user,m["id"],message="새 시작을 종료했습니다. 이미 시작한 학생은 계속 학습할 수 있습니다.")
++        with st.expander("학생 제출·학습 상태 대시보드",expanded=True):
++            st.button("제출 상태 새로고침",key="mission_refresh_"+m["id"])
++            _mission_dashboard(user,m["id"],active=m["active"]=="1")
+ 
+ 
+ def _teacher_growth(user):
+diff --git a/tests/test_game_learning.py b/tests/test_game_learning.py
+index 969ec02..9c31acf 100644
+--- a/tests/test_game_learning.py
++++ b/tests/test_game_learning.py
+@@ -386,3 +386,47 @@ def test_remote_failure_does_not_claim_saved(game_env):
+     with pytest.raises(engine.GameError) as err:e.svc.flush(u)
+     assert 'private credential' not in str(err.value)
+     assert len(e.profile()['sessions'])==1
++
++
++def test_mission_progress_reports_submissions_and_states_without_answers(game_env):
++    e=game_env;e.actor(e.t)
++    mid=e.svc.create_mission(e.t,'제출 확인','move.reflection',['1-1','1-2'])
++    sid0=e.start(e.ss[0],mission=mid);e.complete(sid0,e.ss[0])
++    sid1=e.start(e.ss[1],mission=mid);s=engine.active(e.raw(e.ss[1]),sid1);ans=s['questions'][0]['answer']
++    e.action(sid1,'answer',e.ss[1],choice=(ans+1)%4)
++    e.action(sid1,'hint',e.ss[1])
++    e.action(sid1,'answer',e.ss[1],choice=ans)
++    e.action(sid1,'advance',e.ss[1])
++    e.start(e.ss[3],mission=mid)
++    e.b.update('users',e.ss[3]['id'],{'class':'1-1'})
++    e.actor(e.t)
++    data=e.svc.mission_progress(e.t,mid)
++    by={r['id']:r for r in data['rows']}
++    assert len(by)==4 and data['active'] is True and data['title']=='제출 확인'
++    assert by['1001']['state']=='done' and by['1001']['info']['solved']==5 and by['1001']['info']['submitted']==5
++    working=by['1002']['info']
++    assert by['1002']['state']=='working' and working['index']==1 and working['submitted']==1
++    assert working['wrong']==1 and working['solved']==1 and working['hints']==1 and working['revealed']==0
++    assert by['1003']['state']=='not_started' and by['1003']['info'] is None
++    assert by['1004']['state']=='reassigned'
++    allowed={'status','index','mode','updated_at','submitted','solved','wrong','hints','revealed'}
++    assert all(set(r['info'])==allowed for r in data['rows'] if r['info'])
++    e.actor(e.other)
++    with pytest.raises(PermissionError):e.svc.mission_progress(e.other,mid)
++    e.actor(e.ss[0])
++    with pytest.raises(PermissionError):e.svc.mission_progress(e.ss[0],mid)
++
++
++def test_mission_dashboard_renders_under_manager_and_hides_from_others(game_env):
++    e=game_env;e.actor(e.t)
++    mid=e.svc.create_mission(e.t,'화면 확인','move.reflection',['1-1'])
++    e.start(e.ss[0],mission=mid)
++    e.actor(e.t)
++    e.view._mission_dashboard(e.t,mid)
++    rows=[x[1] for x in e.st.outputs if x[0]=='dataframe'][-1]
++    assert [r['상태'] for r in rows]==['진행 중','아직 시작 안 함']
++    assert rows[0]['진행']=='0/5' and rows[0]['제출']=='0/5' and rows[0]['현재 학습']=='1번 문항 · 퍼즐형 · 개념 블록'
++    e.st.outputs.clear();e.view._mission_manager(e.t)
++    assert any(x[0]=='dataframe' for x in e.st.outputs) and not [x for x in e.st.outputs if x[0]=='error']
++    e.actor(e.ss[0])
++    with pytest.raises(PermissionError):e.view._mission_dashboard(e.ss[0],mid)
