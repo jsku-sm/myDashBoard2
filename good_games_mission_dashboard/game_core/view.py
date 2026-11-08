@@ -414,7 +414,6 @@ def _teacher_growth(user):
 
 def page(user):
     st.markdown(art.CSS,unsafe_allow_html=True)
-    st.markdown(art.hero(),unsafe_allow_html=True)
     if "_gg_nav_next" in st.session_state:
         st.session_state["_gg_child"]=st.session_state.pop("_gg_nav_next")
     _notice()
