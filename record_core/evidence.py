@@ -107,6 +107,18 @@ def project(bundles, *, sid, teacher_id, legacy_teacher_id, subject, start, end)
                     "채점 결과: " + row.get("marks_json", "{}"), "점수: " + row.get("score", ""),
                     "채점자: " + ("교사" if row.get("graded_by") else "미확인")])
                 add(bundle, row, rid, quiz.get("title", "퀴즈 풀이"), text, "풀이·채점 기록 · 점수만으로 숙달 추정 금지", quiz.get("subject", ""))
+            elif table == "review_attempts":
+                room = next((r for r in payload.get("review_rooms", []) if r.get("id") == row.get("room_id")), {})
+                if room.get("owner_id") != teacher_id:
+                    continue
+                answers = as_json(row.get("answers_json"), [])
+                correct = sum(bool(a.get("correct")) for a in answers)
+                text = "\n".join(["전시학습 확인: " + room.get("title", ""),
+                    f"푼 문제 {len(answers)}개 / 정답 {correct}개 / 오답 {len(answers)-correct}개",
+                    "문항 원본: " + room.get("questions_json", "[]"),
+                    "학생 응답: " + row.get("answers_json", "[]")])
+                add(bundle, row, rid, room.get("title", "전시학습 확인"), text,
+                    "복습 게임 자동 기록 · 게임 순위/행운 보상과 개념 이해는 구분")
             elif table == "game_profiles":
                 profile = as_json(row.get("state_json"), {})
                 from game_core.curriculum import TOPICS
