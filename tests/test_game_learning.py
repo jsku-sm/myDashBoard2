@@ -42,9 +42,11 @@ def game_env(monkeypatch,tmp_path):
     import game_core
     monkeypatch.setattr(game_core,'service',svc,raising=False)
     # Keep imported subviews bound to this test's fresh Streamlit/session store.
-    for name in ('function_quiz_service','function_quiz_view'):
+    for name in ('function_quiz_service','function_quiz_view','play_lab_service','play_lab_view'):
         module=load('game_core.'+name,ROOT/'game_core'/f'{name}.py',monkeypatch)
         monkeypatch.setattr(game_core,name,module,raising=False)
+        if name.endswith('_view'):
+            module._component=lambda **kwargs: None
     view=load('game_core.view',ROOT/'game_core/view.py',monkeypatch)
     monkeypatch.setattr(game_core,'view',view,raising=False)
     t=dict(id='teacher',name='가상교사',role='teacher',must_change='0',**{'class':''})
@@ -282,7 +284,9 @@ def test_simultaneous_students_have_separate_profiles(game_env):
 def test_page_branches_with_fake_widgets(game_env,role,child,action):
     e=game_env;u=e.t if role=='teacher' else e.ss[0];e.actor(u)
     e.st.session_state['_gg_child']=child
-    if action:e.st.session_state['_gg_teacher_action']=action
+    if action:
+        e.st.session_state['_gg_teacher_action']=action
+        e.st.session_state['_lab_'+u['id']+'_selection']='avatar'
     e.view.page(u)
     assert not [x for x in e.st.outputs if x[0]=='error'],e.st.outputs
 
