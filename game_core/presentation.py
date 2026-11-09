@@ -1,4 +1,4 @@
-"""Original SVG/CSS for a calm, high-school learning studio (no remote assets)."""
+"""Original SVG/CSS for a vivid high-school learning studio (no remote assets)."""
 from html import escape
 from .engine import ITEMS, rotated
 
@@ -46,7 +46,7 @@ def progress(index):
 
 
 def puzzle(board,index=0,preview=None):
-    fills=['#E1E7ED','#71998B','#8B87AF','#C29D68','#7A99AF','#B68391']
+    fills=['#EAE3FF','#7546FF','#FF6BA8','#FFCC50','#42DDF0','#B995FF']
     cells=[];previewcells=set()
     if preview is not None:
         x,y,rotation=preview
@@ -63,6 +63,34 @@ def puzzle(board,index=0,preview=None):
 def adventure(path):
     grid=''.join(f'<path d="M30 {30+i*43}H290M{30+i*43} 30V288" stroke="#C6D4E1" stroke-width="1"/>' for i in range(7))
     points=' '.join(f'{30+x*43},{288-y*43}' for x,y in path)
-    last=path[-1];nodes=''.join(f'<circle cx="{30+x*43}" cy="{288-y*43}" r="9" fill="#548675"/><text x="{30+x*43}" y="{292-y*43}" text-anchor="middle" fill="white" font-size="10">{i}</text>' for i,(x,y) in enumerate(path))
-    marker=f'<circle cx="{30+last[0]*43}" cy="{288-last[1]*43}" r="14" fill="none" stroke="#B68A46" stroke-width="2"/>'
-    return f'<div class="gg-board"><div class="gg-board-title">CONCEPT WALK · 나만의 경로를 만드는 중</div><svg role="img" aria-label="학습할 때마다 한 칸씩 이어지는 모험 지도" viewBox="0 0 325 323" xmlns="http://www.w3.org/2000/svg">{grid}<polyline points="{points}" stroke="#548675" stroke-width="5" fill="none"/>{nodes}{marker}<text x="286" y="309" font-size="11" fill="#5F7390">동쪽 →</text><text x="7" y="21" font-size="11" fill="#5F7390">북쪽 ↑</text></svg></div>'
+    last=path[-1];nodes=''.join(f'<circle cx="{30+x*43}" cy="{288-y*43}" r="9" fill="#7546FF"/><text x="{30+x*43}" y="{292-y*43}" text-anchor="middle" fill="white" font-size="10">{i}</text>' for i,(x,y) in enumerate(path))
+    marker=f'<circle cx="{30+last[0]*43}" cy="{288-last[1]*43}" r="14" fill="none" stroke="#FF418D" stroke-width="2"/>'
+    return f'<div class="gg-board"><div class="gg-board-title">CONCEPT WALK · 나만의 경로를 만드는 중</div><svg role="img" aria-label="학습할 때마다 한 칸씩 이어지는 모험 지도" viewBox="0 0 325 323" xmlns="http://www.w3.org/2000/svg">{grid}<polyline points="{points}" stroke="#7546FF" stroke-width="5" fill="none"/>{nodes}{marker}<text x="286" y="309" font-size="11" fill="#5F7390">동쪽 →</text><text x="7" y="21" font-size="11" fill="#5F7390">북쪽 ↑</text></svg></div>'
+
+
+# Scoped to the Games page: preserve all existing controls and avatar rules.
+CSS += """<style>
+.st-key-good_math_games{--gg-ink:#20203a;--gg-purple:#643bff}
+.st-key-good_math_games .gg-hero{background:#643bff;border:2px solid #20203a;box-shadow:0 6px 0 #20203a;border-radius:24px;padding:30px;background-image:radial-gradient(#ffffff26 1px,transparent 1px);background-size:18px 18px}
+.st-key-good_math_games .gg-hero h2{font-size:clamp(1.7rem,4vw,2.6rem)!important;font-weight:900!important;letter-spacing:-1.5px}
+.st-key-good_math_games .gg-eyebrow{color:#d9ff4b;font-weight:900}.st-key-good_math_games .gg-hero p{color:#f0eaff}
+.st-key-good_math_games .gg-tags span{background:#d9ff4b;color:#20203a;border:1.5px solid #20203a;font-weight:800;border-radius:24px}
+.st-key-good_math_games .gg-avatar{background:#ffce55;color:#20203a;border:2px solid #20203a;border-radius:22px;box-shadow:4px 4px 0 #20203a;padding:18px;margin-bottom:15px}
+.st-key-good_math_games .gg-avatar strong{font-size:15px;color:#20203a}.st-key-good_math_games .gg-avatar p{color:#37324c;font-size:12px}
+.st-key-good_math_games .gg-board{border:2px solid #20203a;background:#f0e9ff;border-radius:20px;box-shadow:0 4px 0 #20203a}.st-key-good_math_games .gg-board-title{color:#643bff;font-weight:900}
+.st-key-good_math_games .gg-note{background:#f1eaff;border:1.5px solid #b59bea;border-left:6px solid #643bff;color:#45315f;border-radius:15px}
+.st-key-good_math_games .gg-progress span{background:#e8e0ff;color:#643bff;border:1.5px solid #b5a2e6;font-weight:850;box-shadow:0 2px 0 #c2b2e2}
+.st-key-good_math_games .gg-progress .done{background:#d9ff4b;color:#20203a;border-color:#20203a}.st-key-good_math_games .gg-progress .current{background:#643bff;color:#fff;outline-color:#ff7cb7}
+.st-key-good_math_games .gg-review{background:#fff0f7;border:1px solid #f2bad5;border-radius:15px;color:#61334b}
+.st-key-good_math_games [data-testid="stButton"] button{border:1.5px solid #b7a3dc;border-radius:13px;font-weight:750;min-height:43px;transition:transform .15s,box-shadow .15s}
+.st-key-good_math_games [data-testid="stButton"] button[kind="primary"]{background:#643bff;color:#fff;border:2px solid #20203a;box-shadow:0 4px 0 #20203a}
+.st-key-good_math_games [data-testid="stButton"] button:hover{transform:translateY(-2px);box-shadow:0 3px 0 #c8b6e6}
+.st-key-good_math_games [data-testid="stMetric"]{background:#f1eaff;border:1.5px solid #c5b4e8;border-radius:16px;padding:15px}
+.st-key-good_math_games [data-testid="stMetricValue"]{color:#643bff;font-weight:900}
+.st-key-good_math_games [data-testid="stForm"]{border:1.5px solid #c5b4e8;border-radius:18px;padding:20px;background:#fcfaff}
+.st-key-good_math_games [data-testid="stRadio"] [role="radiogroup"]{gap:8px}
+.st-key-good_math_games [data-testid="stRadio"] label[data-baseweb="radio"]{border:1.5px solid #d7cce9;border-radius:22px;padding:7px 13px;background:#faf7ff}
+.st-key-good_math_games [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked){background:#e8ddff;border-color:#643bff;color:#43258f}
+@media(prefers-color-scheme:dark){.st-key-good_math_games [data-testid="stForm"],.st-key-good_math_games [data-testid="stMetric"]{background:#29233d;color:#f2eaff}.st-key-good_math_games [data-testid="stMetricValue"]{color:#d9ff4b}.st-key-good_math_games [data-testid="stRadio"] label[data-baseweb="radio"]{background:#29233d;color:#f2eaff}.st-key-good_math_games [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked){background:#643bff;color:#fff}}
+@media(prefers-reduced-motion:reduce){.st-key-good_math_games button{transition:none!important;transform:none!important}}
+</style>"""
