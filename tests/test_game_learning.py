@@ -41,6 +41,10 @@ def game_env(monkeypatch,tmp_path):
     svc=load('game_core.service',ROOT/'game_core/service.py',monkeypatch)
     import game_core
     monkeypatch.setattr(game_core,'service',svc,raising=False)
+    # Keep imported subviews bound to this test's fresh Streamlit/session store.
+    for name in ('function_quiz_service','function_quiz_view'):
+        module=load('game_core.'+name,ROOT/'game_core'/f'{name}.py',monkeypatch)
+        monkeypatch.setattr(game_core,name,module,raising=False)
     view=load('game_core.view',ROOT/'game_core/view.py',monkeypatch)
     monkeypatch.setattr(game_core,'view',view,raising=False)
     t=dict(id='teacher',name='가상교사',role='teacher',must_change='0',**{'class':''})

@@ -75,7 +75,7 @@ def test_previous_file_with_same_name_detected(tmp_path):
     assert len(issues)==1 and '이전 파일' in issues[0]
 
 
-def test_login_function_renders_requested_title_and_build():
+def test_login_function_renders_title_without_footer_text():
     st=CaptureUI()
     ns={'st':st,'time':SimpleNamespace(time=lambda:0),'DASHBOARD_UPDATE':VERSION,
         'login_bg':SimpleNamespace(html=lambda:''),'db':SimpleNamespace(get_backend=lambda:SimpleNamespace(is_local=False))}
@@ -83,7 +83,8 @@ def test_login_function_renders_requested_title_and_build():
     rendered=' '.join(str(v) for k,v in st.calls)
     assert 'Good쌤을 만나,' in rendered and '수학이 달라졌다' in rendered
     assert '생각하는 수학 시간' not in rendered
-    assert VERSION in rendered
+    assert VERSION not in rendered
+    assert not [value for kind,value in st.calls if kind in ('caption','warning')]
 
 
 def test_sidebar_function_renders_requested_motto():
