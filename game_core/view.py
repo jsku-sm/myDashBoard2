@@ -255,6 +255,8 @@ def _growth(user,p,teacher=False):
     if p["feedback"]:
         st.subheader("선생님이 남긴 응원")
         for f in reversed(p["feedback"][-20:]):st.markdown(art.note(f["text"]),unsafe_allow_html=True)
+    from .function_quiz_view import summary as function_summary
+    function_summary(user,p["student"]["id"])
     if not teacher:_wardrobe(user,p)
 
 
@@ -380,13 +382,16 @@ def _teacher_growth(user):
 
 def page(user):
     st.markdown(art.CSS,unsafe_allow_html=True)
-    st.markdown(art.hero(),unsafe_allow_html=True)
     if "_gg_nav_next" in st.session_state:
         st.session_state["_gg_child"]=st.session_state.pop("_gg_nav_next")
     _notice()
-    child=st.radio("게임으로 배우기 하위 메뉴",["개념 학습게임","나의 성장기록"],horizontal=True,key="_gg_child")
+    child=st.radio("게임으로 배우기 하위 메뉴",["개념 학습게임","함수 개념퀴즈","나의 성장기록"],horizontal=True,key="_gg_child")
     teacher=user.get("role")=="teacher"
     try:
+        if child=="함수 개념퀴즈":
+            from .function_quiz_view import page as function_quiz_page
+            function_quiz_page(user)
+            return
         st.caption("현재 교과서 목차 · "+EDITIONS[svc.edition()]+" · 2022 개정")
         if teacher:
             if child=="나의 성장기록":_teacher_growth(user)
