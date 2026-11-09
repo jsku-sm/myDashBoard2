@@ -47,12 +47,25 @@ CSS = f"""
 .login-bg::after {{ content:""; position:absolute; inset:0;
   background:linear-gradient(90deg, var(--a-scrim) 0%, var(--a-scrim2) 70%, var(--a-scrim2) 100%); }}
 header[data-testid="stHeader"] {{ background:transparent !important; }}
-/* 로그인 상자: 이미지 위에서도 안내 문구까지 잘 보이게 */
-.st-key-login_card {{ background:light-dark(rgba(255,255,255,.93),rgba(23,33,58,.93));
-  border:1.5px solid var(--line); border-radius:18px; padding:1.4rem 1.4rem 1rem;
+/* Opaque card and scoped contrast: unaffected by the moving background/theme. */
+.st-key-login_card {{ background:#fff; color:#142443; color-scheme:light;
+  border:2px solid #bbc9df; border-radius:18px; padding:1.6rem;
   backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
   box-shadow:0 10px 30px light-dark(rgba(30,42,74,.10),rgba(0,0,0,.35)); }}
 .st-key-login_card [data-testid="stForm"] {{ border:none; padding:0; }}
+.st-key-login_card h3 {{ color:#142443!important;font-family:'Pretendard',sans-serif!important;
+  font-weight:850!important;letter-spacing:-.04em;font-size:2rem!important; }}
+.st-key-login_card label p {{ color:#142443!important;font-size:1.05rem!important;font-weight:750!important; }}
+.st-key-login_card [data-testid="stTextInput"] [data-baseweb="input"] {{
+  background:#f3f6fd!important;border:1.5px solid #9eadc5!important;border-radius:12px; }}
+.st-key-login_card input {{ background:#f3f6fd!important;color:#142443!important;
+  -webkit-text-fill-color:#142443!important;font-weight:650!important;caret-color:#234fe0; }}
+.st-key-login_card input::placeholder {{ color:#556580!important;-webkit-text-fill-color:#556580!important;opacity:1!important; }}
+.st-key-login_card [data-testid="stTextInput"] button {{ color:#142443!important; }}
+.st-key-login_card [data-testid="stFormSubmitButton"] button {{ background:#20365e!important;
+  border:2px solid #20365e!important;min-height:50px; }}
+.st-key-login_card [data-testid="stFormSubmitButton"] button p {{ color:#fff!important;font-weight:800!important;font-size:1.1rem; }}
+.st-key-login_card :is(input,button):focus-visible {{ outline:3px solid #436bff!important;outline-offset:3px; }}
 @media (prefers-reduced-motion: reduce) {{
   .login-bg img {{ animation:none !important; }}
   .login-bg img:nth-child(1) {{ opacity:1; }}
