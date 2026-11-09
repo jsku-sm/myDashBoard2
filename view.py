@@ -251,10 +251,15 @@ def _growth(user,p,teacher=False):
                     if a["reflection"]:st.write("확인한 규칙: "+a["reflection"])
             if not teacher and st.button("이 학습 열기",key="history_"+s["id"]):
                 st.session_state["_gg_nav_next"]="개념 학습게임"
+                st.session_state["_lab_"+user["id"]+"_selection"]="avatar"
                 _change(svc.resume,user,s["id"],p["revision"])
     if p["feedback"]:
         st.subheader("선생님이 남긴 응원")
         for f in reversed(p["feedback"][-20:]):st.markdown(art.note(f["text"]),unsafe_allow_html=True)
+    from .function_quiz_view import summary as function_summary
+    function_summary(user,p["student"]["id"])
+    from .play_lab_view import summary as arcade_summary
+    arcade_summary(user,p["student"]["id"])
     if not teacher:_wardrobe(user,p)
 
 
@@ -378,35 +383,46 @@ def _teacher_growth(user):
                     else:_change(svc.approve_points,user,student,sid,int(score),reason,approve=decision=="승인",message="교사 검토를 반영했습니다.",flush_user=user)
 
 
-def page(user):
+def _avatar_page(user):
+    st.caption("현재 교과서 목차 · "+EDITIONS[svc.edition()]+" · 2022 개정")
+    if user.get("role")=="teacher":
+        action=st.radio("교사 도구",["학생 화면 미리보기","문항·학습지 관리","미션 배포","교과서 설정"],horizontal=True,key="_gg_teacher_action")
+        if action=="학생 화면 미리보기":_teacher_preview(user)
+        elif action=="문항·학습지 관리":_content_manager(user)
+        elif action=="미션 배포":_mission_manager(user)
+        else:
+            st.info("학교 교과서의 대표저자를 확인해 선택하세요. 처음에는 홍진곤 판본을 표시합니다. 판본을 바꿔도 동일 개념의 학습 기록은 유지됩니다.")
+            ed=st.selectbox("학교 교과서 대표저자",list(EDITIONS),index=list(EDITIONS).index(svc.edition()),format_func=EDITIONS.get,key="gg_edition_select")
+            if st.button("교과서 목차 저장",key="gg_edition_save"):_change(svc.set_edition,user,ed,message="교과서 목차를 반영했습니다.",flush_user=user)
+            st.caption("근거: 천재교과서·천재교육 공식 고등 교과서 소개의 목차. 세부 주제는 앱에서 별도로 나눈 학습 범위입니다.")
+    else:
+        p=svc.profile(user)
+        s=next((s for s in p["sessions"] if s["id"]==p["active_id"]),None)
+        if s:_lesson(user,p,s)
+        else:_landing(user,p)
+    _save_panel(user)
+
+
+def _page(user):
     st.markdown(art.CSS,unsafe_allow_html=True)
     if "_gg_nav_next" in st.session_state:
         st.session_state["_gg_child"]=st.session_state.pop("_gg_nav_next")
     _notice()
-    child=st.radio("게임으로 배우기 하위 메뉴",["개념 학습게임","나의 성장기록"],horizontal=True,key="_gg_child")
+    child=st.radio("게임으로 배우기 하위 메뉴",["개념 학습게임","함수 개념퀴즈","나의 성장기록"],horizontal=True,key="_gg_child")
     teacher=user.get("role")=="teacher"
     try:
-        st.caption("현재 교과서 목차 · "+EDITIONS[svc.edition()]+" · 2022 개정")
-        if teacher:
-            if child=="나의 성장기록":_teacher_growth(user)
-            else:
-                action=st.radio("교사 도구",["학생 화면 미리보기","문항·학습지 관리","미션 배포","교과서 설정"],horizontal=True,key="_gg_teacher_action")
-                if action=="학생 화면 미리보기":_teacher_preview(user)
-                elif action=="문항·학습지 관리":_content_manager(user)
-                elif action=="미션 배포":_mission_manager(user)
-                else:
-                    st.info("학교 교과서의 대표저자를 확인해 선택하세요. 처음에는 홍진곤 판본을 표시합니다. 판본을 바꿔도 동일 개념의 학습 기록은 유지됩니다.")
-                    ed=st.selectbox("학교 교과서 대표저자",list(EDITIONS),index=list(EDITIONS).index(svc.edition()),format_func=EDITIONS.get,key="gg_edition_select")
-                    if st.button("교과서 목차 저장",key="gg_edition_save"):_change(svc.set_edition,user,ed,message="교과서 목차를 반영했습니다.",flush_user=user)
-                    st.caption("근거: 천재교과서·천재교육 공식 고등 교과서 소개의 목차. 세부 주제는 앱에서 별도로 나눈 학습 범위입니다.")
+        if child=="함수 개념퀴즈":
+            from .function_quiz_view import page as function_quiz_page
+            function_quiz_page(user)
+            return
+        if child=="개념 학습게임":
+            from .play_lab_view import page as play_lab_page
+            play_lab_page(user,lambda:_avatar_page(user))
+        elif teacher:
+            _teacher_growth(user)
             _save_panel(user)
         else:
-            p=svc.profile(user)
-            if child=="나의 성장기록":_growth(user,p)
-            else:
-                s=next((s for s in p["sessions"] if s["id"]==p["active_id"]),None)
-                if s:_lesson(user,p,s)
-                else:_landing(user,p)
+            _growth(user,svc.profile(user))
             _save_panel(user)
     except (ValueError,PermissionError) as exc:
         st.error(str(exc))
@@ -414,3 +430,8 @@ def page(user):
     except Exception as exc:
         logging.getLogger(__name__).warning("Game page failed: %s",type(exc).__name__)
         st.error("학습 화면을 열지 못했습니다. 저장 연결을 확인하고 다시 열어 주세요. 기존 학생 자료를 삭제하거나 암호화키를 바꾸지 마세요.")
+
+
+def page(user):
+    with st.container(key="good_math_games"):
+        _page(user)

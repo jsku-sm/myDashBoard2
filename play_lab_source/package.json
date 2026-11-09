@@ -1,0 +1,16 @@
+{
+  "name": "good-math-play-lab",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test": "node --test tests/*.test.js && node --loader ./tests/bridge-loader.mjs tests/bridge-check.mjs"
+  },
+  "dependencies": {
+    "katex": "0.16.22"
+  },
+  "devDependencies": {
+    "vite": "8.0.13"
+  }
+}
