@@ -433,6 +433,13 @@ def _page(user):
                 return
 
             if key == "tool_quiz":
+                if is_t:
+                    sub = st.radio("퀴즈 하위 메뉴", ["개념 확인 퀴즈", "전시학습 확인"],
+                                   horizontal=True, key="_quiz_review_sub")
+                    if sub == "전시학습 확인":
+                        from review_core.view import teacher_page
+                        teacher_page(user)
+                        return
                 from views import quiz
                 quiz.page(user)
                 return
