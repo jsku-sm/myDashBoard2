@@ -416,14 +416,13 @@ def _page(user):
         st.session_state["_gg_child"]=st.session_state.pop("_gg_nav_next")
     _notice()
     teacher=user.get("role")=="teacher"
-    child=st.radio("게임으로 배우기 하위 메뉴",["개념 학습게임","함수 개념퀴즈","나의 성장기록"],
+    children=["개념 학습게임","나의 성장기록"]
+    if st.session_state.get("_gg_child") not in children:
+        st.session_state["_gg_child"]=children[0]
+    child=st.radio("게임으로 배우기 하위 메뉴",children,
                    format_func=lambda label:"학생 성장기록" if teacher and label=="나의 성장기록" else label,
                    horizontal=True,key="_gg_child")
     try:
-        if child=="함수 개념퀴즈":
-            from .function_quiz_view import page as function_quiz_page
-            function_quiz_page(user)
-            return
         if child=="개념 학습게임":
             from .play_lab_view import page as play_lab_page
             play_lab_page(user,lambda:_avatar_page(user))
