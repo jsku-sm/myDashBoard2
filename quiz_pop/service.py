@@ -1,10 +1,10 @@
-"""Authenticated practice state; reuse the existing encrypted GitHub save queue."""
+"""Teacher preview state and shared validation for published student attempts."""
 from copy import deepcopy
 import json
 import re
 import streamlit as st
 import storage as db
-from game_core import service as games, engine
+from game_core import service as games
 from record_core.archive import EXPECTED_REPO
 from . import api
 
@@ -26,10 +26,10 @@ def storage_info(user):
         return {'ready': not local and repo.casefold() == EXPECTED_REPO.casefold(), 'repo': repo, 'expected': EXPECTED_REPO}
 
 
-def authorize(user, *, write=False):
+def authorize(user, *, role=None, write=False):
     b = db._ready_backend()
     with b.lock:
-        actor = games._actor(user, b, write=write)
+        actor = games._actor(user, b, role=role, write=write)
         _require_student_store(b, actor)
         return dict(actor)
 
@@ -43,12 +43,10 @@ def snapshot(user):
     with b.lock:
         actor = games._actor(user, b)
         _require_student_store(b, actor)
-        if actor['role'] == 'teacher':
-            state = st.session_state.get('_quizpop_preview_'+actor['id'], _state({}))
-        else:
-            row = games._row(b, actor)
-            state = _state(games._load(row['state_json'], engine.new_profile()))
-        return {'userId':actor['id'], 'preview':actor['role']=='teacher', 'revision':state['revision'], 'saved':deepcopy(state['saved'])}
+        if actor['role'] != 'teacher':
+            raise PermissionError('학생은 선생님이 알려 준 참여코드로 퀴즈에 입장해 주세요.')
+        state = st.session_state.get('_quizpop_preview_'+actor['id'], _state({}))
+        return {'userId':actor['id'], 'preview':True, 'role':'teacher', 'revision':state['revision'], 'saved':deepcopy(state['saved'])}
 
 
 def validate_saved(value):
@@ -112,17 +110,11 @@ def _apply(state, saved, revision):
 
 
 def save(user, value, revision):
+    authorize(user, role='teacher', write=True)
     saved=validate_saved(value)
     b=db._ready_backend()
     with b.lock:
-        actor=games._actor(user,b,write=True)
-        _require_student_store(b,actor)
-        if actor['role']=='teacher':
-            key='_quizpop_preview_'+actor['id']; state=deepcopy(st.session_state.get(key,_state({})))
-            _apply(state,saved,revision);st.session_state[key]=state
-        else:
-            row=games._row(b,actor);profile=games._load(row['state_json'],engine.new_profile())
-            state=deepcopy(_state(profile));_apply(state,saved,revision);profile['quiz_pop']=state
-            row.update(state_json=games._json(profile),revision=str(int(row['revision'])+1),updated_at=games._stamp())
-            games._put(b,'game_profiles',row)
+        actor=games._actor(user,b,role='teacher',write=True)
+        key='_quizpop_preview_'+actor['id']; state=deepcopy(st.session_state.get(key,_state({})))
+        _apply(state,saved,revision);st.session_state[key]=state
         return {'revision':state['revision']}

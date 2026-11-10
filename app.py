@@ -223,7 +223,9 @@ def sidebar(user):
             st.caption(db.backend_status())
         if not is_t:
             if st.button("🎮 참여코드 입력", key="review_join_shortcut", width="stretch"):
-                st.query_params["review"] = "join"
+                st.session_state.pop("_quizpop_student_code", None)
+                st.query_params.pop("review", None)
+                st.query_params["quiz"] = "join"
                 st.rerun()
         with st.container(key="sidebar_logout"):
             if st.button("로그아웃", width="stretch"):
@@ -268,9 +270,9 @@ if user["role"] == "student" and not emotion.done_today(user):
     st.stop()
 
 # Participant links never expose the teacher menu; existing account guards run first.
-if st.query_params.get("review"):
-    from review_core.view import student_entry
-    student_entry(user, st.query_params.get("review", ""))
+if st.query_params.get("quiz") or st.query_params.get("review"):
+    from quiz_pop.entry import student_entry
+    student_entry(user, st.query_params.get("quiz") or st.query_params.get("review", "join"))
     st.stop()
 
 # A share link chooses a view only; all login/password/emotion/lock checks run first.

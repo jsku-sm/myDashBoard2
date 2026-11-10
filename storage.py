@@ -25,8 +25,9 @@ from config import TZ
 from afterschool_core.schema import SCHEMAS as AS_SCHEMAS, TABLES as AS_TABLES, PARTITIONED as AS_PARTITIONED
 from game_core.schema import SCHEMAS as GAME_SCHEMAS, TABLES as GAME_TABLES, PARTITIONED as GAME_PARTITIONED
 from review_core.schema import SCHEMAS as REVIEW_SCHEMAS, TABLES as REVIEW_TABLES, PARTITIONED as REVIEW_PARTITIONED
-GAME_TABLES = GAME_TABLES | REVIEW_TABLES
-GAME_PARTITIONED = GAME_PARTITIONED | REVIEW_PARTITIONED
+from quiz_pop.schema import SCHEMAS as QUIZPOP_SCHEMAS, TABLES as QUIZPOP_TABLES, PARTITIONED as QUIZPOP_PARTITIONED
+GAME_TABLES = GAME_TABLES | REVIEW_TABLES | QUIZPOP_TABLES
+GAME_PARTITIONED = GAME_PARTITIONED | REVIEW_PARTITIONED | QUIZPOP_PARTITIONED
 
 SCHEMAS: dict[str, list[str]] = {
     "teaching_progress": ["id", "author_id", "batch_id", "created_at", "updated_at", "revision",
@@ -59,6 +60,7 @@ SCHEMAS: dict[str, list[str]] = {
 SCHEMAS.update(AS_SCHEMAS)
 SCHEMAS.update(GAME_SCHEMAS)
 SCHEMAS.update(REVIEW_SCHEMAS)
+SCHEMAS.update(QUIZPOP_SCHEMAS)
 
 CACHE_TTL = {"users": 60, "settings": 60, "quiz_sets": 0, "quiz_attempts": 0, "teaching_progress": 0}
 CACHE_TTL.update({table: 0 for table in AS_TABLES | GAME_TABLES})
@@ -420,7 +422,7 @@ class GitHubBackend:
     @staticmethod
     def _path(table, row):
         if table in GAME_PARTITIONED:
-            identity = row.get("id", "") if table == "review_rooms" else row.get("student_id", "")
+            identity = row.get("id", "") if table in ("review_rooms", "quizpop_rooms") else row.get("student_id", "")
             key = hashlib.sha256(str(identity).encode("utf-8")).hexdigest()
             return f"data/{table}/{key}.csv"
         if table in AS_PARTITIONED:
@@ -449,10 +451,11 @@ class GitHubBackend:
             from record_core.archive import TABLE_CATEGORIES
             if getattr(self, "archive_crypto", None) and table in TABLE_CATEGORIES and r.get("student_id"):
                 self.archive_dirty[(table, str(r["student_id"]))] = self.ver
-            if getattr(self, "archive_crypto", None) and table == "review_rooms":
-                for attempt in self.rows.get("review_attempts", []):
+            if getattr(self, "archive_crypto", None) and table in ("review_rooms", "quizpop_rooms"):
+                attempts_table = "quizpop_attempts" if table == "quizpop_rooms" else "review_attempts"
+                for attempt in self.rows.get(attempts_table, []):
                     if attempt.get("room_id") == r.get("id"):
-                        self.archive_dirty[("review_attempts", str(attempt["student_id"]))] = self.ver
+                        self.archive_dirty[(attempts_table, str(attempt["student_id"]))] = self.ver
             if getattr(self, "archive_crypto", None) and table == "quiz_sets":
                 for attempt in self.rows.get("quiz_attempts", []):
                     if attempt.get("quiz_id") == r.get("id"):
