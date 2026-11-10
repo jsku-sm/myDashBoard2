@@ -1,4 +1,4 @@
-"""Function Explorer's 5 × 6 concept progression, scored on the server."""
+"""Five-stage, unit-scoped concept progression with legacy function records."""
 from copy import deepcopy
 from functools import lru_cache
 import json
@@ -7,10 +7,15 @@ from pathlib import Path
 import secrets
 import time
 import uuid
+from .concept_quiz_catalog import unit_info
 
 
-@lru_cache(maxsize=1)
-def bank():
+@lru_cache(maxsize=7)
+def bank(unit="functions"):
+    unit_info(unit)
+    if unit != "functions":
+        from .concept_quiz_bank import bank as common_bank
+        return common_bank(unit)
     return json.loads(Path(__file__).with_name("function_quiz_bank.json").read_text(encoding="utf-8"))
 
 
@@ -23,15 +28,18 @@ def unlocked(state):
     return next((level for level in range(1, 6) if not state["stages"].get(str(level), {}).get("completed_at")), 5)
 
 
-def open_question(state, level, topic, *, preview=False):
+def open_question(state, level, topic, *, preview=False, unit="functions"):
+    content=bank(unit)
+    count=len(content["topics"])
     if type(level) is not int or not 1 <= level <= (5 if preview else unlocked(state)):
-        raise ValueError("현재 단계의 6개 주제를 해결한 뒤 다음 단계에 도전해요.")
-    if type(topic) is not int or not 0 <= topic < 6:
+        raise ValueError(f"현재 단원의 {count}개 주제를 해결한 뒤 다음 단계에 도전해요.")
+    if type(topic) is not int or not 0 <= topic < count:
         raise ValueError("주제를 다시 선택해 주세요.")
     key=f"{level}:{topic}"
-    candidates=[q for q in bank()["questions"] if q["level"]==level and q["topic"]==topic
+    candidates=[q for q in content["questions"] if q["level"]==level and q["topic"]==topic
                 and q["id"]!=state["previous"].get(key)]
     q=deepcopy(secrets.choice(candidates))
+    q["unit"]=unit
     answer=q["options"][q["answer"]]
     secrets.SystemRandom().shuffle(q["options"])
     q["answer"]=q["options"].index(answer)
@@ -40,13 +48,14 @@ def open_question(state, level, topic, *, preview=False):
                          turn=0, tries=0, result=None)
 
 
-def answer(state, event, now):
+def answer(state, event, now, *, unit="functions"):
     active=state.get("active")
     if not active or event.get("question_id")!=active["id"] or event.get("turn")!=active["turn"]:
         raise ValueError("문제가 바뀌었습니다. 현재 문제에서 다시 답해 주세요.")
     if active["result"] is not None:
         return  # Duplicate submissions cannot change an answer or earn points.
     q=active["question"];choice=event.get("choice")
+    if q.get("unit","functions") != unit: raise ValueError("단원이 바뀌었습니다. 현재 단원의 문제에서 답해 주세요.")
     if type(choice) is not int or not 0 <= choice < len(q["options"]):
         raise ValueError("보기 하나를 선택해 주세요.")
     value=event.get("seconds",0)
@@ -63,7 +72,7 @@ def answer(state, event, now):
         counts["answered"]+=1;counts["correct"]+=int(correct);counts["wrong"]+=int(not correct)
         counts["seconds"]=round(counts["seconds"]+delta,2)
     earned=0;completed=False
-    if len(stage["passed"])==6 and not stage["completed_at"]:
+    if len(stage["passed"])==len(bank(unit)["topics"]) and not stage["completed_at"]:
         stage["completed_at"]=now;completed=True
         earned=q["level"]*100;state["awards"][str(q["level"])]=earned
         if q["level"]==5 and not state["mastered_at"]:
@@ -76,13 +85,15 @@ def answer(state, event, now):
     state["records"]=state["records"][-300:]
 
 
-def apply(state,event,now,*,preview=False):
+def apply(state,event,now,*,preview=False,unit="functions"):
+    unit_info(unit)
     if not isinstance(event,dict) or not isinstance(event.get("id"),str) or not 1<=len(event["id"])<=100:
         raise ValueError("화면을 새로고침한 뒤 다시 시도해 주세요.")
+    if event.get("unit",unit) != unit: raise ValueError("단원이 바뀌었습니다. 새로 선택한 단원에서 다시 시작해 주세요.")
     if event["id"] in state["events"]:return
     action=event.get("action")
-    if action=="open":open_question(state,event.get("level"),event.get("topic"),preview=preview)
-    elif action=="answer":answer(state,event,now)
+    if action=="open":open_question(state,event.get("level"),event.get("topic"),preview=preview,unit=unit)
+    elif action=="answer":answer(state,event,now,unit=unit)
     elif action=="retry":
         active=state.get("active")
         if not active or event.get("question_id")!=active["id"] or event.get("turn")!=active["turn"]:
@@ -93,13 +104,15 @@ def apply(state,event,now,*,preview=False):
     state["events"]=(state["events"]+[event["id"]])[-40:]
 
 
-def public(state,*,preview=False):
+def public(state,*,preview=False,unit="functions"):
+    info=unit_info(unit);content=bank(unit)
     active=state.get("active");q=None
     if active:
         source=active["question"]
         q={k:source[k] for k in ("level","topic","prompt","options")}
         q.update(id=active["id"],turn=active["turn"],elapsed=active["elapsed"],result=deepcopy(active["result"]))
-    return dict(topics=bank()["topics"],levels=bank()["levels"],unlocked=5 if preview else unlocked(state),
+    return dict(unit=unit,unit_title=info["title"],subject=info["subject"],topic_count=len(content["topics"]),
+                topics=content["topics"],levels=content["levels"],unlocked=5 if preview else unlocked(state),
                 stages=deepcopy(state["stages"]),points=sum(state["awards"].values()),
                 totals=deepcopy(state["totals"]),skills=deepcopy(state["skills"]),
                 mastered_at=state["mastered_at"],question=q,preview=preview,records=deepcopy(state["records"][-30:]))

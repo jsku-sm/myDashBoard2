@@ -99,4 +99,4 @@ def test_deployment_assets_are_local_and_preserve_old_avatar_entry():
     view=(ROOT/'game_core/view.py').read_text()
     assert 'play_lab_page(user,lambda:_avatar_page(user))' in view
     assert 'if s:_lesson(user,p,s)' in view and 'else:_landing(user,p)' in view
-    assert 'function_quiz_page(user)' in view
+    assert 'quiz_page(user)' in (ROOT/'game_core/play_lab_view.py').read_text()

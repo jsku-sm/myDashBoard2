@@ -72,6 +72,17 @@ export function quizTextParts(text) {
     catch { return { text: part, unsupported: true }; }
   });
 }
-export function renderQuizText(text) {
+function renderPlain(text) {
   return quizTextParts(text).map(part => part.tex ? `${escapeHTML(part.before)}<span class="quiz-math">${math(`\\displaystyle ${part.tex}`)}</span>${escapeHTML(part.after)}` : escapeHTML(part.text)).join('');
+}
+
+// New common-math items arrive with explicit, server-formatted LaTeX spans.
+// Keep the original plain-notation renderer for previously saved function items.
+export function renderQuizText(text) {
+  return String(text).split(/(\$\$[\s\S]+?\$\$|\$[^$]+?\$|\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\])/).map((part,i)=>{
+    if(i%2===0)return renderPlain(part);
+    const double=part.startsWith('$$')||part.startsWith('\\[');
+    const trim=part.startsWith('$$')||part.startsWith('\\')?2:1;
+    return '<span class="quiz-math">'+katex.renderToString(part.slice(trim,-trim),{throwOnError:false,trust:false,strict:'ignore',displayMode:double})+'</span>';
+  }).join('');
 }
