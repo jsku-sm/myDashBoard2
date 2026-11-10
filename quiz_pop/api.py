@@ -1,5 +1,6 @@
 """Fixed QuizPop requests. API credentials stay on the Streamlit server."""
 from copy import deepcopy
+from collections.abc import Mapping
 import json
 import math
 import os
@@ -11,12 +12,66 @@ PROMPTS = json.loads(Path(__file__).with_name('prompts.json').read_text(encoding
 ENDPOINT = 'https://api.openai.com/v1/responses'
 
 
-def config(values):
-    own, shared = values.get('quiz_ai', {}), values.get('openai', {})
-    key = str(own.get('api_key') or shared.get('api_key') or values.get('OPENAI_API_KEY') or os.environ.get('OPENAI_API_KEY', '')).strip()
-    model = str(own.get('model') or shared.get('model') or values.get('OPENAI_MODEL') or 'gpt-6-luna').strip()
-    enabled = own.get('enabled', True) not in (False, 'false', '0', 0)
-    return {'api_key': key, 'model': model, 'enabled': bool(key and enabled)}
+def config(values, environ=None):
+    """Resolve the dashboard's existing OpenAI settings without exposing keys.
+
+    Reuse a model from the same section as its credential. A model-only
+    quiz_ai setting may deliberately override that model. Credentials for
+    another provider must never be sent to the official OpenAI endpoint.
+    """
+    values = values if isinstance(values, Mapping) else {}
+    environ = os.environ if environ is None else environ
+    def group(name):
+        value = values.get(name, {})
+        return value if isinstance(value, Mapping) else {}
+    def first(section, *names):
+        return next((str(section[n]).strip() for n in names if section.get(n) and str(section[n]).strip()), '')
+    def official(section):
+        base = first(section, 'base_url', 'OPENAI_BASE_URL', 'openai_base_url')
+        return not base or base.rstrip('/') == 'https://api.openai.com/v1'
+    own = group('quiz_ai')
+    sources = [('[quiz_ai]', own), ('[openai]', group('openai')),
+               ('최상위 Secrets', values), ('서버 환경변수', environ),
+               ('[school_record_ai]', group('school_record_ai')), ('[snorkl]', group('snorkl'))]
+    key = source_model = key_source = ''
+    skipped_provider = False
+    for label, section in sources:
+        candidate = first(section, 'api_key', 'openai_api_key', 'OPENAI_API_KEY')
+        if candidate and not official(section):
+            skipped_provider = True
+            continue
+        if candidate:
+            key, key_source = candidate, label
+            source_model = first(section, 'model', 'openai_model', 'OPENAI_MODEL')
+            break
+    model = first(own, 'model', 'openai_model', 'OPENAI_MODEL') or source_model or first(values, 'OPENAI_MODEL') or first(environ, 'OPENAI_MODEL') or 'gpt-6-luna'
+    allowed = str(own.get('enabled', True)).strip().lower() not in ('false', '0', 'off', 'no')
+    reason = ''
+    if not official(own): reason = '퀴즈팝의 [quiz_ai] base_url은 공식 OpenAI 주소를 사용해야 합니다. [QUIZ_PROVIDER]'
+    elif not allowed: reason = '퀴즈 AI 사용이 꺼져 있습니다. [quiz_ai] enabled = true 설정을 확인해 주세요. [QUIZ_DISABLED]'
+    elif not key:
+        reason = ('공식 OpenAI용 API 키가 필요합니다. 다른 서비스의 키는 재사용하지 않습니다. [QUIZ_PROVIDER]'
+                  if skipped_provider else '퀴즈용 API 키를 찾지 못했습니다. Streamlit Secrets에 OpenAI API 키를 설정해 주세요. [QUIZ_KEY_MISSING]')
+    return {'api_key': key, 'model': model, 'enabled': not bool(reason), 'key_source': key_source, 'reason': reason}
+
+
+def provider_error(response):
+    """Only fixed diagnostics leave the server; provider messages may contain secrets."""
+    try:
+        data = response.json()
+        error = data.get('error', {}) if isinstance(data, dict) else {}
+        code = error.get('code', '') if isinstance(error, dict) else ''
+    except (ValueError, AttributeError): code = ''
+    status = response.status_code
+    if status == 401: return 'AI 키 인증에 실패했습니다. Streamlit Secrets의 API 키를 확인해 주세요. [QUIZ_AUTH]'
+    if status == 403: return '이 API 키로 AI 모델을 사용할 권한이 없습니다. 모델과 프로젝트 권한을 확인해 주세요. [QUIZ_PERMISSION]'
+    if status == 404 or code == 'model_not_found': return '설정한 AI 모델을 찾거나 사용할 수 없습니다. [quiz_ai] model을 확인해 주세요. [QUIZ_MODEL]'
+    if code in ('insufficient_quota', 'billing_hard_limit_reached', 'billing_not_active'):
+        return 'OpenAI API 잔액 또는 프로젝트 사용 한도를 확인해 주세요. [QUIZ_QUOTA]'
+    if status == 429: return 'AI 요청이 일시적으로 많습니다. 잠시 뒤 한 번만 다시 눌러 주세요. [QUIZ_RATE_LIMIT]'
+    if status == 400:
+        return '설정한 AI 모델이 퀴즈 요청 형식을 받지 못했습니다. Responses API와 구조화 출력을 지원하는 모델을 설정해 주세요. [QUIZ_REQUEST]'
+    return 'AI 서비스가 응답하지 못했습니다. 잠시 뒤 다시 시도해 주세요. [QUIZ_PROVIDER_ERROR]'
 
 
 def text(value, limit, *, empty=False):
@@ -106,20 +161,22 @@ def request_body(kind, payload, model):
 
 
 def call(kind, payload, cfg, transport=None):
-    if not cfg['enabled']: raise ValueError('AI 연결이 아직 준비되지 않았어요. 선생님에게 알려 주거나 예시 퀴즈를 체험해 보세요.')
+    if not cfg['enabled']: raise ValueError(cfg.get('reason') or 'AI 연결이 아직 준비되지 않았어요. 선생님에게 알려 주세요. [QUIZ_KEY_MISSING]')
     body = request_body(kind, payload, cfg['model'])
     transport = transport or requests
     try:
-        response = transport.post(ENDPOINT, headers={'Authorization':'Bearer '+cfg['api_key'], 'Content-Type':'application/json'}, json=body, timeout=(10, 65))
+        response = transport.post(ENDPOINT, headers={'Authorization':'Bearer '+cfg['api_key'], 'Content-Type':'application/json'}, json=body, timeout=(10, 150))
         if response.status_code != 200:
-            messages = {401:'AI 연결 인증을 확인해 주세요.',403:'AI 모델의 사용 권한을 확인해 주세요.',404:'AI 모델 설정을 확인해 주세요.',429:'AI 사용 한도에 도달했어요. 잠시 뒤 다시 시도해 주세요.'}
-            raise ValueError(messages.get(response.status_code, 'AI 응답을 받지 못했어요. 잠시 뒤 다시 시도해 주세요.'))
+            raise ValueError(provider_error(response))
         result = response.json()
+    except requests.Timeout:
+        raise ValueError('AI 문항 생성 시간이 초과되었습니다. 문항 수를 3개로 줄여 다시 시도해 주세요. [QUIZ_TIMEOUT]') from None
     except requests.RequestException:
-        raise ValueError('AI 서버 연결이 지연되고 있어요. 잠시 뒤 다시 시도해 주세요.') from None
+        raise ValueError('AI 서버와 연결하지 못했습니다. 잠시 뒤 다시 시도해 주세요. [QUIZ_NETWORK]') from None
     except (TypeError, json.JSONDecodeError):
         raise ValueError('AI 응답을 읽지 못했어요. 다시 시도해 주세요.') from None
-    if result.get('status') != 'completed': raise ValueError('AI 응답이 완료되지 않았어요. 범위를 줄여 다시 시도해 주세요.')
+    if not isinstance(result, dict): raise ValueError('AI 응답 형식을 읽지 못했습니다. [QUIZ_RESPONSE]')
+    if result.get('status') != 'completed': raise ValueError('AI 응답이 끝나기 전에 출력 한도에 도달했거나 처리가 중단되었습니다. 문항 수를 3개로 줄여 다시 시도해 주세요. [QUIZ_INCOMPLETE]')
     texts = [p.get('text','') for m in result.get('output',[]) if m.get('type')=='message' and m.get('role')=='assistant'
              for p in m.get('content',[]) if p.get('type')=='output_text']
     answer = '\n\n'.join(texts).strip()

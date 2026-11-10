@@ -5,12 +5,33 @@ import re
 import streamlit as st
 import storage as db
 from game_core import service as games, engine
+from record_core.archive import EXPECTED_REPO
 from . import api
+
+
+def _require_student_store(backend, actor):
+    if actor['role'] != 'student': return
+    if getattr(backend, 'is_local', True):
+        raise ValueError('학생 퀴즈는 GitHub 저장 연결이 필요합니다. [app] storage = "github", [github] repo = "jsku-sm/class-dashboard-data" 설정을 확인해 주세요. [QUIZ_STORAGE]')
+    if str(getattr(backend, 'repo', '')).strip().casefold() != EXPECTED_REPO.casefold():
+        raise ValueError('학생 퀴즈 기록은 jsku-sm/class-dashboard-data에만 저장할 수 있습니다. [github] repo를 확인해 주세요. [QUIZ_STORAGE]')
+
+
+def storage_info(user):
+    backend = db._ready_backend()
+    with backend.lock:
+        games._actor(user, backend)
+        local = getattr(backend, 'is_local', True)
+        repo = str(getattr(backend, 'repo', ''))
+        return {'ready': not local and repo.casefold() == EXPECTED_REPO.casefold(), 'repo': repo, 'expected': EXPECTED_REPO}
 
 
 def authorize(user, *, write=False):
     b = db._ready_backend()
-    with b.lock: return dict(games._actor(user, b, write=write))
+    with b.lock:
+        actor = games._actor(user, b, write=write)
+        _require_student_store(b, actor)
+        return dict(actor)
 
 
 def _state(profile):
@@ -21,6 +42,7 @@ def snapshot(user):
     b = db._ready_backend()
     with b.lock:
         actor = games._actor(user, b)
+        _require_student_store(b, actor)
         if actor['role'] == 'teacher':
             state = st.session_state.get('_quizpop_preview_'+actor['id'], _state({}))
         else:
@@ -94,6 +116,7 @@ def save(user, value, revision):
     b=db._ready_backend()
     with b.lock:
         actor=games._actor(user,b,write=True)
+        _require_student_store(b,actor)
         if actor['role']=='teacher':
             key='_quizpop_preview_'+actor['id']; state=deepcopy(st.session_state.get(key,_state({})))
             _apply(state,saved,revision);st.session_state[key]=state
