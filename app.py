@@ -33,7 +33,7 @@ def dashboard_update_issues(root=None):
 _update_issues = dashboard_update_issues()
 if _update_issues:
     st.set_page_config(page_title="구쌤의 수학 교실 · 업데이트 확인", page_icon="📐", layout="wide")
-    st.title("Good쌤을 만나, 수학이 달라졌다")
+    st.title("Good쌤의 수학교실")
     st.error("로그인 파일은 수정되었지만, 학생 자료함·생기부 파일 일부가 아직 적용되지 않았습니다.")
     st.code("\n".join(_update_issues), language="text")
     st.info("이번 수정본의 파일·하위 폴더를 앱 코드 저장소의 같은 위치에 모두 덮어쓰세요. 데이터 저장소에는 코드 파일을 올리지 않습니다. Secrets나 기존 학생 자료는 삭제하지 마세요.")
@@ -91,7 +91,7 @@ def login_page():
     left, right = st.columns([1.15, 1], gap="large")
     with left:
         st.markdown(
-            '<div class="hero">Good쌤을 만나,<br><span>수학이 달라졌다</span></div>'
+            '<div class="hero">Good쌤의<br><span>수학교실</span></div>'
             '<p class="formula">f(x) = 나의 질문 + 나의 언어</p>',
             unsafe_allow_html=True,
         )

@@ -1,0 +1,105 @@
+"""Authenticated practice state; reuse the existing encrypted GitHub save queue."""
+from copy import deepcopy
+import json
+import re
+import streamlit as st
+import storage as db
+from game_core import service as games, engine
+from . import api
+
+
+def authorize(user, *, write=False):
+    b = db._ready_backend()
+    with b.lock: return dict(games._actor(user, b, write=write))
+
+
+def _state(profile):
+    return profile.get('quiz_pop', {'revision':0, 'saved':None, 'records':[]})
+
+
+def snapshot(user):
+    b = db._ready_backend()
+    with b.lock:
+        actor = games._actor(user, b)
+        if actor['role'] == 'teacher':
+            state = st.session_state.get('_quizpop_preview_'+actor['id'], _state({}))
+        else:
+            row = games._row(b, actor)
+            state = _state(games._load(row['state_json'], engine.new_profile()))
+        return {'userId':actor['id'], 'preview':actor['role']=='teacher', 'revision':state['revision'], 'saved':deepcopy(state['saved'])}
+
+
+def validate_saved(value):
+    if not isinstance(value, dict) or len(json.dumps(value, ensure_ascii=False, allow_nan=False)) > 220000:
+        raise ValueError('학습 기록의 크기를 확인해 주세요.')
+    s = value.get('session')
+    if s is None: return {'session':None, 'showingSummary':False}
+    if not isinstance(s, dict) or not re.fullmatch(r'[a-zA-Z0-9_-]{8,80}', str(s.get('runId',''))): raise ValueError('학습 회차를 확인해 주세요.')
+    s = deepcopy(s)
+    s['settings'] = api.settings(s.get('settings'))
+    if s.get('mode') not in ('demo','ai') or type(s.get('stage')) is not int or not s['settings']['startStage'] <= s['stage'] <= 4:
+        raise ValueError('학습 단계를 확인해 주세요.')
+    if not isinstance(s.get('questions'), list): raise ValueError('문항 정보를 확인해 주세요.')
+    if not s['questions']: return {'session':None,'showingSummary':False}
+    api.validate_schema({'title':s.get('title',''), 'questions':s['questions']}, api.PROMPTS['schemas'][str(s['settings']['count'])])
+    n = len(s['questions'])
+    if type(s.get('questionIndex')) is not int or not 0 <= s['questionIndex'] < n: raise ValueError('문항 위치를 확인해 주세요.')
+    if not isinstance(s.get('progress'),list) or len(s['progress']) != n: raise ValueError('학습 기록을 확인해 주세요.')
+    for q, p in zip(s['questions'],s['progress']):
+        if not isinstance(p,dict): raise ValueError('학습 기록을 확인해 주세요.')
+        attempts=p.get('attempts')
+        if not isinstance(attempts,list) or len(attempts)>5 or any(type(i) is not int or not 0<=i<5 for i in attempts) or len(set(attempts))!=len(attempts):
+            raise ValueError('답안 기록을 확인해 주세요.')
+        if type(p.get('hintsUsed')) is not int or not 0<=p['hintsUsed']<=3: raise ValueError('힌트 기록을 확인해 주세요.')
+        p['solved'] = bool(attempts and attempts[-1] == q['correctIndex'])
+    if not isinstance(s.get('history'),list) or len(s['history'])>4: raise ValueError('단계 이력을 확인해 주세요.')
+    for h in s['history']:
+        if not isinstance(h,dict) or any(type(h.get(k)) is not int or not 0<=h[k]<=7 for k in ('solved','firstTry','retried')):
+            raise ValueError('단계 결과를 확인해 주세요.')
+        if type(h.get('stage')) is not int or not 0<=h['stage']<s['stage']: raise ValueError('완료 단계를 확인해 주세요.')
+    if not isinstance(s.get('threads'),list) or len(s['threads'])!=n: raise ValueError('질문 기록을 확인해 주세요.')
+    threads=[]
+    for thread in s['threads']:
+        if not isinstance(thread,list): raise ValueError('질문 기록을 확인해 주세요.')
+        messages=[]
+        for m in thread[-8:]:
+            if not isinstance(m,dict) or m.get('role') not in ('user','assistant'): raise ValueError('대화 기록을 확인해 주세요.')
+            messages.append({'role':m['role'],'content':api.text(m.get('content'),5000)})
+        threads.append(messages)
+    previous=s.get('previous',[])
+    if not isinstance(previous,list) or len(previous)>35: raise ValueError('출제 이력을 확인해 주세요.')
+    s['previous']=[api.text(p,3000) for p in previous]
+    s['threads']=threads
+    keep=('runId','settings','mode','stage','questions','progress','questionIndex','history','threads','previous','title')
+    return {'session':{k:s[k] for k in keep},'showingSummary':bool(value.get('showingSummary'))}
+
+
+def _apply(state, saved, revision):
+    if type(revision) is not int or revision!=state['revision']:
+        raise ValueError('다른 창의 퀴즈 기록이 변경되었어요. 현재 화면을 새로고침해 최신 기록을 열어 주세요.')
+    state['saved']=saved
+    state['revision']+=1
+    s=saved['session']
+    if s:
+        progress=s['progress']
+        result={'runId':s['runId'],'course':s['settings']['course'],'unit':s['settings']['unit'],'mode':s['mode'],
+                'stage':s['stage'],'solved':sum(p['solved'] for p in progress)+sum(h['solved'] for h in s['history']),
+                'firstTry':sum(p['solved'] and len(p['attempts'])==1 for p in progress)+sum(h['firstTry'] for h in s['history']),
+                'hints':sum(p['hintsUsed'] for p in progress),'at':db.now_str()}
+        state['records']=([r for r in state.get('records',[]) if r['runId']!=s['runId']]+[result])[-50:]
+
+
+def save(user, value, revision):
+    saved=validate_saved(value)
+    b=db._ready_backend()
+    with b.lock:
+        actor=games._actor(user,b,write=True)
+        if actor['role']=='teacher':
+            key='_quizpop_preview_'+actor['id']; state=deepcopy(st.session_state.get(key,_state({})))
+            _apply(state,saved,revision);st.session_state[key]=state
+        else:
+            row=games._row(b,actor);profile=games._load(row['state_json'],engine.new_profile())
+            state=deepcopy(_state(profile));_apply(state,saved,revision);profile['quiz_pop']=state
+            row.update(state_json=games._json(profile),revision=str(int(row['revision'])+1),updated_at=games._stamp())
+            games._put(b,'game_profiles',row)
+        return {'revision':state['revision']}

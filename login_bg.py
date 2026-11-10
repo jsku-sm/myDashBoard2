@@ -60,7 +60,7 @@ header[data-testid="stHeader"] {{ background:transparent !important; }}
   background:#f3f6fd!important;border:1.5px solid #9eadc5!important;border-radius:12px; }}
 .st-key-login_card input {{ background:#f3f6fd!important;color:#142443!important;
   -webkit-text-fill-color:#142443!important;font-weight:650!important;caret-color:#234fe0; }}
-.st-key-login_card input::placeholder {{ color:#556580!important;-webkit-text-fill-color:#556580!important;opacity:1!important; }}
+.st-key-login_card input::placeholder {{ color:#8a95a8!important;-webkit-text-fill-color:#8a95a8!important;opacity:.7!important;font-weight:400!important; }}
 .st-key-login_card [data-testid="stTextInput"] button {{ color:#142443!important; }}
 .st-key-login_card [data-testid="stFormSubmitButton"] button {{ background:#20365e!important;
   border:2px solid #20365e!important;min-height:50px; }}
