@@ -8,6 +8,7 @@ import streamlit as st
 from config import CLASSES
 from . import bank, engine, presentation as art, service as svc
 from .curriculum import EDITIONS, TOPICS, rows, topic
+from .math_text import markdown as math_markdown
 
 KINDS={"independent":"처음에 스스로 해결", "retry":"다시 생각해서 해결", "supported":"힌트로 해결", "explained":"해설로 확인"}
 
@@ -99,24 +100,18 @@ def _landing(user,p):
                 st.write(f"{TOPICS[s['topic_id']]['label']} · {s['index']}/5문제 · {engine.MODES[s['mode']]}")
                 if st.button("이 자리부터 이어 하기",key="resume_"+s["id"]):
                     _change(svc.resume,user,s["id"],p["revision"],message="지난번 자리부터 천천히 이어 가요.")
-    missions=svc.missions(user)
-    if missions:
-        with st.expander("선생님이 보낸 5문제 미션",expanded=True):
-            for m in missions:
-                already=next((s for s in p["sessions"] if s["mission_id"]==m["id"]),None)
-                st.write(f"**{m['title']}** · {TOPICS[m['topic_id']]['label']}")
-                if already and already["status"]=="done":st.caption("완료했어요. 나의 성장기록에서 다시 살펴볼 수 있어요.");continue
-                mode=_mode("mission_"+m["id"])
-                if st.button("미션 시작 · 이어 하기",key="mission_start_"+m["id"]):
-                    _change(svc.start,user,m["topic_id"],mode,p["revision"],mission_id=m["id"],message="선생님 미션을 열었어요. 속도보다 생각에 집중해요.")
-    st.subheader("오늘 내가 골라 배우는 개념")
-    tid=_pick_topic("gg_free");t=topic(tid)
-    st.markdown(art.note(t["concept"]),unsafe_allow_html=True)
-    st.caption("생활·전공과의 연결 · "+t["usefulness"])
-    mode=_mode("gg_free")
-    level=st.selectbox("숫자의 복잡도",["천천히","기본","한 걸음 더"],key="gg_level",help="점수나 등급이 아닙니다. 같은 개념을 작은 수부터 연습하는 선택입니다.")
-    if st.button("5문제, 나의 속도로 시작하기",key="gg_start",type="primary",width="stretch"):
-        _change(svc.start,user,tid,mode,p["revision"],level=level,message="첫 문제를 만났어요. 필요하면 힌트를 이용해요.")
+    st.markdown(art.studio_banner(),unsafe_allow_html=True)
+    st.subheader("골라 배우는 개념")
+    with st.container(key="gg_concept_picker"):
+        tid=_pick_topic("gg_free");t=topic(tid)
+        with st.container(key="gg_concept_note"):
+            st.caption("💡 이 개념의 핵심")
+            st.markdown(math_markdown(t["concept"]))
+        st.caption("생활·전공과의 연결 · "+t["usefulness"])
+        mode=_mode("gg_free")
+        level=st.selectbox("숫자의 복잡도",["천천히","기본","한 걸음 더"],key="gg_level",help="점수나 등급이 아닙니다. 같은 개념을 작은 수부터 연습하는 선택입니다.")
+        if st.button("5문제, 나의 속도로 시작하기",key="gg_start",type="primary",width="stretch"):
+            _change(svc.start,user,tid,mode,p["revision"],level=level,message="첫 문제를 만났어요. 필요하면 힌트를 이용해요.")
     _resources(user,tid)
 
 
@@ -167,29 +162,34 @@ def _lesson(user,p,s,preview=False):
     if s["status"]=="done":
         _completed(user,p,s,act,preview);return
     q=s["question"];a=s["answers"][ix]
-    with st.expander("이 문제의 개념 한 줄",expanded=False):st.write(topic(s["topic_id"])["concept"])
-    st.markdown(f"### {ix+1}. {q['prompt']}")
+    with st.expander("이 문제의 개념 한 줄",expanded=False):st.markdown(math_markdown(topic(s["topic_id"])["concept"]))
+    with st.container(key="gg_question_card"):
+        st.markdown(art.question_badge(ix),unsafe_allow_html=True)
+        st.markdown(math_markdown(q["prompt"]))
     if q.get("source_note"):st.caption("문항 출처 · "+q["source_note"])
     if a["solved"]:
         st.success({"independent":"이번 규칙을 스스로 적용했어요.","retry":"다시 생각해서 해결했어요. 바꾼 생각이 오늘의 배움이에요.","supported":"힌트를 활용해 끝까지 해결했어요. 도움을 쓰는 것도 학습의 힘이에요.","explained":"해설에서 규칙을 확인했어요. 비슷한 문제에서 다시 사용해 봐요."}[a["kind"]])
-        st.write("**정답** · "+q["options"][q["answer"]]);st.write(q["explanation"])
+        st.markdown("**정답** · "+math_markdown(q["options"][q["answer"]]));st.markdown(math_markdown(q["explanation"]))
         if st.button("블록 놓기 · 별 조각 2개" if s["mode"]=="puzzle" else "한 칸 이동 · 별 조각 2개",type="primary",key=prefix+"_next",width="stretch"):
             act("advance",placement=placement,direction=direction)
         st.caption("모든 해결 경로의 보상은 같습니다. 다음 문제에서 혼자 적용해 볼 기회를 드려요.")
         return
     with st.form(prefix+"_answer_form"):
-        choice=st.radio("나의 생각과 가장 가까운 답",range(4),format_func=lambda i:f"{i+1}  ·  {q['options'][i]}",index=None,key=prefix+"_choice")
+        choice=st.radio("나의 생각과 가장 가까운 답",range(4),format_func=lambda i:f"{['①','②','③','④'][i]}　"+math_markdown(q["options"][i]),index=None,key=prefix+"_choice")
         if st.form_submit_button("내 생각 확인하기",type="primary",width="stretch"):
             if choice is None:st.info("답 하나를 골라 주세요. 모르겠다면 아래 힌트부터 만나도 괜찮아요.")
             else:act("answer",choice=choice)
     if a["choices"]:
         st.info("아직 답과 만나지 않았어요. 어떤 조건을 놓쳤는지 한 번 더 살펴볼까요? 오답으로 별 조각을 잃지 않아요.")
-    for number,h in enumerate(q["hints"],1):st.markdown(art.note(f"힌트 {number} · {h}"),unsafe_allow_html=True)
+    for number,h in enumerate(q["hints"],1):
+        with st.container(key=f"gg_hint_{number}"):
+            st.caption(f"💡 힌트 {number}")
+            st.markdown(math_markdown(h))
     cols=st.columns(2)
     if cols[0].button("한 단계 힌트",key=prefix+"_hint",disabled=a["hints"]>=q["hint_count"]):act("hint")
     if cols[1].button("해설과 함께 배우기",key=prefix+"_reveal",disabled=a["revealed"]):act("reveal")
     if a["revealed"]:
-        st.write("**정답** · "+q["options"][q["answer"]]);st.write(q["explanation"])
+        st.markdown("**정답** · "+math_markdown(q["options"][q["answer"]]));st.markdown(math_markdown(q["explanation"]))
         st.caption("이 과정은 ‘해설로 확인’으로 기록됩니다. 정답을 본 것과 혼자 해결한 것을 구분해요.")
         with st.form(prefix+"_explain_form"):
             text=st.text_area("해설에서 확인한 규칙 한 가지를 나의 말로",key=prefix+"_explain",max_chars=1000,placeholder="예: x축 대칭에서는 y좌표의 부호만 바뀐다.")
@@ -207,7 +207,9 @@ def _completed(user,p,s,act,preview):
         if st.form_submit_button("나의 말로 기록하기"):act("reflection",text=text)
     with st.expander("5문제 다시 살펴보기"):
         for i,r in enumerate(s["review"],1):
-            st.write(f"**{i}. {r['prompt']}**");st.write(f"정답: {r['answer']} · {KINDS[r['kind']]}");st.write(r["explanation"])
+            st.markdown(f"**{i}번** · "+math_markdown(r["prompt"]))
+            st.markdown("**정답** · "+math_markdown(r["answer"])+" · "+KINDS[r["kind"]])
+            st.markdown(math_markdown(r["explanation"]))
     if not preview and s["mission_id"]:
         m=next((m for m in svc.missions(user) if m["id"]==s["mission_id"]),None)
         req=p["point_requests"].get(s["id"])
@@ -383,7 +385,7 @@ def _teacher_growth(user):
                     else:_change(svc.approve_points,user,student,sid,int(score),reason,approve=decision=="승인",message="교사 검토를 반영했습니다.",flush_user=user)
 
 
-def _avatar_page(user):
+def _avatar_content(user):
     st.caption("현재 교과서 목차 · "+EDITIONS[svc.edition()]+" · 2022 개정")
     if user.get("role")=="teacher":
         action=st.radio("교사 도구",["학생 화면 미리보기","문항·학습지 관리","미션 배포","교과서 설정"],horizontal=True,key="_gg_teacher_action")
@@ -401,6 +403,11 @@ def _avatar_page(user):
         if s:_lesson(user,p,s)
         else:_landing(user,p)
     _save_panel(user)
+
+
+def _avatar_page(user):
+    with st.container(key="gg_concept_studio"):
+        _avatar_content(user)
 
 
 def _page(user):

@@ -28,6 +28,20 @@ def note(text):
     return '<div class="gg-note">'+escape(str(text))+'</div>'
 
 
+def studio_banner():
+    return ('<div class="gg-studio-banner"><div class="gg-studio-copy">'
+            '<span class="gg-studio-kicker">MY CONCEPT · MY STYLE</span>'
+            '<p class="gg-studio-title">한 문제씩, 내 캐릭터도 레벨 업!</p>'
+            '<p>궁금한 개념을 고르고, 생각을 모아 나만의 아바타를 꾸며요.</p>'
+            '<div class="gg-studio-steps"><span>01 개념 선택</span><span>02 다섯 번의 도전</span>'
+            '<span>03 아바타 꾸미기</span></div></div>'
+            '<div class="gg-studio-sticker" aria-hidden="true">✦<small>+12<br>별 조각</small></div></div>')
+
+
+def question_badge(index):
+    return f'<div class="gg-question-badge"><span>QUESTION {int(index)+1:02}</span><b>생각을 펼칠 시간 ✦</b></div>'
+
+
 def avatar(equipped,coins=0):
     def value(slot,default):
         key=equipped.get(slot,default)
@@ -94,3 +108,51 @@ CSS += """<style>
 @media(prefers-color-scheme:dark){.st-key-good_math_games [data-testid="stForm"],.st-key-good_math_games [data-testid="stMetric"]{background:#29233d;color:#f2eaff}.st-key-good_math_games [data-testid="stMetricValue"]{color:#d9ff4b}.st-key-good_math_games [data-testid="stRadio"] label[data-baseweb="radio"]{background:#29233d;color:#f2eaff}.st-key-good_math_games [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked){background:#643bff;color:#fff}}
 @media(prefers-reduced-motion:reduce){.st-key-good_math_games button{transition:none!important;transform:none!important}}
 </style>"""
+
+
+# Avatar concept learning only. Native Streamlit controls keep their callbacks,
+# keyboard support and MathJax/KaTeX labels; no parent-frame scripts are injected.
+CSS += '''<style>
+.gg-scope{--studio-ink:#231b3b;--studio-purple:#6433ef;--studio-pink:#ff53a0;--studio-lime:#dcff66;color:var(--studio-ink);}
+.gg-scope .gg-studio-banner{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:30px 32px;margin:12px 5px 24px 0;background:#6433ef;color:#fff;border:2px solid #231b3b;border-radius:26px;box-shadow:7px 7px 0 #ff8cc4;overflow:hidden;position:relative;isolation:isolate;}
+.gg-scope .gg-studio-banner:before{content:"";position:absolute;inset:0;z-index:-1;background-image:radial-gradient(#ffffff26 1.5px,transparent 1.5px);background-size:20px 20px;}
+.gg-scope .gg-studio-kicker{color:#dcff66;font-size:.74rem;letter-spacing:.13em;font-weight:850;}
+.gg-scope .gg-studio-title{color:#fff!important;font-size:clamp(1.35rem,3vw,2rem)!important;font-weight:900!important;line-height:1.4!important;letter-spacing:-.04em;margin:10px 0!important;word-break:keep-all;}
+.gg-scope .gg-studio-copy>p:not(.gg-studio-title){color:#f6f1ff;font-size:1rem;line-height:1.7;word-break:keep-all;margin:0;}
+.gg-scope .gg-studio-steps{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px;}
+.gg-scope .gg-studio-steps span{background:#fff;color:#37215e;border:1.5px solid #231b3b;border-radius:999px;padding:7px 12px;font-size:.8rem;font-weight:800;}
+.gg-scope .gg-studio-steps span:nth-child(2){background:#dcff66}.gg-scope .gg-studio-steps span:nth-child(3){background:#ffbbe0}
+.gg-scope .gg-studio-sticker{flex:0 0 112px;width:112px;height:128px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#dcff66;border:2px solid #231b3b;border-radius:28px;color:#231b3b;font-size:2rem;box-shadow:5px 5px 0 #231b3b;transform:rotate(7deg);animation:gg-sticker-pop .5s ease-out both;}
+.gg-scope .gg-studio-sticker small{font-size:.94rem;font-weight:900;line-height:1.4;text-align:center;}
+.gg-scope .st-key-gg_concept_picker{padding:24px;border:2px solid #231b3b;border-radius:24px;background:#fff;box-shadow:5px 5px 0 #dcccff;margin-bottom:20px;}
+.gg-scope .st-key-gg_concept_picker [data-testid="stWidgetLabel"] p{color:#392c55;font-size:.94rem;font-weight:750;}
+.gg-scope .st-key-gg_concept_note,.gg-scope [class*="st-key-gg_hint_"]{padding:18px 20px;background:#f1eaff;border:1.5px solid #bba0f5;border-left:6px solid #7445f7;border-radius:16px;color:#302349;margin:8px 0;}
+.gg-scope .st-key-gg_concept_note p,.gg-scope [class*="st-key-gg_hint_"] p{color:#302349;line-height:1.9;font-size:1.05rem;word-break:keep-all;overflow-wrap:anywhere;}
+.gg-scope .st-key-gg_question_card{background:#fff;border:2px solid #231b3b;border-radius:23px;padding:24px 28px;box-shadow:6px 6px 0 #dcff66;margin:12px 6px 20px 0;}
+.gg-scope .gg-question-badge{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px;}
+.gg-scope .gg-question-badge span{color:#fff;background:#6433ef;border-radius:9px;padding:6px 10px;font-size:.73rem;letter-spacing:.08em;font-weight:900;}
+.gg-scope .gg-question-badge b{font-size:.85rem;color:#66408b;font-weight:750;}
+.gg-scope .st-key-gg_question_card [data-testid="stMarkdownContainer"]>p{color:#231b3b;font-size:clamp(1.14rem,2.2vw,1.45rem);font-weight:650;line-height:2;word-break:keep-all;overflow-wrap:anywhere;}
+.gg-scope .katex{font-size:1.17em;line-height:1.45;}
+.gg-scope .katex-display{overflow-x:auto;overflow-y:hidden;padding:8px 2px;max-width:100%;}
+.gg-scope .st-key-gg_question_card [data-testid="stMarkdownContainer"]{overflow-x:auto;padding-bottom:4px;}
+.gg-scope [data-testid="stForm"]{background:#faf8ff;border:2px solid #d9ccf5;padding:22px;border-radius:22px;}
+.gg-scope [data-testid="stForm"] [data-testid="stWidgetLabel"] p{color:#45345f;font-size:.94rem;font-weight:750;}
+.gg-scope [data-testid="stForm"] [role="radiogroup"]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+.gg-scope [data-testid="stForm"] [role="radiogroup"]>div{min-width:0;width:100%;}
+.gg-scope [data-testid="stForm"] :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]){display:flex;align-items:center;width:100%;min-height:76px;margin:0;gap:10px;padding:14px 18px;background:#fff;color:#231b3b;border:2px solid #cbb7f4;border-radius:16px;box-shadow:0 3px 0 #e4d8f7;transition:transform .15s ease,border-color .15s ease,box-shadow .15s ease;}
+.gg-scope [data-testid="stForm"] :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]) p{color:#231b3b;font-size:1.12rem;font-weight:650;line-height:1.9;overflow-wrap:anywhere;white-space:normal;}
+.gg-scope [data-testid="stForm"] :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):hover{transform:translateY(-2px);border-color:#7541f2;box-shadow:0 5px 0 #dccbff;}
+.gg-scope [data-testid="stForm"] :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):has(input:checked){background:#ece2ff;border:2px solid #6433ef;box-shadow:0 4px 0 #b49beb;}
+.gg-scope [data-testid="stForm"] :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]):has(input:focus-visible){outline:3px solid #ed3287;outline-offset:3px;}
+.gg-scope :is([data-testid="stButton"],[data-testid="stFormSubmitButton"]) button[kind="primary"]{border:2px solid #231b3b;background:#6433ef;color:#fff;border-radius:15px;box-shadow:0 4px 0 #231b3b;min-height:52px;font-weight:800;}
+.gg-scope :is([data-testid="stButton"],[data-testid="stFormSubmitButton"]) button[kind="primary"] p{color:#fff;font-size:1rem;font-weight:800;}
+.gg-scope .gg-avatar{background:#ffda70;border-radius:24px;box-shadow:5px 5px 0 #231b3b;}
+.gg-scope .gg-board{background:#effbff;border-color:#231b3b;box-shadow:5px 5px 0 #98e6fa;}
+.gg-scope .gg-progress{gap:12px;padding:8px 2px;}.gg-scope .gg-progress span{width:38px;height:38px;font-size:.95rem;font-weight:850;}
+.gg-scope .gg-progress .current{background:#6433ef;color:#fff;outline:3px solid #ff75b5;outline-offset:3px;}
+.gg-scope .gg-progress .done{background:#dcff66;border-color:#231b3b;color:#231b3b;}
+@keyframes gg-sticker-pop{from{opacity:0;transform:translateY(10px) rotate(-5deg)}to{opacity:1;transform:translateY(0) rotate(7deg)}}
+@media(max-width:700px){.gg-scope .gg-studio-banner{padding:22px 20px;gap:14px}.gg-scope .gg-studio-sticker{flex-basis:76px;width:76px;height:100px;font-size:1.6rem}.gg-scope .gg-studio-sticker small{font-size:.8rem}.gg-scope .st-key-gg_concept_picker{padding:18px 15px}.gg-scope .st-key-gg_question_card{padding:20px 17px}.gg-scope [data-testid="stForm"]{padding:17px 13px}.gg-scope [data-testid="stForm"] [role="radiogroup"]{grid-template-columns:minmax(0,1fr)}.gg-scope .gg-studio-steps{gap:6px}.gg-scope .gg-studio-steps span{font-size:.73rem;padding:6px 9px}}
+@media(prefers-reduced-motion:reduce){.gg-scope .gg-studio-sticker{animation:none}.gg-scope [data-testid="stForm"] label{transition:none!important;transform:none!important}}
+</style>'''.replace('.gg-scope', '[data-testid="stMain"] .st-key-good_math_games .st-key-gg_concept_studio')
