@@ -1,3 +1,4 @@
+import { COMMON2_GAMES, common2Art } from './common2-data.js';
 import { escapeHTML as esc, icon, actionButton as button } from './ui.js';
 import { compileFormula, shuffle, clamp, number, valueMission, createDomainMaze, trajectory } from './arcade-math.js';
 
@@ -18,7 +19,7 @@ export const GAMES = [
   { id: 'shot', title: '포물선 버드', genre: '탄도 퍼즐', topic: '이차함수 · 포물선', tag: '각도와 속력의 실험!', desc: '발사 각도와 속력을 바꾸어 벽을 넘고, 포물선 궤적으로 목표를 맞혀요.', controls: '각도·속력 슬라이더 · 화면에서 각도 조준 · 발사', goal: '예측선을 살피고 각도와 속력을 조절해 목표를 맞히세요. 벽에 부딪히지 않도록 높이도 고려해요. 총 3개 스테이지예요.', lesson: '중력이 일정할 때 탄도는 아래로 열린 포물선이에요. 각도와 속력이 이차함수의 계수를 바꿔요.' },
   { id: 'memory', title: '함수 메모리 카드', genre: '카드 뒤집기', topic: '그래프 · 정의역 · 함수', tag: '기억하고 연결!', desc: '매번 새로운 식과 그래프, 정의역, 계산 결과를 짝지으며 개념을 연결해요.', controls: '카드 클릭·터치 · Tab으로 카드 선택 후 Enter', goal: '카드 2장을 뒤집어 수학적으로 연결되는 짝을 찾으세요. 6쌍을 모두 찾으면 성공! 도전 모드에서는 18번 안에 찾아야 해요.', lesson: '그림, 식, 조건은 같은 함수를 표현하는 여러 방법이에요. 짝의 이유도 함께 확인해요.' }
 ];
-GAMES.push(...NEW_ARCADE_GAMES, ...ROOT_GAMES);
+GAMES.push(...NEW_ARCADE_GAMES, ...ROOT_GAMES, ...COMMON2_GAMES);
 const marbleGame = id => ['marble','root-marble'].includes(id);
 const mazeGame = id => ['maze','root-maze'].includes(id);
 const memoryGame = id => ['memory', 'set-memory', 'logic-memory'].includes(id);
@@ -27,6 +28,7 @@ const gameById = id => GAMES.find(g => g.id === id);
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 export function gameArt(id) {
+  if (COMMON2_GAMES.some(g => g.id === id)) return common2Art(id);
   const rootRailArt=id==='root-marble',rootMazeArt=id==='root-maze';
   if(id==='root-marble')id='marble';
   if(id==='root-maze')id='maze';

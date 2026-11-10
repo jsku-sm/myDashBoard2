@@ -46,5 +46,37 @@
   {
     "id": "root-maze",
     "title": "무리함수 정의역 미로"
+  },
+  {
+    "id": "coordinate-drone",
+    "title": "좌표 드론 배송"
+  },
+  {
+    "id": "line-rail",
+    "title": "직선 레일 익스프레스"
+  },
+  {
+    "id": "circle-radar",
+    "title": "원 레이더 디펜스"
+  },
+  {
+    "id": "move-portal",
+    "title": "도형 이동 포털"
+  },
+  {
+    "id": "venn-catcher",
+    "title": "벤다이어그램 캐처"
+  },
+  {
+    "id": "logic-bridge",
+    "title": "논리 브리지 빌더"
+  },
+  {
+    "id": "function-factory",
+    "title": "함수 팩토리"
+  },
+  {
+    "id": "graph-rider",
+    "title": "그래프 웨이브 라이더"
   }
 ]

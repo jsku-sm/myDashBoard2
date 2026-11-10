@@ -32,10 +32,10 @@ function harness({ saved, deferred = false } = {}) {
   return { audio, context, intervals, sources, values, scope, advance, resolve: () => resolveResume(), creations: () => creations };
 }
 
-test('all 12 games have distinct, complete musical arrangements', () => {
-  const ids = ['bubble', 'invaders', 'maze', 'marble', 'shot', 'memory', 'territory', 'counter', 'set-memory', 'logic-memory', 'root-marble', 'root-maze'];
+test('all 20 games have distinct, complete musical arrangements', () => {
+  const ids = ['bubble', 'invaders', 'maze', 'marble', 'shot', 'memory', 'territory', 'counter', 'set-memory', 'logic-memory', 'root-marble', 'root-maze','coordinate-drone','line-rail','circle-radar','move-portal','venn-catcher','logic-bridge','function-factory','graph-rider'];
   assert.deepEqual(Object.keys(ARCADE_THEMES).sort(), ids.sort());
-  assert.equal(new Set(Object.values(ARCADE_THEMES).map(t => JSON.stringify([t.bpm, t.root, t.wave, t.notes, t.chords]))).size, 12);
+  assert.equal(new Set(Object.values(ARCADE_THEMES).map(t => JSON.stringify([t.bpm, t.root, t.wave, t.notes, t.chords]))).size, 20);
   for (const t of Object.values(ARCADE_THEMES)) {
     assert.ok(t.bpm >= 60 && t.bpm <= 150);
     assert.ok(t.notes.length === 16 && t.notes.every(n => n === null || Number.isFinite(n)));

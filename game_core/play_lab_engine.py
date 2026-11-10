@@ -1,4 +1,7 @@
-"""Additive arcade activity records. No changes to avatar rewards or quiz grades."""
+"""Records for 20 arcades including common-math-2 activities.
+
+New catalog entries are additive; avatar rewards and quiz grades stay separate.
+"""
 from copy import deepcopy
 import json
 import math

@@ -16,8 +16,8 @@ def event(kind="start", seq=1, run="run-12345678", game="bubble", **values):
                 score=10, mode="relaxed", **values)
 
 
-def test_all_twelve_games_exist_and_duplicate_batches_do_not_duplicate_records():
-    assert len(lab.TITLES) == 12
+def test_all_twenty_games_exist_and_duplicate_batches_do_not_duplicate_records():
+    assert len(lab.TITLES) == 20
     for gid in lab.TITLES:
         s = lab.initial()
         batch = [event(game=gid), event("success", 2, game=gid), event("clear", 3, game=gid), event("win", 4, game=gid)]
@@ -58,10 +58,12 @@ def test_avatar_quiz_and_arcade_coexist_and_survive_disk_reload(env):
     e.quiz.act(u,e.quiz.snapshot(u)['revision'],dict(id=uuid.uuid4().hex,action='open',level=1,topic=0))
     quiz_before=deepcopy(e.raw(u)['function_quiz'])
     e.lab.act(u,e.lab.snapshot(u)['revision'],[event(),event('win',2)])
+    e.lab.act(u,e.lab.snapshot(u)['revision'],[event(game='coordinate-drone',run='new-game-run'),event('win',2,game='coordinate-drone',run='new-game-run')])
     p=e.raw(u)
     for field in original:assert p[field]==original[field],field
     assert p['active_id']==sid and p['function_quiz']==quiz_before
     assert p['play_lab']['games']['bubble']['wins']==1
+    assert p['play_lab']['games']['coordinate-drone']['wins']==1
     disk=e.db.LocalBackend(e.b.root)
     assert json.loads(disk.read('game_profiles')[0]['state_json'])==p
 

@@ -17,6 +17,10 @@ export const ARCADE_THEMES = {
   'root-marble': { name: '루트 레일 · 맑은 별빛', bpm: 76, root: 74, wave: 'sine', notes: [0, null, 2, 7, 9, null, 14, 12, 7, null, 4, 9, 12, null, 7, 2], chords: [0, 5, 2, 7] },
   'root-maze': { name: '루트 미로 · 신비한 발걸음', bpm: 98, root: 69, wave: 'triangle', notes: quest.slice().reverse(), chords: [0, 3, 7, 5], minor: true }
 };
+// New locally synthesized arrangements for the common-math-2 activities.
+for (const [i,id] of ['coordinate-drone','line-rail','circle-radar','move-portal','venn-catcher','logic-bridge','function-factory','graph-rider'].entries()) {
+  ARCADE_THEMES[id]={name:'공통수학2 · 플레이 테마 '+(i+1),bpm:84+i*5,root:60+i*2,wave:i%2?'triangle':'sine',notes:bright.map(n=>n===null?null:n+(i%3)),chords:[0,5,7,0],drums:i%2===1};
+}
 export const ARCADE_AUDIO_KEY = 'goodssaem-arcade-audio-v1';
 const frequency = midi => 440 * 2 ** ((midi - 69) / 12);
 const defaults = { music: true, effects: true, volume: .45 };

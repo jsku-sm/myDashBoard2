@@ -13,7 +13,7 @@ TOOLS = [
     ("snorkl", "2. 수행평가", ""),
     ("tool_games", "3. 게임으로 배우기", "나의 속도로 배우고, 작은 성장을 기록해요."),
     ("tool_quiz", "4. 퀴즈", "배운 내용을 퀴즈로 확인해요."),
-    ("tool_apps", "5. 앱 (by Good쌤)", "Good쌤이 직접 만든 수학 앱이에요."),
+    ("tool_apps", "5. 수학 실험실", "직접 조작하고 관찰하며 수학 개념을 이해해요."),
 ]
 ACTIVE_APP = "_tool_apps_active_app"
 

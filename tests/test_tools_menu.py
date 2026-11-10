@@ -16,6 +16,7 @@ from snorkl_navigation import ACTIVE_TOOL, LINK_SEEN, REQUESTED_COURSE
 from ui import parse_links
 from views import snorkl, tools, quiz
 from game_core import view as game_view
+from quiz_pop import view as quizpop_view
 
 
 MENU = [
@@ -23,7 +24,7 @@ MENU = [
     ("snorkl", "2. 수행평가"),
     ("tool_games", "3. 게임으로 배우기"),
     ("tool_quiz", "4. 퀴즈"),
-    ("tool_apps", "5. 앱 (by Good쌤)"),
+    ("tool_apps", "5. 수학 실험실"),
 ]
 SETTINGS = {
     "tool_desmos": "그래프 계산기|https://www.desmos.com/calculator\n"
@@ -34,7 +35,7 @@ SETTINGS = {
                  "도형 앱|https://apps.example.com/shapes",
 }
 SENTINEL = "수행평가 연동 확인"
-QUIZ_SENTINEL = "내장 개념퀴즈 연동 확인"
+QUIZ_SENTINEL = "퀴즈팝 연동 확인"
 GAME_SENTINEL = "개념 학습게임 연동 확인"
 
 
@@ -57,7 +58,7 @@ def menu_app(monkeypatch):
     monkeypatch.setattr(tools.db, "get_setting", lambda key: settings.get(key, ""))
     monkeypatch.setattr(tools.db, "set_setting", save_setting)
     monkeypatch.setattr(snorkl, "page", embedded_page)
-    monkeypatch.setattr(quiz, "page", lambda user: st.markdown(QUIZ_SENTINEL))
+    monkeypatch.setattr(quizpop_view, "page", lambda user: st.markdown(QUIZ_SENTINEL))
 
     monkeypatch.setattr(game_view, "page", lambda user: st.markdown(GAME_SENTINEL))
 
@@ -233,7 +234,7 @@ def test_shared_link_selects_assessment_and_user_selection_clears_link(menu_app,
 def test_empty_apps_setting_uses_default_links(menu_app):
     menu_app.settings["tool_apps"] = "  \n "
     app = menu_app.make("student", active="tool_apps")
-    assert headings(app) == ["#### 5. 앱 (by Good쌤)"]
+    assert headings(app) == ["#### 5. 수학 실험실"]
     assert app_names(app) == [name for name, _ in parse_links(DEFAULT_SETTINGS["tool_apps"])]
     gallery = "".join(element.value for element in app.markdown)
     for number in ("01", "02", "03", "04", "05", "06"):
