@@ -1,4 +1,4 @@
-"""수업도구 → 4. 퀴즈 and teacher/student dashboard entry points."""
+"""수학 플레이 → 4. 퀴즈 and teacher/student dashboard entry points."""
 from __future__ import annotations
 import hashlib
 import json
@@ -167,7 +167,7 @@ def _create_view(user):
             svc.publish(user,selected,classes,student_ids,reviewed=reviewed)
             st.session_state['_quiz_open_id']=selected
             st.session_state['_quiz_go_monitor']=True
-            _notice('배포를 저장했습니다. 학생은 수업도구 → 4. 퀴즈에서 참여합니다.'); st.rerun()
+            _notice('배포를 저장했습니다. 학생은 수학 플레이 → 4. 퀴즈에서 참여합니다.'); st.rerun()
         except ERRORS as e: st.error(str(e))
     if st.button('초안 저장 확인·재시도',key=f'qflush_draft_{selected}'):
         try: svc.flush(user,selected); st.success('저장을 확인했습니다.')
@@ -473,7 +473,7 @@ def page(user):
 def teacher_dashboard(user):
     try:
         if not svc.list_quizzes(user):
-            st.info('수업도구 → 4. 퀴즈에서 개념확인 문제를 만들고 배포할 수 있습니다.')
+            st.info('수학 플레이 → 4. 퀴즈에서 개념확인 문제를 만들고 배포할 수 있습니다.')
             st.button('퀴즈 만들러 가기',on_click=_navigate,key='dashboard_quiz_start')
             return
         st.subheader('개념퀴즈 · 학생별 응답과 채점')

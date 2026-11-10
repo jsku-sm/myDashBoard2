@@ -103,11 +103,11 @@ def test_legacy_reference_checks_student_and_approved_membership(monkeypatch):
 
 
 @pytest.mark.parametrize("role", ["teacher", "student"])
-def test_existing_app_opens_classroom_by_default_and_retains_tool_menu(monkeypatch, role):
+def test_existing_app_opens_role_home_and_retains_math_play_menu(monkeypatch, role):
     from pathlib import Path
     from streamlit.testing.v1 import AppTest
     import realtime
-    from views import classroom, emotion, student_announcements
+    from views import home, dashboard, emotion, student_announcements
     user = dict(id="t" if role == "teacher" else "s", role=role, name="시험 계정", must_change="0", **{"class": "1-1"})
     monkeypatch.setattr(db, "get_backend", lambda: SimpleNamespace(is_local=True))
     monkeypatch.setattr(db, "backend_status", lambda: "시험 저장소")
@@ -121,11 +121,13 @@ def test_existing_app_opens_classroom_by_default_and_retains_tool_menu(monkeypat
     monkeypatch.setattr(student_announcements, "poll_announcements", lambda actor: None)
     monkeypatch.setattr(student_announcements, "show_announcement_popup", lambda actor: None)
     import streamlit as st
-    monkeypatch.setattr(classroom, "page", lambda actor: st.write("클래스룸 첫 화면 " + actor["role"]))
+    monkeypatch.setattr(home, "page", lambda actor: st.write("학생 홈 화면"))
+    monkeypatch.setattr(dashboard, "page", lambda actor: st.write("교사 대시보드 화면"))
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
     app.session_state["user"] = dict(user)
     app.run()
     assert not app.exception
-    assert app.radio(key="nav").value == "classroom"
-    assert any("수업도구" in label for label in app.radio(key="nav").options)
-    assert any("클래스룸 첫 화면 " + role in element.value for element in app.markdown)
+    assert app.radio(key="nav").value == ("dashboard" if role == "teacher" else "home")
+    assert "5. 🎮 수학 플레이" in app.radio(key="nav").options
+    expected = "교사 대시보드 화면" if role == "teacher" else "학생 홈 화면"
+    assert any(expected in element.value for element in app.markdown)

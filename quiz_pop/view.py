@@ -24,7 +24,10 @@ def dispatch(user, event, cfg, code=None):
         service.authorize(user, role='teacher', write=True)
         return api.call(action, event.get('payload'), cfg)
     if action == 'save':
-        if actor['role'] == 'teacher': return service.save(user, event.get('payload'), event.get('revision'))
+        if actor['role'] == 'teacher':
+            result=service.save(user, event.get('payload'), event.get('revision'))
+            result['publication']=classroom.publish_current(user)
+            return result
         if not code: raise PermissionError('참여코드로 입장한 학생만 풀이를 저장할 수 있어요.')
         return classroom.save(user, code, event.get('payload'), event.get('revision'))
     if action == 'guide':
@@ -33,17 +36,25 @@ def dispatch(user, event, cfg, code=None):
             if not code: raise PermissionError('참여코드로 입장한 뒤 질문해 주세요.')
             payload = classroom.guide_payload(user, code, payload)
         return api.call(action, payload, cfg)
+    if action == 'publish':
+        service.authorize(user, role='teacher', write=True)
+        return {'publication':classroom.publish_current(user,retry=True)}
     raise ValueError('지원하지 않는 퀴즈 요청입니다.')
 
 
-def component(user, data, cfg, code=None):
+def _component_renderer():
     global _component
     if _component is None:
         import streamlit.components.v1 as components
         _component = components.declare_component('goodmath_quizpop', path=str(Path(__file__).with_name('frontend')))
+    return _component
+
+
+def component(user, data, cfg, code=None):
+    render = _component_renderer()
     scope = user['id']+'_'+(code or 'teacher')
     replies = st.session_state.setdefault('_quizpop_replies_'+scope, {})
-    event = _component(data=data, enabled=cfg['enabled'], model=cfg['model'],
+    event = render(data=data, enabled=cfg['enabled'], model=cfg['model'],
                        unavailableMessage=cfg.get('reason','') if data['preview'] else '생각 길잡이 AI 연결을 선생님께 확인해 주세요.',
                        reply=next(reversed(replies.values()),None) if replies else None,
                        key='quizpop_'+scope, default=None)
@@ -61,6 +72,22 @@ def component(user, data, cfg, code=None):
             st.rerun()
     reply=next(reversed(replies.values()),None) if replies else None
     if reply and not reply['ok']: st.error(reply['error'])
+
+
+def teacher_paper(user, code=None):
+    """A separate, read-only component never sends practice saves or AI requests."""
+    service.authorize(user, role='teacher')
+    if code:
+        paper = classroom.teacher_paper(user, code)
+    else:
+        saved = service.snapshot(user).get('saved')
+        session = saved.get('session') if saved else None
+        if not session or not session.get('questions'):
+            return
+        paper = {k: session[k] for k in ('title', 'stage', 'settings', 'questions')}
+    with st.expander('생성한 문제 전체 확인 · 정답·해설', expanded=False):
+        _component_renderer()(data=dict(userId=user['id'], role='teacher', preview=True, teacherPaper=paper),
+                              key='quizpop_paper_'+user['id']+'_'+(code or 'current'), default=None)
 
 
 def _settings(cfg):
@@ -89,13 +116,14 @@ def teacher_room(user, code):
                     f'<div style="font-size:clamp(38px,8vw,76px);font-weight:900;letter-spacing:.15em;color:#5326c8">{report["code"]}</div>'
                     f'<p>{html.escape(report["title"])} · {report["count"]}문항</p></div>',unsafe_allow_html=True)
         if report['status']=='closed': st.warning('참여가 종료되었습니다. 기존 학생 기록은 보존됩니다.')
-        else: st.info('학생: 왼쪽 참여코드 입력 또는 수업도구 → 퀴즈에서 입장할 수 있어요.')
+        else: st.info('학생: 왼쪽 참여코드 입력 또는 수학 플레이 → 퀴즈에서 입장할 수 있어요.')
+        teacher_paper(user, code)
         a,b,c=st.columns(3)
         a.metric('참여 학생',report['joined']);b.metric('완료 학생',report['completed']);c.metric('대상 학생',len(report['results']))
         st.caption('학생 풀이 결과는 5초마다 갱신됩니다. 첫 시도 정답과 힌트를 사용한 풀이를 함께 확인하세요.')
         st.dataframe(report['results'],hide_index=True,width='stretch')
         if report['status']=='open' and st.button('이 퀴즈 참여 종료',key='quizpop_close_'+code):
-            classroom.close(user,code);st.rerun(scope='fragment')
+            classroom.close(user,code);st.rerun()
         _save_status(user,code)
     except (ValueError,PermissionError) as error: st.error(str(error))
 
@@ -108,32 +136,42 @@ def teacher_page(user):
             st.session_state.pop('_quizpop_teacher_room',None);st.rerun()
         teacher_room(user,selected)
         return
-    st.markdown('**교사 전용 · 퀴즈 생성 → 문항 확인 → 참여코드 공개**')
+    st.markdown('**교사 전용 · 퀴즈 생성 → 참여코드 자동 발급 → 학생 참여**')
     history=classroom.history(user)
     if history:
-        with st.expander('배포한 퀴즈 · 학생 결과 다시 열기'):
+        with st.expander('배포한 퀴즈 · 문제와 학생 결과 다시 열기'):
             labels={r['code']:f'{r["created_at"]} · {r["title"]} · {"참여 중" if r["status"]=="open" else "종료"}' for r in history}
             code=st.selectbox('배포한 퀴즈',list(labels),format_func=labels.get,key='quizpop_history_code')
-            if st.button('참여코드·학생 결과 열기',key='quizpop_open_room'):
+            if st.button('문제·참여코드·학생 결과 열기',key='quizpop_open_room'):
                 st.session_state['_quizpop_teacher_room']=code;st.rerun()
+    st.multiselect('참여 학급',CLASSES,default=CLASSES,key='_quizpop_publish_classes',
+                   help='새로 생성할 퀴즈의 참여 학급입니다. 이미 발급된 코드의 대상은 바뀌지 않습니다.')
     data=service.snapshot(user);cfg=config();target=service.storage_info(user)
     saved=data.get('saved');session=saved.get('session') if saved else None
     if session and session.get('questions'):
-        stage=api.PROMPTS['stages'][session['stage']]['name']
-        with st.container(border=True):
-            st.markdown(f'#### 📣 현재 {stage} 퀴즈를 학생에게 배포하기')
-            st.caption(f'현재 생성된 {len(session["questions"])}문항을 그대로 배포합니다. 학생은 새 문항을 생성하지 않습니다. 다음 단계는 교사가 별도로 생성·배포합니다.')
-            form_key='quizpop_publish_'+session['runId']+'_'+str(session['stage'])
-            with st.form(form_key):
-                title=st.text_input('퀴즈 제목',value=session['title'],max_chars=160,key=form_key+'_title')
-                classes=st.multiselect('참여 학급',CLASSES,default=CLASSES,key=form_key+'_classes')
-                if st.form_submit_button('참여코드 만들기',type='primary',disabled=not target['ready']):
-                    code=classroom.publish(user,title,classes)
-                    st.session_state['_quizpop_teacher_room']=code;st.rerun()
-    if not target['ready']: st.warning('학생에게 배포하려면 jsku-sm/class-dashboard-data 저장 연결이 필요합니다.')
+        publication=classroom.publish_current(user)
+        if publication and publication['status']=='ready':
+            st.markdown('<div style="background:#e8dfff;border:3px solid #25233d;border-radius:22px;padding:20px;text-align:center">'
+                        '<b>학생 참여코드 · 아래 숫자 6자리를 알려 주세요</b>'
+                        f'<div style="font-size:clamp(38px,7vw,68px);font-weight:900;letter-spacing:.15em;color:#5326c8">{publication["code"]}</div>'
+                        f'<span>{html.escape(publication["title"])} · {publication["count"]}문항</span></div>',unsafe_allow_html=True)
+            st.caption('학생: 수학 플레이 → 퀴즈 또는 왼쪽 참여코드 입력 → 위 코드 입력 → 퀴즈 참여')
+            if st.button('이 퀴즈 문제·학생 참여·풀이 결과 보기',key='quizpop_current_results'):
+                st.session_state['_quizpop_teacher_room']=publication['code'];st.rerun()
+        elif publication and publication['status']=='closed':
+            st.info('이 퀴즈는 참여가 종료되었습니다. 새 퀴즈를 생성하면 새 참여코드가 표시됩니다.')
+        else:
+            st.error((publication or {}).get('error') or '참여코드를 준비하고 있습니다.')
+            if st.button('참여코드 생성 다시 시도',key='quizpop_retry_publish'):
+                classroom.publish_current(user,retry=True);st.rerun()
+        data=service.snapshot(user)
+        teacher_paper(user)
+    else:
+        st.info('참여 학급을 선택하고 아래 퀴즈 만들기를 누르세요. 문항 생성 후 6자리 참여코드가 자동으로 표시됩니다.')
+    if not target['ready']: st.warning('참여코드를 저장하려면 jsku-sm/class-dashboard-data 저장 연결이 필요합니다.')
     _settings(cfg)
     component(user,data,cfg)
-    st.caption('교사 생성·미리보기 · 문항이 준비되면 위에 참여코드 만들기가 표시됩니다.')
+    st.caption('학생은 교사가 생성한 문항을 풉니다. 다음 단계도 교사가 생성하면 새 참여코드가 발급됩니다.')
 
 
 def student_quiz(user, code):

@@ -299,7 +299,7 @@ def student_entry(user, code):
         st.query_params.pop("review", None)
         st.rerun()
     if user.get("role") != "student":
-        st.info("학생 참여용 링크입니다. 교사는 ‘수업도구 → 퀴즈 → 전시학습 확인’에서 게임을 관리하세요.")
+        st.info("학생 참여용 링크입니다. 교사는 ‘수학 플레이 → 퀴즈 → 전시학습 확인’에서 게임을 관리하세요.")
         return
     if code == "join":
         with st.form("review_join_form"):

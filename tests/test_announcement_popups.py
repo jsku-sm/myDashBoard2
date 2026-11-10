@@ -309,7 +309,7 @@ def test_main_app_polls_for_notices_and_opens_popup_while_student_uses_tools(mai
     assert not app.exception and not app.error
     assert "APP_TOOLS_CONTENT" in displayed(app)
     assert not any(item.key == "acknowledge_announcements" for item in app.button)
-    notice("수업도구에서 확인할 공지", "다른 메뉴에서도 새 공지가 표시됩니다.")
+    notice("수학 플레이에서 확인할 공지", "다른 메뉴에서도 새 공지가 표시됩니다.")
     app.run()
     assert not app.exception and not app.error
     assert "APP_TOOLS_CONTENT" in displayed(app)

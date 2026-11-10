@@ -183,7 +183,7 @@ MENU = [
     ("math1", "📐 공통수학1", True, "all"),
     ("math2", "📏 공통수학2", True, "all"),
     ("sudanote", "📝 수다노트", True, "all"),
-    ("tools", "🧰 수업도구", True, "all"),
+    ("tools", "🎮 수학 플레이", True, "all"),
     ("teacher", "🛡️ 교사전용", True, "teacher"),
     ("account", "🔑 내 정보", False, "all"),
 ]

@@ -1,4 +1,4 @@
-"""수업도구: 선택한 메뉴의 내용만 표시합니다."""
+"""수학 플레이: 선택한 메뉴의 내용만 표시합니다."""
 import html
 
 import streamlit as st
@@ -121,7 +121,7 @@ TOOLS_PAGE_CSS = """
     text-align:left;text-decoration:none;transition:transform .15s ease,box-shadow .15s ease;
 }
 [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a::before {
-    content:"수업 도구";position:absolute;top:10px;left:16px;
+    content:"수학 플레이";position:absolute;top:10px;left:16px;
     color:var(--tool-accent);font-size:.66rem;font-weight:650;letter-spacing:.04em;
 }
 [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a::after {
@@ -398,7 +398,7 @@ def _tool_color_rules():
 
 def _page(user):
     is_t = user["role"] == "teacher"
-    ui.page_title("수업도구", "메뉴를 선택하면 해당 도구의 내용이 보여요.")
+    ui.page_title("수학 플레이", "메뉴를 선택하면 해당 도구의 내용이 보여요.")
 
     tools = {key: (title, desc) for key, title, desc in TOOLS}
     if st.session_state.get(ACTIVE_TOOL) == "tool_activity":
@@ -409,7 +409,7 @@ def _page(user):
     # 공유 수업 링크도 같은 선택값을 사용하므로 수행평가가 바로 열립니다.
     with st.container(key="tool_menu_picker"):
         key = st.radio(
-            "수업도구 메뉴", list(tools), format_func=lambda tool: tools[tool][0],
+            "수학 플레이 메뉴", list(tools), format_func=lambda tool: tools[tool][0],
             key=ACTIVE_TOOL, horizontal=True, label_visibility="collapsed",
             on_change=clear_link, args=(st.session_state, st.query_params),
         )
