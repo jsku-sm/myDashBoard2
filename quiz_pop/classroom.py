@@ -66,6 +66,7 @@ def code_kind(user, code):
         _actor(user, b, 'student', write=True)
         if any(r['code'] == code for r in b.read('quizpop_rooms')): return 'quiz'
         if any(r['code'] == code for r in b.read('review_rooms')): return 'review'
+        if any(r['code'] == code for r in b.read('reward_rooms')): return 'reward'
     raise ValueError('참여코드를 찾을 수 없어요. 숫자 6자리를 확인해 주세요.')
 
 
@@ -89,7 +90,7 @@ def publish(user, title, classes):
         if existing:
             code = existing['code']
         else:
-            occupied = {r['code'] for t in ('quizpop_rooms','review_rooms') for r in b.read(t)}
+            occupied = {r['code'] for t in ('quizpop_rooms','review_rooms','reward_rooms') for r in b.read(t)}
             for _ in range(100):
                 code = str(secrets.randbelow(900000)+100000)
                 if code not in occupied: break
@@ -103,6 +104,45 @@ def publish(user, title, classes):
     # not mint another code or silently replace a quiz students already joined.
     flush(user, code)
     return code
+
+
+def publish_current(user, *, retry=False):
+    """Publish each saved teacher paper once; practice answers never mint codes.
+
+    Saving a draft and publishing are separate outcomes: a failed GitHub write
+    must not make the browser resend an already accepted draft revision.
+    """
+    service.authorize(user, role='teacher', write=True)
+    saved = service.snapshot(user).get('saved')
+    session = saved.get('session') if saved else None
+    key = '_quizpop_publication_'+user['id']
+    if not session or not session.get('questions'):
+        st.session_state.pop(key, None)
+        return None
+    signature = hashlib.sha256(games._json([session['runId'],session['stage'],session['settings'],session['questions']]).encode()).hexdigest()
+    previous = st.session_state.get(key, {})
+    if previous.get('signature') == signature:
+        if previous.get('status') == 'ready':
+            b=db._ready_backend()
+            with b.lock:
+                if _room(b,previous['code'])['status'] != 'open':
+                    previous=dict(previous,status='closed')
+                    st.session_state[key]=previous
+        if previous.get('status') in ('ready','closed') or not retry:
+            return deepcopy(previous)
+    classes = list(st.session_state.get('_quizpop_publish_classes', CLASSES))
+    result = dict(signature=signature,runId=session['runId'],stage=session['stage'],title=session['title'],
+                  count=len(session['questions']),classes=classes,status='pending',code='',error='')
+    st.session_state[key] = result
+    try:
+        code = publish(user,session['title'],classes)
+        result.update(status='ready',code=code)
+    except (ValueError,PermissionError) as error:
+        result.update(status='error',error=str(error))
+    except Exception:
+        result.update(status='error',error='문항은 준비됐지만 참여코드를 저장하지 못했어요. 저장소 연결을 확인하고 다시 시도해 주세요. [QUIZ_PUBLISH]')
+    st.session_state[key] = result
+    return deepcopy(result)
 
 
 def join(user, code):
@@ -201,11 +241,27 @@ def report(user, code):
                     joined=len(rows),completed=sum(r['상태']=='완료' for r in results),results=results)
 
 
+def teacher_paper(user, code):
+    """Read the exact published paper, including closed quizzes, for its owner."""
+    b = db._ready_backend()
+    with b.lock:
+        actor = _actor(user, b, 'teacher')
+        room = _room(b, code)
+        _owner(actor, room)
+        return dict(code=room['code'], title=room['title'], stage=int(room['stage']),
+                    settings=json.loads(room['settings_json']),
+                    questions=json.loads(room['questions_json']))
+
+
 def close(user, code):
     b = db._ready_backend()
     with b.lock:
         actor = _actor(user,b,'teacher',write=True); room = _room(b,code); _owner(actor,room)
         room.update(status='closed',updated_at=db.now_str()); games._put(b,'quizpop_rooms',room)
+    key='_quizpop_publication_'+user['id']
+    current=st.session_state.get(key,{})
+    if current.get('code') == code:
+        st.session_state[key]=dict(current,status='closed')
     flush(user,code)
 
 

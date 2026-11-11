@@ -118,7 +118,7 @@ def create(user, *, title, questions, mode, classes, duration, source=None):
                    if u["role"] == "student" and u.get("class") in classes]
         if not targets:
             raise ReviewError("선택한 반에 등록된 학생이 없습니다. 학생관리에서 확인해 주세요.")
-        codes = {r["code"] for r in b.read("review_rooms")} | {r["code"] for r in b.read("quizpop_rooms")}
+        codes = {r["code"] for table in ("review_rooms", "quizpop_rooms", "reward_rooms") for r in b.read(table)}
         for _ in range(100):
             code = str(secrets.randbelow(900000)+100000)
             if code not in codes:

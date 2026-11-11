@@ -49,6 +49,10 @@ def game_env(monkeypatch,tmp_path):
             module._component=lambda **kwargs: None
     view=load('game_core.view',ROOT/'game_core/view.py',monkeypatch)
     monkeypatch.setattr(game_core,'view',view,raising=False)
+    import reward_core
+    for name in ('service','view'):
+        module=load('reward_core.'+name,ROOT/'reward_core'/f'{name}.py',monkeypatch)
+        monkeypatch.setattr(reward_core,name,module,raising=False)
     t=dict(id='teacher',name='가상교사',role='teacher',must_change='0',**{'class':''})
     other=dict(t,id='other-teacher')
     students=[dict(id=f'100{i}',name=f'가상학생{i}',role='student',must_change='0',**{'class':f'1-{1 if i<3 else 2}'}) for i in range(1,5)]
@@ -316,7 +320,7 @@ def test_menu_order_and_submenu_ast():
     node=next(n for n in tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='TOOLS' for t in n.targets))
     tools=ast.literal_eval(node.value)
     assert [x[0] for x in tools]==['tool_desmos','snorkl','tool_games','tool_quiz','tool_apps']
-    assert [x[1] for x in tools]==['1. 데스모스','2. 수행평가','3. 게임으로 배우기','4. 퀴즈','5. 앱 (by Good쌤)']
+    assert [x[1] for x in tools]==['1. 데스모스','2. 수행평가','3. 게임으로 배우기','4. 퀴즈','5. 수학 실험실']
     assert '"데스모스 하위 메뉴", ["tool_desmos", "tool_activity"]' in text
 
 

@@ -19,7 +19,7 @@ SENTINEL = "student-vault-v1/key-check.enc"
 TABLE_CATEGORIES = {
     "sudanotes": "sudanotes", "submissions": "submissions", "questions": "questions",
     "observations": "observations", "points": "points", "quiz_attempts": "quizzes",
-    "game_profiles": "games", "review_attempts": "games", "quizpop_attempts": "quizzes", "records": "school_records",
+    "game_profiles": "games", "review_attempts": "games", "reward_attempts": "games", "quizpop_attempts": "quizzes", "records": "school_records",
 }
 CATEGORIES = set(TABLE_CATEGORIES.values()) | {"assessments", "uploads", "analyses", "reviews", "drafts"}
 
@@ -146,6 +146,10 @@ def table_bundle(crypto, table, sid, rows, all_tables, load_file):
         ids = {r.get("room_id") for r in mine}
         payload["quizpop_rooms"] = [{k: copy.deepcopy(v) for k, v in r.items() if k != "targets_json"}
                                     for r in all_tables.get("quizpop_rooms", []) if r.get("id") in ids]
+    if table == "reward_attempts":
+        ids = {r.get("room_id") for r in mine}
+        payload["reward_rooms"] = [{k: copy.deepcopy(v) for k, v in r.items() if k != "targets_json"}
+                                   for r in all_tables.get("reward_rooms", []) if r.get("id") in ids]
     attachments = []
     seen = set()
     for row in mine:

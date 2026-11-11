@@ -262,6 +262,8 @@ def _growth(user,p,teacher=False):
     function_summary(user,p["student"]["id"])
     from .play_lab_view import summary as arcade_summary
     arcade_summary(user,p["student"]["id"])
+    from reward_core.view import records as reward_records
+    reward_records(user,p["student"]["id"])
     if not teacher:_wardrobe(user,p)
 
 
@@ -416,7 +418,7 @@ def _page(user):
         st.session_state["_gg_child"]=st.session_state.pop("_gg_nav_next")
     _notice()
     teacher=user.get("role")=="teacher"
-    children=["개념 학습게임","나의 성장기록"]
+    children=["개념 학습게임","단원 마무리 챌린지","나의 성장기록"]
     if st.session_state.get("_gg_child") not in children:
         st.session_state["_gg_child"]=children[0]
     child=st.radio("게임으로 배우기 하위 메뉴",children,
@@ -426,6 +428,9 @@ def _page(user):
         if child=="개념 학습게임":
             from .play_lab_view import page as play_lab_page
             play_lab_page(user,lambda:_avatar_page(user))
+        elif child=="단원 마무리 챌린지":
+            from reward_core.view import page as reward_page
+            reward_page(user)
         elif teacher:
             _teacher_growth(user)
             _save_panel(user)
