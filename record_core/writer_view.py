@@ -15,10 +15,6 @@ from .semester import SemesterRecords, RecordPending, RecordConflict, term_dates
 from .view import values, _files
 
 CSS = '''<style>
-.record-writer-hero{padding:25px 30px;border:1px solid #d8e2d6;border-radius:22px;background:linear-gradient(110deg,#edf2e9,#f8f4ed);color:#374b40;margin-bottom:18px}
-.record-writer-hero h2{color:#374b40!important;font-size:1.85rem!important;margin:7px 0 9px!important;letter-spacing:-.04em}
-.record-writer-hero p{color:#73816e!important;font-size:.95rem;line-height:1.8;margin:0}
-.record-writer-hero small{color:#7e8e79;letter-spacing:.12em;font-weight:750}
 .record-writer-steps{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 18px}.record-writer-steps span{padding:7px 13px;border-radius:20px;background:#f5f1e8;color:#756c57;font-size:.82rem;border:1px solid #e3dfd4}
 .st-key-school_record_writer button[kind="primary"]{background:#52715c;border-color:#52715c;border-radius:12px;min-height:44px}
 .st-key-school_record_writer textarea{line-height:1.9!important;font-size:1rem!important}
@@ -143,8 +139,7 @@ def render():
         st.error('생기부 작성기는 교사만 사용할 수 있어요.'); return
     with st.container(key='school_record_writer'):
         st.markdown(CSS, unsafe_allow_html=True)
-        st.markdown('<div class="record-writer-hero"><small>TEACHER’S WRITING DESK</small><h2>배움의 흔적을, 한 학생의 이야기로.</h2><p>학년도·학기·과목별로 근거를 살피고, 교사의 문장으로 완성해요.</p></div>'
-                    '<div class="record-writer-steps"><span>01 자료 확인</span><span>02 AI 초안</span><span>03 교사 수정</span><span>04 저장 · CSV</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="record-writer-steps"><span>01 자료 확인</span><span>02 AI 초안</span><span>03 교사 수정</span><span>04 저장 · CSV</span></div>', unsafe_allow_html=True)
         try:
             backend = db._ready_backend()
             secrets = values()
