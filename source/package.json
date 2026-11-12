@@ -1,0 +1,18 @@
+{
+  "name": "goodmath-quizpop",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test src/*.test.js",
+    "build": "vite build",
+    "test:dashboard": "node --loader ./tests/css-loader.mjs ./tests/dashboard-ui.mjs generate && node --loader ./tests/css-loader.mjs ./tests/dashboard-ui.mjs missing && node --loader ./tests/css-loader.mjs ./tests/dashboard-ui.mjs invalid && node --loader ./tests/css-loader.mjs ./tests/dashboard-ui.mjs assigned && node --loader ./tests/css-loader.mjs ./tests/dashboard-ui.mjs publication_error && node --loader ./tests/css-loader.mjs ./tests/teacher-paper-ui.mjs"
+  },
+  "dependencies": {
+    "katex": "0.16.22"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0",
+    "vite": "8.0.13"
+  }
+}
