@@ -27,6 +27,7 @@ from game_core.schema import SCHEMAS as GAME_SCHEMAS, TABLES as GAME_TABLES, PAR
 from review_core.schema import SCHEMAS as REVIEW_SCHEMAS, TABLES as REVIEW_TABLES, PARTITIONED as REVIEW_PARTITIONED
 from quiz_pop.schema import SCHEMAS as QUIZPOP_SCHEMAS, TABLES as QUIZPOP_TABLES, PARTITIONED as QUIZPOP_PARTITIONED
 from reward_core.schema import SCHEMAS as REWARD_SCHEMAS, TABLES as REWARD_TABLES, PARTITIONED as REWARD_PARTITIONED
+from teacher_planner.schema import SCHEMAS as PLANNER_SCHEMAS, TABLES as PLANNER_TABLES
 GAME_TABLES = GAME_TABLES | REVIEW_TABLES | QUIZPOP_TABLES | REWARD_TABLES
 GAME_PARTITIONED = GAME_PARTITIONED | REVIEW_PARTITIONED | QUIZPOP_PARTITIONED | REWARD_PARTITIONED
 
@@ -34,7 +35,7 @@ SCHEMAS: dict[str, list[str]] = {
     "teaching_progress": ["id", "author_id", "batch_id", "created_at", "updated_at", "revision",
                           "date", "class", "subject", "period", "content", "status",
                           "assessment_title", "assessment_date", "assessment_period", "assessment_status",
-                          "memo", "deleted_at"],
+                          "memo", "deleted_at", "template_id", "occurrence_date"],
     "quiz_sets": ["id", "teacher_id", "subject", "unit", "bank_unit", "title", "state", "created_at", "updated_at", "parent_id", "round", "question_json", "targets_json", "classes_json", "generator"],
     "quiz_attempts": ["id", "quiz_id", "student_id", "name", "class", "state", "answers_json", "revision", "started_at", "updated_at", "submitted_at", "graded_at", "graded_by", "score", "marks_json", "released_at"],
     "users": ["id", "name", "class", "role", "pw_hash", "must_change", "created_at"],
@@ -63,9 +64,10 @@ SCHEMAS.update(GAME_SCHEMAS)
 SCHEMAS.update(REVIEW_SCHEMAS)
 SCHEMAS.update(QUIZPOP_SCHEMAS)
 SCHEMAS.update(REWARD_SCHEMAS)
+SCHEMAS.update(PLANNER_SCHEMAS)
 
 CACHE_TTL = {"users": 60, "settings": 60, "quiz_sets": 0, "quiz_attempts": 0, "teaching_progress": 0}
-CACHE_TTL.update({table: 0 for table in AS_TABLES | GAME_TABLES})
+CACHE_TTL.update({table: 0 for table in AS_TABLES | GAME_TABLES | PLANNER_TABLES})
 DEFAULT_TTL = 20
 
 
@@ -105,7 +107,7 @@ class LocalBackend:
 
     def read(self, table):
         with self.lock:
-            if table in ("quiz_sets", "quiz_attempts") or table in AS_PARTITIONED or table in GAME_PARTITIONED:
+            if table in ("quiz_sets", "quiz_attempts") or table in AS_PARTITIONED or table in GAME_PARTITIONED or table in PLANNER_TABLES:
                 from pathlib import Path
                 rows = []
                 for path in sorted(Path(self.root, table).glob("*.csv")):
@@ -119,7 +121,7 @@ class LocalBackend:
                 return [_norm(r, table) for r in csv.DictReader(f)]
 
     def _write_all(self, table, rows):
-        if table in ("quiz_sets", "quiz_attempts") or table in AS_PARTITIONED or table in GAME_PARTITIONED:
+        if table in ("quiz_sets", "quiz_attempts") or table in AS_PARTITIONED or table in GAME_PARTITIONED or table in PLANNER_TABLES:
             # Local tests use the same per-person/per-quiz file layout as GitHub.
             from pathlib import Path
             directory = Path(self.root, table)
@@ -423,6 +425,9 @@ class GitHubBackend:
 
     @staticmethod
     def _path(table, row):
+        if table in PLANNER_TABLES:
+            key = hashlib.sha256(str(row.get("author_id", "")).encode("utf-8")).hexdigest()
+            return f"data/{table}/{key}.csv"
         if table in GAME_PARTITIONED:
             identity = row.get("id", "") if table in ("review_rooms", "quizpop_rooms", "reward_rooms") else row.get("student_id", "")
             key = hashlib.sha256(str(identity).encode("utf-8")).hexdigest()
@@ -729,6 +734,8 @@ def _scope_private_records(table, rows):
             if table in ("logins", "emotions"):
                 return []
             return [r for r in rows if r.get("student_id") == uid]
+    if table in PLANNER_TABLES:
+        return []
     if table in GAME_TABLES:
         # Never expose raw answer keys or peer profiles through generic tables.
         return []
@@ -764,6 +771,8 @@ def _scope_private_records(table, rows):
 
 
 def _check_private_change(table, row_id):
+    if table in PLANNER_TABLES:
+        raise PermissionError("교사 업무수첩 전용 서비스를 사용해 주세요.")
     if table in GAME_TABLES:
         raise PermissionError("학습게임 전용 서비스를 사용해 주세요.")
     if table in AS_TABLES:
@@ -781,6 +790,8 @@ def invalidate(table: str):
 
 
 def append(table: str, row: dict):
+    if table in PLANNER_TABLES:
+        raise PermissionError("교사 업무수첩 전용 서비스를 사용해 주세요.")
     if table in GAME_TABLES:
         raise PermissionError("학습게임 전용 서비스를 사용해 주세요.")
     if table in AS_TABLES:
@@ -795,6 +806,8 @@ def append(table: str, row: dict):
 
 
 def append_many(table: str, rows: list[dict]):
+    if table in PLANNER_TABLES:
+        raise PermissionError("교사 업무수첩 전용 서비스를 사용해 주세요.")
     if table in GAME_TABLES:
         raise PermissionError("학습게임 전용 서비스를 사용해 주세요.")
     if table in AS_TABLES:

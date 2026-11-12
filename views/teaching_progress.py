@@ -236,3 +236,9 @@ def page(user):
             if st.button("선택 기록 복원", key=prefix + "_restore", disabled=disabled or not restore_id):
                 _run(prefix, "restore", svc.restore_record, user, restore_id, by_id[restore_id]["revision"])
         st.caption("삭제는 휴지통 이동입니다. GitHub 과거 버전까지 지우는 영구 삭제 기능이 아닙니다.")
+
+
+def calendar_page(user):
+    """Primary teacher entry; legacy page remains available for detailed tables."""
+    from teacher_planner.view import page as planner_page
+    planner_page(user, 'progress')
