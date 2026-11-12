@@ -12,6 +12,7 @@ from pathlib import Path
 
 DASHBOARD_UPDATE = 'GOOD_RECORDS_1.1_FINAL5'
 _UPDATE_FILES = ('ui.py', 'storage.py', 'views/record.py', 'views/teacher.py', 'views/sudanote.py', 'think_app/storage.py', 'think_app/embedded.py', 'record_core/__init__.py', 'record_core/archive.py', 'record_core/assessment.py', 'record_core/checkpoint.py', 'record_core/evidence.py', 'record_core/ai.py', 'record_core/service.py', 'record_core/view.py')
+_UPDATE_FILES += ('confirmed_changes.py', 'record_core/game_evidence.py')
 
 def dashboard_update_issues(root=None):
     root = Path(root) if root is not None else Path(__file__).resolve().parent
@@ -249,6 +250,11 @@ if fresh is None or fresh.get("role") not in ("teacher", "student"):
     st.rerun()
 user = fresh
 st.session_state["user"] = user
+from confirmed_changes import pending_controls
+if pending_controls():
+    st.stop()
+if st.session_state.get('_critical_change_saved'):
+    st.success(st.session_state.pop('_critical_change_saved') + ' 저장을 확인했습니다.')
 if user["must_change"] == "1":
     account.force_change(user)
     st.stop()
