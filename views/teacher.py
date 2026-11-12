@@ -1,5 +1,6 @@
 # GOOD_RECORDS_1.1_FINAL5
 """교사전용: 진도관리 / 화면 잠금 / 공지사항 / 관찰기록 / 상점·벌점 / 생기부 생성기 / 학생 명단 / 설정"""
+import hashlib
 import io
 
 import pandas as pd
@@ -209,6 +210,21 @@ def _read_roster(f):
              "pw": r.get("초기비밀번호", "")} for _, r in df.iterrows() if r["학번"].strip()]
 
 
+def _clear_roster_confirmation():
+    st.session_state.pop('_confirm_del', None)
+
+
+def _roster_row_selected(table_key, student_ids):
+    """Resolve the clicked row against the displayed snapshot, before rerun."""
+    event = st.session_state.get(table_key, {})
+    rows = event.get('selection', {}).get('rows', [])
+    if len(rows) == 1 and 0 <= rows[0] < len(student_ids):
+        sid = student_ids[rows[0]]
+        if st.session_state.get('ro_stu') != sid:
+            st.session_state['ro_stu'] = sid
+            _clear_roster_confirmation()
+
+
 def tab_roster():
     st.markdown("#### 명단 파일로 한 번에 등록")
     tmpl = "학번,이름,학급,초기비밀번호\n10101,김수학,1-1,\n10102,이함수,1-1,\n10201,박방정,1-2,\n"
@@ -251,10 +267,29 @@ def tab_roster():
     roster = auth.students(cls)
     st.caption(f"{len(roster)}명")
     if roster:
-        st.dataframe(pd.DataFrame([{"학급": u["class"], "학번": u["id"], "이름": u["name"],
+        by_id = {u['id']: u for u in roster}
+        student_ids = list(by_id)
+        selected = st.session_state.get('ro_stu')
+        # Older sessions stored the whole student dict in this selectbox.
+        if isinstance(selected, dict):
+            selected = selected.get('id')
+        if selected not in by_id:
+            selected = student_ids[0]
+            _clear_roster_confirmation()
+        if st.session_state.get('ro_stu') != selected:
+            st.session_state['ro_stu'] = selected
+        # Recreate the table on a dropdown/class/roster change so a previous
+        # row selection cannot remain attached to a different student.
+        table_key = 'ro_table_' + hashlib.sha256(repr((cls, student_ids, selected)).encode()).hexdigest()[:16]
+        st.dataframe(pd.DataFrame([{"선택": "✓" if u['id'] == selected else "", "학급": u["class"], "학번": u["id"], "이름": u["name"],
                                     "비밀번호 변경 필요": "예" if u["must_change"] == "1" else ""}
-                                   for u in roster]), hide_index=True, width="stretch", height=260)
-        stu = st.selectbox("학생 선택", roster, format_func=_label, key="ro_stu")
+                                   for u in roster]), hide_index=True, width="stretch", height=260,
+                     key=table_key, selection_mode='single-row',
+                     on_select=lambda: _roster_row_selected(table_key, student_ids),
+                     column_config={'선택': st.column_config.TextColumn('선택', width='small')})
+        sid = st.selectbox("학생 선택", student_ids, format_func=lambda value: _label(by_id[value]),
+                          key="ro_stu", on_change=_clear_roster_confirmation)
+        stu = by_id[sid]
         c1, c2 = st.columns(2)
         if c1.button("🔑 비밀번호 초기화 (학번으로)", width="stretch"):
             auth.reset_password(stu["id"])
@@ -267,6 +302,9 @@ def tab_roster():
                 db.delete("users", stu["id"])
                 st.session_state.pop("_confirm_del")
                 st.rerun()
+    else:
+        st.session_state.pop('ro_stu', None)
+        _clear_roster_confirmation()
 
 
 # --------------------------------------------------------------- 설정 ---
