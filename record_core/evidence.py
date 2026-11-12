@@ -119,6 +119,35 @@ def project(bundles, *, sid, teacher_id, legacy_teacher_id, subject, start, end)
                     "학생 응답: " + row.get("answers_json", "[]")])
                 add(bundle, row, rid, room.get("title", "전시학습 확인"), text,
                     "복습 게임 자동 기록 · 게임 순위/행운 보상과 개념 이해는 구분")
+            elif table == 'quizpop_attempts':
+                room = next((r for r in payload.get('quizpop_rooms', []) if r.get('id') == row.get('room_id')), {})
+                if room.get('owner_id') != teacher_id:
+                    continue
+                settings = as_json(room.get('settings_json'), {})
+                session = as_json(row.get('state_json'), {}).get('session') or {}
+                progress = session.get('progress', [])
+                if not any(p.get('attempts') for p in progress):
+                    continue
+                text = '\n'.join(['참여형 퀴즈: ' + room.get('title', ''),
+                    '문항 원본: ' + room.get('questions_json', '[]'),
+                    '문항별 학생 응답·힌트·재도전: ' + json.dumps(progress, ensure_ascii=False)])
+                subject_value = settings.get('course') if settings.get('course') in ('공통수학1', '공통수학2') else ''
+                add(bundle, row, rid, room.get('title', '참여형 퀴즈'), text,
+                    '교사 배포 퀴즈 풀이 기록 · 학생 응답과 교사 관찰은 구분', subject_value)
+            elif table == 'reward_attempts':
+                room = next((r for r in payload.get('reward_rooms', []) if r.get('id') == row.get('room_id')), {})
+                if room.get('owner_id') != teacher_id:
+                    continue
+                state = as_json(row.get('state_json'), {})
+                if not state.get('answers'):
+                    continue
+                from game_core.concept_quiz_catalog import UNITS
+                unit_subject = UNITS.get(room.get('unit'), ('',))[0]
+                text = '\n'.join(['단원 마무리 학습: ' + room.get('title', ''),
+                    '문항 원본: ' + room.get('questions_json', '[]'),
+                    '문제 풀이·힌트·재도전: ' + json.dumps(state['answers'], ensure_ascii=False)])
+                add(bundle, row, rid, room.get('title', '단원 마무리 학습'), text,
+                    '게임 입장 전 수학 풀이 기록 · 아케이드 점수·코인·순위는 교과 성취 근거에서 제외', unit_subject)
             elif table == "game_profiles":
                 profile = as_json(row.get("state_json"), {})
                 from game_core.curriculum import TOPICS

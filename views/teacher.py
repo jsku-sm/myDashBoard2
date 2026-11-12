@@ -44,6 +44,17 @@ def tab_lock():
 
 # ----------------------------------------------------------- 관찰기록 ---
 def tab_observe():
+    from record_core.checkpoint import append_confirmed
+    pending_key = 'observations_commit_' + str((st.session_state.get('user') or {}).get('id', ''))
+    if st.session_state.get(pending_key):
+        st.warning('관찰기록의 저장 확인이 남아 있어요. 새로 등록하지 말고 저장을 재시도하세요.')
+        if st.button('관찰기록 저장 재시도 (중복 등록 안 함)', key=pending_key+'_retry'):
+            try:
+                append_confirmed(db, st.session_state, pending_key, 'observations')
+                st.rerun()
+            except Exception:
+                st.error('저장소 연결을 확인한 뒤 다시 시도하세요. 입력한 기록은 대기 상태로 유지합니다.')
+        return
     c1, c2 = st.columns(2)
     cls = c1.selectbox("학급", CLASSES, key="ob_cls")
     roster = auth.students(cls)
@@ -52,21 +63,27 @@ def tab_observe():
         return
     stu = c2.selectbox("학생", roster, format_func=_label, key="ob_stu")
     with st.form("ob_form", clear_on_submit=True):
+        subject = st.selectbox('관찰 과목', SUBJECTS, key='ob_subject')
         cat = st.selectbox("영역", OBSERVATION_CATEGORIES)
         content = st.text_area("관찰 내용", height=110, placeholder="구체적인 장면과 행동 위주로 적어 두면 생기부 작성에 도움이 돼요.")
         ok = st.form_submit_button("기록 저장", type="primary")
     if ok and content.strip():
-        db.append("observations", {"created_at": db.now_str(), "class": cls, "student_id": stu["id"],
-                                   "name": stu["name"], "category": cat, "content": content})
-        st.success(f"{stu['name']} 학생 기록을 저장했어요.")
+        try:
+            append_confirmed(db, st.session_state, pending_key, 'observations', [
+                {'id': db.new_id(), 'created_at': db.now_str(), 'class': cls, 'student_id': stu['id'],
+                 'name': stu['name'], 'category': cat, 'content': content.strip(), 'subject': subject}])
+            st.success(f"{stu['name']} 학생의 {subject} 관찰기록 저장을 확인했어요.")
+        except Exception:
+            st.error('저장 확인이 필요합니다. 관찰기록 저장 재시도로 같은 요청을 확인하세요.')
+            st.rerun()
 
     only = st.toggle("선택한 학생 기록만 보기", value=True)
     rows = [r for r in db.read("observations") if r["class"] == cls]
     if only:
         rows = [r for r in rows if r["student_id"] == stu["id"]]
     if rows:
-        df = pd.DataFrame(rows)[["created_at", "student_id", "name", "category", "content"]]
-        df.columns = ["일시", "학번", "이름", "영역", "내용"]
+        df = pd.DataFrame(rows)[["created_at", "student_id", "name", "subject", "category", "content"]]
+        df.columns = ["일시", "학번", "이름", "과목", "영역", "내용"]
         st.download_button("📄 CSV로 내려받기", df.to_csv(index=False).encode("utf-8-sig"),
                            file_name=f"관찰기록_{cls}.csv", mime="text/csv")
     else:
@@ -77,9 +94,15 @@ def tab_observe():
             a.markdown(f"**{ui.esc(r['name'])}** <span class='chip'>{ui.esc(r['category'])}</span> "
                        f"<span class='meta'>{r['created_at'][:16]}</span>", unsafe_allow_html=True)
             a.write(r["content"])
+            a.caption(r.get('subject') or '과목 미지정 · 생기부 작성 시 해당 과목의 관찰인지 확인해 주세요.')
             if b.button("삭제", key=f"obd_{r['id']}"):
                 db.delete("observations", r["id"])
-                st.rerun()
+                try:
+                    db.flush_now()
+                except Exception:
+                    st.error("삭제 기록의 저장 확인이 필요합니다. 교사 관리의 '지금 바로 저장하기'로 재시도하세요.")
+                else:
+                    st.rerun()
 
 
 # ------------------------------------------------------------ 상벌점 ---

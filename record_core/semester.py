@@ -202,6 +202,7 @@ class SemesterRecords(RecordService):
             check_final(text, (ai_draft or {}).get('text', ''), confirmed=confirmed, review_note=review_note, byte_limit=byte_limit)
             if ai_draft and ai_draft.get('evidence_hashes') != {r['evidence_id']: r['evidence_hash'] for r in reviews}:
                 raise ArchiveError('초안 작성 후 근거가 바뀌었어요. 재생성하거나 교사 직접 작성으로 전환하세요.')
+            self._flush(d['scope_id'], d['teacher_id'])
             fresh = self.refresh(workspace)
             validate_reviews(fresh['data']['evidence'], reviews, d['subject'])
         with self.lock:
@@ -257,6 +258,8 @@ class SemesterRecords(RecordService):
             raise RecordPending()
         reviews = self._reviews(d, reviews)
         facts = validate_reviews(d['evidence'], reviews, d['subject'])
+        self._flush(d['scope_id'], d['teacher_id'])
+        validate_reviews(self.refresh(workspace)['data']['evidence'], reviews, d['subject'])
         fingerprint_input = fingerprint([reviews, target_chars, byte_limit, guidance, d['revision']])
         with self.lock:
             job = self._job(d, request_id)

@@ -166,10 +166,12 @@ def test_generated_result_commit_failure_retains_candidate_then_recovers_without
 
 
 def test_draft_commit_failure_recovers_canonical_request(term,monkeypatch):
-    w=term.load();ai=fake_ai();original=term.b.flush;calls=[0]
+    w=term.load();ai=fake_ai();original=term.b.flush;failed=[False]
     def flush():
-        calls[0]+=1
-        if calls[0]==3:raise RuntimeError('draft commit failure')
+        payloads=[term.b.archive_crypto.decrypt(raw).get('payload',{}) for raw in term.b.pending.values()]
+        if not failed[0] and any(p.get('generation_id')=='request_5' and p.get('kind')=='working_draft' for p in payloads):
+            failed[0]=True
+            raise RuntimeError('draft commit failure')
         original()
     monkeypatch.setattr(term.b,'flush',flush)
     with pytest.raises(RecordPending) as exc:term.s.generate(w,reviews(w),ai,'request_5',consent=True)

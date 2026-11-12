@@ -66,7 +66,8 @@ def home_ui(tmp_path, monkeypatch):
     own_notice = announcements.save_announcement(TEACHER, "우리 반 준비물 공지", "교과서와 필기도구를 챙기세요.", ["1-1"])
     announcements.save_announcement(TEACHER, "PRIVATE_OTHER_CLASS_NOTICE", "다른 반 안내", ["1-2"])
     announcements.save_announcement(TEACHER, "PRIVATE_DRAFT_NOTICE", "아직 공개하지 않은 안내", ["1-1"], False)
-    db.append("points", dict(student_id=USER["id"], kind="상점", score="3"))
+    # Seed persisted data before the student session; public writes require a teacher.
+    backend.append("points", dict(id="seed-point", student_id=USER["id"], kind="상점", score="3"))
     monkeypatch.setattr(updates, "_assessment_state", store.read)
     def app():
         result = AppTest.from_string(

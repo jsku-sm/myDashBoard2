@@ -77,6 +77,9 @@ def _capture(ctx, sid):
 
 def _load(service, ctx, student, year, term, subject, start, end, sync=False):
     warning = ''
+    # Confirm source updates/migration before reading encrypted evidence. Loading
+    # never calls AI and failure leaves the previous writing buffer untouched.
+    service.backend.flush()
     if sync:
         service.sync_sources(student)
         # A separate assessment store error must not hide already saved notes.
@@ -202,6 +205,7 @@ def render():
         with batch:
             _batch_controls(service, ctx, names, config, settings)
         with help_tab:
+            st.markdown('**관찰기록:** `data/observations/` · **상점·벌점:** `data/points/` · **생기부 작성 목록:** `data/school_records/` — 각 폴더 안에서 학생별로 나누어 저장합니다.')
             st.markdown('**수다노트 원본:** `jsku-sm/class-dashboard-data/data/sudanotes/<학번>.csv`')
             st.markdown('**작성 초안·완성본:** 같은 저장소의 학생별 암호화 자료함에 학년도·학기·과목별로 저장합니다. 원본 자료와 이전 수정 이력을 보존합니다.')
             st.markdown('**불러오기와 CSV:** 자료를 불러오거나 CSV를 내려받는 동작은 AI를 호출하지 않습니다. CSV는 내려받는 별도 파일이며 학생 자료를 공개하지 않습니다.')
@@ -283,6 +287,15 @@ def _evidence(service, ctx, sid, p):
     st.markdown('#### 사용할 자료와 교사 확인 근거')
     counts={label:sum(e['label']==label for e in items.values()) for label in dict.fromkeys(e['label'] for e in items.values())}
     st.caption(' · '.join(f'{k} {v}건' for k,v in counts.items()) or '선택 기간에 제출된 자료가 없습니다. 직접 작성하거나 교사 관찰을 추가할 수 있어요.')
+    points = [e for e in data['evidence'] if e['category'] == 'points']
+    with st.expander(f'상점·벌점 확인 · {len(points)}건 (조회 전용)'):
+        st.caption('상점·벌점은 별도로 확인하며 AI 교과세특 근거에 자동으로 넣지 않습니다.')
+        if points:
+            st.dataframe(pd.DataFrame([{'일자': e['date'], '구분·점수': e['title'], '사유': e['text']} for e in points]), hide_index=True, width='stretch')
+        else:
+            st.caption('선택 기간의 상점·벌점 기록이 없습니다.')
+    if any(e['category'] == 'observations' and not e['subject'] for e in items.values()):
+        st.caption('과목 미지정 관찰기록은 이전 기록입니다. 선택한 과목의 수업에서 확인한 내용인지 검토한 뒤 근거로 선택하세요.')
     with st.expander('교사가 직접 관찰한 수업 내용 추가'):
         observed=st.date_input('관찰일', value=min(db.now().date(),date.fromisoformat(data['end'])), key=p+'observed')
         fact=st.text_area('관찰한 사실', key=p+'new_observation', placeholder='수업에서 실제로 확인한 개념 설명, 풀이 수정, 질문 등을 적어 주세요.')
@@ -296,7 +309,7 @@ def _evidence(service, ctx, sid, p):
             except Exception as exc: _error(exc)
     old={r['evidence_id']:r for r in b['reviews']}
     selected=st.multiselect('활용할 자료 선택 · 수다노트/관찰/수행평가/퀴즈/게임',list(items),default=[x for x in old if x in items],
-                            format_func=lambda k:f"{items[k]['date']} · {items[k]['label']} · {items[k]['title']}",max_selections=30,key=p+'selected')
+                            format_func=lambda k:f"{items[k]['date']} · {items[k]['label']} · {items[k]['title']}" + (' · 과목 미지정' if items[k]['category']=='observations' and not items[k]['subject'] else ''),max_selections=30,key=p+'selected')
     for eid in selected:
         e=items[eid]; r=old.get(eid,{})
         with st.expander(f"{e['label']} · {e['date']} · {e['title']}",expanded=not r.get('teacher_confirmed',False)):

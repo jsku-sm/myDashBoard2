@@ -180,3 +180,11 @@ def test_observation_add_keeps_teacher_prose(ui):
     assert not app.exception and not app.error
     assert pick(app.text_area,'교과세특 작성 내용').value=='관찰 추가 전 작성한 문장'
     assert any(e['category']=='observations' for e in ctx(app)['buffers'][SID]['workspace']['data']['evidence'])
+
+
+def test_points_are_visible_separately_and_not_offered_as_ai_evidence(ui):
+    app=ui.app
+    assert any('상점·벌점 확인' in e.label for e in app.expander)
+    options=pick(app.multiselect,'활용할 자료 선택 · 수다노트/관찰/수행평가/퀴즈/게임').options
+    assert not any('상점·벌점' in str(x) for x in options)
+    assert not ui.ai.draft.called

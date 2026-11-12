@@ -28,6 +28,7 @@ from review_core.schema import SCHEMAS as REVIEW_SCHEMAS, TABLES as REVIEW_TABLE
 from quiz_pop.schema import SCHEMAS as QUIZPOP_SCHEMAS, TABLES as QUIZPOP_TABLES, PARTITIONED as QUIZPOP_PARTITIONED
 from reward_core.schema import SCHEMAS as REWARD_SCHEMAS, TABLES as REWARD_TABLES, PARTITIONED as REWARD_PARTITIONED
 from teacher_planner.schema import SCHEMAS as PLANNER_SCHEMAS, TABLES as PLANNER_TABLES
+from record_core.storage_layout import FOLDERS as RECORD_FOLDERS, MENU_TABLES, student_path, partition_table, merge_partitions
 GAME_TABLES = GAME_TABLES | REVIEW_TABLES | QUIZPOP_TABLES | REWARD_TABLES
 GAME_PARTITIONED = GAME_PARTITIONED | REVIEW_PARTITIONED | QUIZPOP_PARTITIONED | REWARD_PARTITIONED
 
@@ -67,6 +68,7 @@ SCHEMAS.update(REWARD_SCHEMAS)
 SCHEMAS.update(PLANNER_SCHEMAS)
 
 CACHE_TTL = {"users": 60, "settings": 60, "quiz_sets": 0, "quiz_attempts": 0, "teaching_progress": 0}
+CACHE_TTL.update({table: 0 for table in MENU_TABLES})
 CACHE_TTL.update({table: 0 for table in AS_TABLES | GAME_TABLES | PLANNER_TABLES})
 DEFAULT_TTL = 20
 
@@ -107,6 +109,8 @@ def _diary_merge(legacy, current):
 
 
 def _csv_table(path):
+    if partition_table(path):
+        return partition_table(path)
     if path.startswith('goodteacher/teacher_diary/') and path.endswith('.csv'):
         return 'teacher_diary'
     if path.startswith('data/') and path.endswith('.csv'):
@@ -130,6 +134,24 @@ class LocalBackend:
 
     def read(self, table):
         with self.lock:
+            if table in MENU_TABLES:
+                from pathlib import Path
+                old = Path(self._path(table))
+                legacy = []
+                if old.exists():
+                    with old.open(newline='', encoding='utf-8-sig') as source:
+                        legacy = [_norm(r, table) for r in csv.DictReader(source)]
+                partitions = {}
+                for path in sorted(Path(self.root, RECORD_FOLDERS[table]).glob('*.csv')):
+                    key = f'data/{RECORD_FOLDERS[table]}/{path.name}'
+                    if partition_table(key) != table:
+                        raise ValueError('학생별 기록 파일명을 확인하세요.')
+                    with path.open(newline='', encoding='utf-8-sig') as source:
+                        partitions[key] = [_norm(r, table) for r in csv.DictReader(source)]
+                rows = merge_partitions(table, legacy, partitions)
+                if any(student_path(table, r) not in partitions for r in rows):
+                    self._write_all(table, rows)
+                return rows
             if table == 'teacher_diary':
                 from pathlib import Path
                 groups = []
@@ -157,15 +179,19 @@ class LocalBackend:
                 return [_norm(r, table) for r in csv.DictReader(f)]
 
     def _write_all(self, table, rows):
-        if table in ("quiz_sets", "quiz_attempts") or table in AS_PARTITIONED or table in GAME_PARTITIONED or table in PLANNER_TABLES:
+        if table in MENU_TABLES or table in ("quiz_sets", "quiz_attempts") or table in AS_PARTITIONED or table in GAME_PARTITIONED or table in PLANNER_TABLES:
             # Local tests use the same per-person/per-quiz file layout as GitHub.
             from pathlib import Path
-            directory = Path(self.root, 'goodteacher', table) if table == 'teacher_diary' else Path(self.root, table)
+            directory = Path(self.root, 'goodteacher', table) if table == 'teacher_diary' else Path(self.root, RECORD_FOLDERS.get(table, table))
             directory.mkdir(parents=True, exist_ok=True)
             groups = {}
             for row in rows:
                 name = GitHubBackend._path(table, row).split("/")[-1]
                 groups.setdefault(name, []).append(row)
+            if table in MENU_TABLES:
+                # Header-only snapshots record deletion of a student's last row.
+                for old in directory.glob('*.csv'):
+                    groups.setdefault(old.name, [])
             for name, group in groups.items():
                 dest = directory / name
                 tmp = dest.with_suffix(".tmp")
@@ -202,6 +228,9 @@ class LocalBackend:
     def update(self, table, row_id, changes):
         with self.lock:
             rows = self.read(table)
+            if table in MENU_TABLES and 'student_id' in changes and any(
+                    r['id'] == row_id and str(changes['student_id']) != r.get('student_id', '') for r in rows):
+                raise ValueError('저장된 기록의 학생은 변경할 수 없습니다.')
             hit = False
             for r in rows:
                 if r["id"] == row_id:
@@ -434,6 +463,7 @@ class GitHubBackend:
             return
         loaded = {table: [] for table in selected}
         diary_current = []
+        record_partitions = {table: {} for table in selected & MENU_TABLES}
         head = self._head()
         r = self._req("GET", f"/repos/{self.repo}/git/trees/{head}", params={"recursive": "1"})
         r.raise_for_status()
@@ -450,14 +480,32 @@ class GitHubBackend:
                 continue
             text = self._blob(e["sha"]).decode("utf-8-sig")
             rows = [_norm(row, table) for row in csv.DictReader(io.StringIO(text))]
-            if table == 'teacher_diary' and p.startswith('goodteacher/'):
+            if table in MENU_TABLES and partition_table(p) == table:
+                record_partitions[table][p] = rows
+            elif table == 'teacher_diary' and p.startswith('goodteacher/'):
                 diary_current.extend(rows)
             else:
                 loaded[table].extend(rows)
         if 'teacher_diary' in selected:
             loaded['teacher_diary'] = _diary_merge(loaded['teacher_diary'], diary_current)
+        for table, partitions in record_partitions.items():
+            loaded[table] = merge_partitions(table, loaded[table], partitions)
         with self.lock:
             for table, rows in loaded.items():
+                if table in MENU_TABLES:
+                    partitions = record_partitions[table]
+                    # Keep uncommitted in-memory partitions on an explicit reload.
+                    live = {p for p in getattr(self, 'dirty', {}) if partition_table(p) == table}
+                    if live:
+                        rows = [r for r in rows if student_path(table, r) not in live] + [
+                            r for r in self.rows.get(table, []) if student_path(table, r) in live]
+                    self.rows[table] = rows
+                    migrate = [r for r in rows if student_path(table, r) not in partitions]
+                    if migrate:
+                        self._mark(table, migrate)
+                    # Covers an old empty flat file as well as populated files.
+                    self.record_layout_ready = getattr(self, 'record_layout_ready', set()) | {table}
+                    continue
                 if table == 'teacher_diary':
                     # All remote reads have succeeded. Never overwrite live dirty
                     # edits with an older CSV, including on a repeated load.
@@ -480,6 +528,8 @@ class GitHubBackend:
 
     @staticmethod
     def _path(table, row):
+        if table in MENU_TABLES:
+            return student_path(table, row)
         if table in PLANNER_TABLES:
             key = hashlib.sha256(str(row.get("author_id", "")).encode("utf-8")).hexdigest()
             root = 'goodteacher' if table == 'teacher_diary' else 'data'
@@ -515,9 +565,20 @@ class GitHubBackend:
             rows = self.rows.get('teacher_diary', [])
             if rows:
                 self._mark('teacher_diary', rows)
-            self.dirty = {p: v for p, v in self.dirty.items()
-                          if not p.startswith('data/teacher_diary/') and p != 'data/teacher_diary.csv'}
+            for path in list(self.dirty):
+                if path.startswith('data/teacher_diary/') or path == 'data/teacher_diary.csv':
+                    del self.dirty[path]
             self.diary_storage_version = 2
+
+    def _upgrade_record_storage(self):
+        """Copy already loaded legacy tables after a clean hot upgrade."""
+        ready = getattr(self, 'record_layout_ready', set())
+        for table in MENU_TABLES - ready:
+            if table in self.rows:
+                if self.rows[table]:
+                    self._mark(table, self.rows[table])
+                ready = ready | {table}
+        self.record_layout_ready = ready
 
     def _mark(self, table, rows):
         self.ver += 1
@@ -553,6 +614,9 @@ class GitHubBackend:
     def update(self, table, row_id, changes):
         with self.lock:
             hit = [r for r in self.rows[table] if r["id"] == row_id]
+            if table in MENU_TABLES and 'student_id' in changes and any(
+                    str(changes['student_id']) != r.get('student_id', '') for r in hit):
+                raise ValueError('저장된 기록의 학생은 변경할 수 없습니다.')
             for r in hit:
                 r.update({k: str(v) for k, v in changes.items()})
             if hit:
@@ -717,6 +781,12 @@ def _ready_backend():
     if current is None:
         return backend
     with backend.lock:
+        if (current is GitHubBackend and type(backend) is not current
+                and not MENU_TABLES <= getattr(backend, 'record_layout_ready', set())
+                and any(p == f'data/{t}.csv' for p in getattr(backend, 'dirty', {}) for t in MENU_TABLES)):
+            # Do not swap methods on a pre-migration instance: its old pending
+            # writes must still serialize to its old paths before rebooting.
+            raise SetupError('학생 기록 저장 경로가 변경되었습니다. 저장 대기 기록을 저장한 뒤 Streamlit Reboot app으로 다시 시작하세요. 기존 파일과 암호화키는 유지하세요.')
         if type(backend) is not current:
             backend.__class__ = current
         if current is GitHubBackend:
@@ -728,6 +798,7 @@ def _ready_backend():
                 for table in missing:
                     invalidate(table)
             backend._upgrade_diary_storage()
+            backend._upgrade_record_storage()
     return backend
 
 
@@ -773,8 +844,7 @@ def read(table: str) -> list[dict]:
 def _record_author():
     """Resolve the actor from the account store rather than a caller's role."""
     uid = (st.session_state.get("user") or {}).get("id")
-    import auth
-    user = auth.get_user(uid) if uid else None
+    user = next((r for r in _ready_backend().read('users') if r.get('id') == uid), None) if uid else None
     if not user or user.get("role") != "teacher" or user.get("must_change") == "1":
         raise PermissionError("교사 개인 기록에 접근할 권한이 없습니다.")
     return user["id"]
@@ -840,6 +910,8 @@ def _scope_private_records(table, rows):
 
 
 def _check_private_change(table, row_id):
+    if table == 'points':
+        _record_author()
     if table in PLANNER_TABLES:
         raise PermissionError("교사 업무수첩 전용 서비스를 사용해 주세요.")
     if table in GAME_TABLES:
@@ -859,6 +931,8 @@ def invalidate(table: str):
 
 
 def append(table: str, row: dict):
+    if table == 'points':
+        _record_author()
     if table in PLANNER_TABLES:
         raise PermissionError("교사 업무수첩 전용 서비스를 사용해 주세요.")
     if table in GAME_TABLES:
@@ -875,6 +949,8 @@ def append(table: str, row: dict):
 
 
 def append_many(table: str, rows: list[dict]):
+    if table == 'points':
+        _record_author()
     if table in PLANNER_TABLES:
         raise PermissionError("교사 업무수첩 전용 서비스를 사용해 주세요.")
     if table in GAME_TABLES:
