@@ -91,6 +91,29 @@ def _norm(row: dict, table: str) -> dict:
     return {c: "" if row.get(c) is None else str(row.get(c)) for c in SCHEMAS[table]}
 
 
+def _diary_merge(legacy, current):
+    """Prefer the latest revision; new location wins ties, including tombstones."""
+    merged = {}
+    def revision(row):
+        try:
+            return int(row.get('revision', '0'))
+        except (ValueError, TypeError):
+            return 0
+    for row in [*legacy, *current]:
+        key = (row['author_id'], row['id'])
+        if key not in merged or revision(row) >= revision(merged[key]):
+            merged[key] = row
+    return list(merged.values())
+
+
+def _csv_table(path):
+    if path.startswith('goodteacher/teacher_diary/') and path.endswith('.csv'):
+        return 'teacher_diary'
+    if path.startswith('data/') and path.endswith('.csv'):
+        return path[5:-4].split('/')[0]
+    return None
+
+
 # ---------------------------------------------------------------- 로컬 ---
 class LocalBackend:
     is_local = True
@@ -107,6 +130,19 @@ class LocalBackend:
 
     def read(self, table):
         with self.lock:
+            if table == 'teacher_diary':
+                from pathlib import Path
+                groups = []
+                for directory in (Path(self.root, table), Path(self.root, 'goodteacher', table)):
+                    rows = []
+                    for path in sorted(directory.glob('*.csv')):
+                        with path.open(newline='', encoding='utf-8-sig') as source:
+                            rows.extend(_norm(r, table) for r in csv.DictReader(source))
+                    groups.append(rows)
+                rows = _diary_merge(*groups)
+                if {(r['author_id'], r['id']): r for r in rows} != {(r['author_id'], r['id']): r for r in groups[1]}:
+                    self._write_all(table, rows)
+                return rows
             if table in ("quiz_sets", "quiz_attempts") or table in AS_PARTITIONED or table in GAME_PARTITIONED or table in PLANNER_TABLES:
                 from pathlib import Path
                 rows = []
@@ -124,7 +160,7 @@ class LocalBackend:
         if table in ("quiz_sets", "quiz_attempts") or table in AS_PARTITIONED or table in GAME_PARTITIONED or table in PLANNER_TABLES:
             # Local tests use the same per-person/per-quiz file layout as GitHub.
             from pathlib import Path
-            directory = Path(self.root, table)
+            directory = Path(self.root, 'goodteacher', table) if table == 'teacher_diary' else Path(self.root, table)
             directory.mkdir(parents=True, exist_ok=True)
             groups = {}
             for row in rows:
@@ -397,6 +433,7 @@ class GitHubBackend:
         if not selected:
             return
         loaded = {table: [] for table in selected}
+        diary_current = []
         head = self._head()
         r = self._req("GET", f"/repos/{self.repo}/git/trees/{head}", params={"recursive": "1"})
         r.raise_for_status()
@@ -406,16 +443,34 @@ class GitHubBackend:
             p = e["path"]
             if getattr(self, "archive_crypto", None) and p.startswith("students/"):
                 self.archive_known.add(p)
-            if e["type"] != "blob" or not p.startswith("data/") or not p.endswith(".csv"):
+            if e["type"] != "blob":
                 continue
-            parts = p[5:-4].split("/")
-            table = parts[0]
+            table = _csv_table(p)
             if table not in selected:
                 continue
             text = self._blob(e["sha"]).decode("utf-8-sig")
-            loaded[table].extend(_norm(row, table) for row in csv.DictReader(io.StringIO(text)))
+            rows = [_norm(row, table) for row in csv.DictReader(io.StringIO(text))]
+            if table == 'teacher_diary' and p.startswith('goodteacher/'):
+                diary_current.extend(rows)
+            else:
+                loaded[table].extend(rows)
+        if 'teacher_diary' in selected:
+            loaded['teacher_diary'] = _diary_merge(loaded['teacher_diary'], diary_current)
         with self.lock:
             for table, rows in loaded.items():
+                if table == 'teacher_diary':
+                    # All remote reads have succeeded. Never overwrite live dirty
+                    # edits with an older CSV, including on a repeated load.
+                    self.rows[table] = _diary_merge(rows, self.rows.get(table, []))
+                    current = {(r['author_id'], r['id']): r for r in diary_current}
+                    migrate = [r for r in self.rows[table]
+                               if current.get((r['author_id'], r['id'])) != r]
+                    if migrate:
+                        # The normal batched flush creates goodteacher/ and copies
+                        # all existing work. Legacy files remain as a backup.
+                        self._mark(table, migrate)
+                    self.diary_storage_version = 2
+                    continue
                 if tables is None:
                     self.rows.setdefault(table, []).extend(rows)
                 else:
@@ -427,7 +482,8 @@ class GitHubBackend:
     def _path(table, row):
         if table in PLANNER_TABLES:
             key = hashlib.sha256(str(row.get("author_id", "")).encode("utf-8")).hexdigest()
-            return f"data/{table}/{key}.csv"
+            root = 'goodteacher' if table == 'teacher_diary' else 'data'
+            return f"{root}/{table}/{key}.csv"
         if table in GAME_PARTITIONED:
             identity = row.get("id", "") if table in ("review_rooms", "quizpop_rooms", "reward_rooms") else row.get("student_id", "")
             key = hashlib.sha256(str(identity).encode("utf-8")).hexdigest()
@@ -450,6 +506,18 @@ class GitHubBackend:
             month = (row.get("date") or row.get("created_at") or "")[:7] or "unknown"
             return f"data/{table}/{month}.csv"
         return f"data/{table}.csv"
+
+    def _upgrade_diary_storage(self):
+        """Move cached pre-update work, including unsaved edits, to the new path."""
+        with self.lock:
+            if getattr(self, 'diary_storage_version', 0) == 2:
+                return
+            rows = self.rows.get('teacher_diary', [])
+            if rows:
+                self._mark('teacher_diary', rows)
+            self.dirty = {p: v for p, v in self.dirty.items()
+                          if not p.startswith('data/teacher_diary/') and p != 'data/teacher_diary.csv'}
+            self.diary_storage_version = 2
 
     def _mark(self, table, rows):
         self.ver += 1
@@ -530,7 +598,7 @@ class GitHubBackend:
 
     # 저장(커밋)
     def _csv(self, path):
-        table = path[5:-4].split("/")[0]
+        table = _csv_table(path)
         rows = [r for r in self.rows[table] if self._path(table, r) == path]
         buf = io.StringIO()
         w = csv.DictWriter(buf, fieldnames=SCHEMAS[table])
@@ -659,6 +727,7 @@ def _ready_backend():
                 backend._load_all(tables=missing)
                 for table in missing:
                     invalidate(table)
+            backend._upgrade_diary_storage()
     return backend
 
 

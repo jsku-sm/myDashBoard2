@@ -12,7 +12,7 @@ _component = None
 def page(user, mode='progress'):
     global _component
     try:
-        data = svc.snapshot(user)
+        data = svc.snapshot(user, mode)
     except PermissionError as exc:
         st.error(str(exc))
         return
@@ -32,7 +32,7 @@ def page(user, mode='progress'):
         if isinstance(token, str):
             state['seen'] = (state['seen'] + [token])[-100:]
         try:
-            result = svc.dispatch(user, command)
+            result = svc.dispatch(user, command, mode)
             state['ack'] = dict(token=token, ok=True, result=result)
         except tp.SavePendingError as exc:
             state['ack'] = dict(token=token, ok=False, pending=True, error=str(exc))

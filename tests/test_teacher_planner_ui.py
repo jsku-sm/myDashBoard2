@@ -29,7 +29,7 @@ def rpc(app,action,payload,token=None):
     return props(app)
 
 
-def test_streamlit_create_move_both_views_conflict_replay_and_student_denial(tmp_path,monkeypatch):
+def test_streamlit_separate_views_commands_conflict_replay_and_student_denial(tmp_path,monkeypatch):
     import storage,teaching_progress_service
     from teacher_planner import service,view
     for module in (teaching_progress_service,service,view):importlib.reload(module)
@@ -44,15 +44,24 @@ def test_streamlit_create_move_both_views_conflict_replay_and_student_denial(tmp
     r=first['data']['lessons'][0]
     moved=rpc(app,'move',dict(id=r['id'],kind='lesson',revision=r['revision'],date='2026-10-21',period='3교시'))
     assert moved['ack']['ok']
-    app.session_state['mode']='diary';app.run();assert not app.exception
     r=props(app)['data']['lessons'][0];assert r['date']=='2026-10-21' and r['assessment_date']=='2026-11-20'
     moved=rpc(app,'move',dict(id=r['id'],kind='assessment',revision=r['revision'],date='2026-11-21'))
     assert moved['data']['lessons'][0]['date']=='2026-10-21'
     stale=rpc(app,'move',dict(id=r['id'],kind='lesson',revision='1',date='2026-10-22'))
     assert not stale['ack']['ok'] and stale['data']['lessons'][0]['date']=='2026-10-21'
+    app.session_state['mode']='diary';app.run();assert not app.exception
+    assert not props(app)['data']['lessons'] and not props(app)['data']['rules']
+    denied=rpc(app,'save_lesson',p)
+    assert not denied['ack']['ok'] and not denied['data']['lessons']
+    denied=rpc(app,'move',dict(id=r['id'],kind='lesson',revision=r['revision'],date='2026-10-22'))
+    assert not denied['ack']['ok']
     result=rpc(app,'save_diary',dict(kind='task',title='업무 준비',date='2026-10-20',deadline='2026-10-23',important='1'))
     assert result['ack']['ok'] and result['data']['diary'][0]['title']=='업무 준비'
     app.session_state['mode']='progress';app.run()
+    assert not props(app)['data']['diary'] and len(props(app)['data']['lessons'])==1
+    denied=rpc(app,'save_diary',dict(title='잘못된 메뉴',date='2026-10-20'))
+    assert not denied['ack']['ok'] and not denied['data']['diary']
+    app.session_state['mode']='diary';app.run()
     assert len(props(app)['data']['diary'])==1
     app.session_state['student']=True;app.run()
     assert app.error and not app.exception and not app.get('component_instance')

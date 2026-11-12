@@ -15,7 +15,7 @@ def diary(e,token='diary-request-01',**kw):
     payload=dict(kind='task',date='2026-10-20',time='09:00',deadline='2026-10-22',title='학습지 준비',body='내용',done='0',important='1')
     payload.update(kw)
     ids=e.planner.save_private(e.t,'teacher_diary',payload,token)
-    return next(r for r in e.planner.snapshot(e.t)['diary'] if r['id']==ids[0])
+    return next(r for r in e.planner.snapshot(e.t, 'diary')['diary'] if r['id']==ids[0])
 
 
 def rule(e,token='rule-request-01',**kw):
@@ -36,7 +36,7 @@ def test_private_owner_roles_and_generic_guards(planner):
     for actor in (e.other,e.student):
         e.st.session_state['user']=actor
         if actor==e.other:
-            snap=e.planner.snapshot(actor);assert not snap['diary'] and not snap['rules']
+            snap=e.planner.snapshot(actor, 'diary');assert not snap['diary'] and not snap['rules']
         else:
             with pytest.raises(PermissionError):e.planner.snapshot(actor)
         with pytest.raises(PermissionError):e.planner.move(actor,'diary',r['id'],r['revision'],'2026-10-21')
@@ -60,24 +60,24 @@ def test_same_canonical_lesson_and_independent_assessment(planner):
 def test_diary_reopen_duplicate_save_move_due_and_trash(planner):
     e=planner;r=diary(e);assert diary(e)['id']==r['id']
     e.planner.move(e.t,'diary',r['id'],r['revision'],'2026-10-21')
-    r=e.planner.snapshot(e.t)['diary'][0]
+    r=e.planner.snapshot(e.t, 'diary')['diary'][0]
     assert r['date']=='2026-10-21' and r['deadline']=='2026-10-22'
     reopened=e.db.LocalBackend(e.backend.root)
     assert reopened.read('teacher_diary')[0]==r
-    assert e.db.GitHubBackend._path('teacher_diary',r).startswith('data/teacher_diary/')
+    assert e.db.GitHubBackend._path('teacher_diary',r).startswith('goodteacher/teacher_diary/')
     assert e.t['id'] not in e.db.GitHubBackend._path('teacher_diary',r)
     e.planner.trash(e.t,'teacher_diary',r['id'],r['revision'])
-    r=e.planner.snapshot(e.t)['diary'][0];assert r['deleted_at']
+    r=e.planner.snapshot(e.t, 'diary')['diary'][0];assert r['deleted_at']
     e.planner.trash(e.t,'teacher_diary',r['id'],r['revision'],True)
-    assert not e.planner.snapshot(e.t)['diary'][0]['deleted_at']
+    assert not e.planner.snapshot(e.t, 'diary')['diary'][0]['deleted_at']
 
 
 def test_carry_selective_atomic_preserves_deadline(planner):
     e=planner;a=diary(e);b=diary(e,'diary-request-02',done='1');c=diary(e,'diary-request-03',kind='meeting')
     with pytest.raises(e.svc.ConflictError):e.planner.carry(e.t,[a,b],'2026-10-20')
-    assert all(r['date']=='2026-10-20' for r in e.planner.snapshot(e.t)['diary'])
+    assert all(r['date']=='2026-10-20' for r in e.planner.snapshot(e.t, 'diary')['diary'])
     e.planner.carry(e.t,[a],'2026-10-20')
-    rows={r['id']:r for r in e.planner.snapshot(e.t)['diary']}
+    rows={r['id']:r for r in e.planner.snapshot(e.t, 'diary')['diary']}
     assert rows[a['id']]['date']=='2026-10-21' and rows[a['id']]['deadline']=='2026-10-22'
     assert rows[b['id']]['date']==rows[c['id']]['date']=='2026-10-20'
 
@@ -149,10 +149,10 @@ def test_save_failure_no_duplicate_and_retry_outside_lock(planner,monkeypatch):
 def test_dispatch_no_role_trust_or_foreign_ownership(planner):
     e=planner
     command={'token':'dispatch-001','action':'save_diary','payload':dict(kind='task',date='2026-10-20',title='준비',author_id=e.other['id'])}
-    e.planner.dispatch(e.t,command)
-    assert e.planner.snapshot(e.t)['diary'][0]['author_id']==e.t['id']
+    e.planner.dispatch(e.t,command,'diary')
+    assert e.planner.snapshot(e.t, 'diary')['diary'][0]['author_id']==e.t['id']
     e.st.session_state['user']=e.student
-    with pytest.raises(PermissionError):e.planner.dispatch(dict(e.student,role='teacher'),command)
+    with pytest.raises(PermissionError):e.planner.dispatch(dict(e.student,role='teacher'),command,'diary')
 
 
 def test_remote_dirty_blocks_changes_until_confirmed(planner,monkeypatch):
@@ -160,13 +160,13 @@ def test_remote_dirty_blocks_changes_until_confirmed(planner,monkeypatch):
     e.backend.is_local=False
     path=e.db.GitHubBackend._path('teacher_diary',r)
     e.backend.dirty={path:1}
-    assert e.planner.pending(e.t)
+    assert e.planner.pending(e.t,'diary')
     with pytest.raises(e.svc.SavePendingError):
-        e.planner.dispatch(e.t,{'action':'save_diary','token':'blocked-write','payload':dict(r,title='새 내용')})
+        e.planner.dispatch(e.t,{'action':'save_diary','token':'blocked-write','payload':dict(r,title='새 내용')},'diary')
     assert e.backend.read('teacher_diary')[0]['title']=='학습지 준비'
     monkeypatch.setattr(e.db,'flush_now',lambda:e.backend.dirty.clear())
-    e.planner.dispatch(e.t,{'action':'retry','token':'retry-request','payload':{}})
-    assert not e.planner.pending(e.t)
+    e.planner.dispatch(e.t,{'action':'retry','token':'retry-request','payload':{}},'diary')
+    assert not e.planner.pending(e.t,'diary')
 
 
 def test_teacher_partition_paths_and_reload(planner):
@@ -175,19 +175,19 @@ def test_teacher_partition_paths_and_reload(planner):
     e.planner.save_private(e.other,'teacher_diary',dict(a,title='다른 교사 업무'),'other-request')
     rows=e.backend.read('teacher_diary')
     assert len({e.db.GitHubBackend._path('teacher_diary',r) for r in rows})==2
-    assert len(e.planner.snapshot(e.other)['diary'])==1
+    assert len(e.planner.snapshot(e.other, 'diary')['diary'])==1
 
 
 @pytest.mark.parametrize('kind',['task','meeting','event','note'])
 def test_all_work_types_complete_and_uncomplete_persist(planner,kind):
     e=planner;r=diary(e,kind=kind)
-    e.planner.dispatch(e.t,dict(token='complete-work-01',action='save_diary',payload=dict(r,done='1')))
-    done=e.planner.snapshot(e.t)['diary'][0]
+    e.planner.dispatch(e.t,dict(token='complete-work-01',action='save_diary',payload=dict(r,done='1')),'diary')
+    done=e.planner.snapshot(e.t, 'diary')['diary'][0]
     assert done['done']=='1' and done['deadline']==r['deadline'] and done['body']==r['body']
     assert e.db.LocalBackend(e.backend.root).read('teacher_diary')[0]['done']=='1'
     with pytest.raises(e.svc.ConflictError):
-        e.planner.dispatch(e.t,dict(token='stale-work-check',action='save_diary',payload=dict(r,done='0')))
-    e.planner.dispatch(e.t,dict(token='uncomplete-work-01',action='save_diary',payload=dict(done,done='0')))
+        e.planner.dispatch(e.t,dict(token='stale-work-check',action='save_diary',payload=dict(r,done='0')),'diary')
+    e.planner.dispatch(e.t,dict(token='uncomplete-work-01',action='save_diary',payload=dict(done,done='0')),'diary')
     assert e.db.LocalBackend(e.backend.root).read('teacher_diary')[0]['done']=='0'
 
 

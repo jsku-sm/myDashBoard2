@@ -1,4 +1,4 @@
-"""One authoritative lesson record, shown in two views; teacher-owned diary.
+"""Separate lesson progress and teacher-owned work diary workspaces.
 
 All mutations recheck the backend role, owner, and revision under the existing
 backend lock. Remote flush always occurs outside that lock. No student data.
@@ -50,14 +50,23 @@ def _flush(ids=()):
     return list(ids)
 
 
-def pending(user):
+def _mode(mode):
+    if mode not in ('progress', 'diary'):
+        raise ValueError('교사 메뉴를 다시 열어 주세요.')
+    return mode
+
+
+def pending(user, mode='progress'):
+    _mode(mode)
     b = db._ready_backend()
     tp.require_teacher(user, b)
     if b.is_local:
         return False
     with b.lock:
-        paths = {db.GitHubBackend._path(t, {'author_id': user['id']}) for t in TABLES}
-        paths.add('data/teaching_progress.csv')
+        table = 'teacher_diary' if mode == 'diary' else 'teacher_timetable'
+        paths = {db.GitHubBackend._path(table, {'author_id': user['id']})}
+        if mode == 'progress':
+            paths.add('data/teaching_progress.csv')
         return bool(paths.intersection(getattr(b, 'dirty', {})))
 
 
@@ -142,14 +151,19 @@ def trash(user, table, rid, revision, restore=False):
     return _flush([rid])
 
 
-def snapshot(user):
+def snapshot(user, mode='progress'):
+    _mode(mode)
     b = db._ready_backend()
     with b.lock:
         actor = tp.require_teacher(user, b)
         own = lambda table: [dict(r) for r in b.read(table) if r['author_id'] == actor['id']]
-        return dict(today=db.today_str(), lessons=own(tp.TABLE), diary=own('teacher_diary'),
-                    rules=own('teacher_timetable'), classes=CLASSES, subjects=SUBJECTS,
-                    periods=list(tp.PERIODS), pending=pending(user), local=b.is_local)
+        progress = mode == 'progress'
+        return dict(today=db.today_str(), lessons=own(tp.TABLE) if progress else [],
+                    diary=[] if progress else own('teacher_diary'),
+                    rules=own('teacher_timetable') if progress else [],
+                    classes=CLASSES if progress else [], subjects=SUBJECTS if progress else [],
+                    periods=list(tp.PERIODS) if progress else [],
+                    pending=pending(user, mode), local=b.is_local)
 
 
 def move(user, kind, rid, revision, target, period=None):
@@ -249,7 +263,8 @@ def generate(user, start, end, excluded, expected=None):
     return dict(count=len(rows), skipped=skipped)
 
 
-def dispatch(user, command):
+def dispatch(user, command, mode='progress'):
+    _mode(mode)
     if not isinstance(command, dict):
         raise ValueError('요청 형식을 확인해 주세요.')
     tp.require_teacher(user)
@@ -258,12 +273,20 @@ def dispatch(user, command):
     p = command.get('payload', {})
     if not isinstance(p, dict):
         raise ValueError('입력 내용을 확인해 주세요.')
+    # Mode comes from the server route, never the browser's command payload.
+    allowed = {'save_lesson', 'save_rule', 'preview_generate', 'generate'} if mode == 'progress' else {'save_diary', 'carry'}
+    kinds = {'lesson', 'assessment', 'rule'} if mode == 'progress' else {'diary'}
+    if action in ('move', 'trash', 'restore'):
+        if p.get('kind') not in kinds or (action == 'move' and p.get('kind') == 'rule'):
+            raise PermissionError('이 메뉴에서는 해당 종류의 기록을 변경할 수 없어요.')
+    elif action not in allowed | {'retry', 'refresh'}:
+        raise PermissionError('이 메뉴에서는 해당 종류의 기록을 변경할 수 없어요.')
     if action == 'retry':
         retry(user)
         return {'message': '저장을 확인했어요.'}
     if action == 'refresh':
         return {'message': '최신 기록을 불러왔어요.'}
-    if pending(user):
+    if pending(user, mode):
         raise tp.SavePendingError([])
     if action == 'save_lesson':
         if p.get('id'):
