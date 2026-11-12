@@ -198,7 +198,7 @@ def test_teacher_page_includes_the_announcement_tab_without_changing_other_tools
     app.session_state["user"] = dict(TEACHER)
     app.run()
     assert not app.exception and not app.error
-    assert [tab.label for tab in app.tabs] == ["📅 진도관리", "🔒 화면 잠금", "📢 공지사항", "📒 관찰기록", "⭐ 상점·벌점",
+    assert [tab.label for tab in app.tabs] == ["📅 진도관리", "📔 업무수첩", "🌙 방과후 관리", "🔒 화면 잠금", "📢 공지사항", "📒 관찰기록", "⭐ 상점·벌점",
                                              "📝 생기부 생성기", "👥 학생 명단", "⚙️ 설정"]
     assert app.checkbox(key="announcement_new_active").value is True
 
@@ -271,6 +271,12 @@ def test_every_table_facade_upgrades_old_local_backend_and_persists_new_schema(a
 def old_github_backend(monkeypatch):
     previous = object.__new__(previous_backend_class(db.GitHubBackend))
     previous.repo, previous.branch = "owner/private-data", "main"
+    # Cached tables can be upgraded only when the archive key is already present.
+    # Keep this fixture on that supported path; missing keys require a reboot.
+    from record_core.archive import ArchiveCrypto
+    from cryptography.fernet import Fernet
+    previous.archive_crypto = ArchiveCrypto(Fernet.generate_key().decode())
+    previous.archive_known, previous.archive_dirty, previous.archive_pending = set(), {}, {}
     previous.lock, previous.flush_lock = threading.RLock(), threading.Lock()
     previous.rows = {name: [] for name in db.SCHEMAS if name != "announcements"}
     previous.rows["users"] = [dict(TEACHER)]

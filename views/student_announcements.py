@@ -6,6 +6,7 @@ import streamlit as st
 
 import auth
 import storage as db
+from announcement_ui import CSS as ANNOUNCEMENT_CSS, header_html
 from student_updates import build_student_updates
 
 
@@ -63,7 +64,7 @@ def acknowledge_announcements(user, items):
             db.append("announcement_reads", dict(id=identifier, **values))
 
 
-@st.dialog("📢 선생님 공지", width="large", dismissible=False)
+@st.dialog("💌 선생님의 알림 편지", width="large", dismissible=False)
 def _announcement_dialog(user, displayed):
     # Dialog interactions rerun independently: recheck visibility before render.
     pending = pending_announcements(user)
@@ -74,13 +75,21 @@ def _announcement_dialog(user, displayed):
         st.session_state[_displayed_key(user)] = pending
         st.rerun(scope="app")
         return
-    st.caption("우리 반에 새로 올라온 공지예요. 내용을 읽고 확인해 주세요.")
+    st.markdown(ANNOUNCEMENT_CSS, unsafe_allow_html=True)
+    st.markdown('<span class="good-notice-marker" aria-hidden="true"></span>', unsafe_allow_html=True)
+    import streamlit.components.v1 as components
+    components.html(header_html(), height=120, scrolling=False)
+    st.markdown(f'<div class="good-notice-intro"><span class="good-notice-count">새 편지 {len(pending)}개</span><br>'
+                '우리 반에 도착한 선생님의 이야기예요.<br>차근차근 읽고, 확인 버튼을 눌러 주세요.</div>', unsafe_allow_html=True)
     for index, item in enumerate(pending):
-        if index:
-            st.divider()
-        st.subheader(item["title"])
-        st.caption(" · ".join(value for value in (item["author_name"], item["updated_at"]) if value))
-        st.write(item["content"])
+        # User-entered text stays in Streamlit's safe text/Markdown path.
+        card_key = "good_notice_card_" + hashlib.sha256(item["id"].encode()).hexdigest()[:16]
+        with st.container(key=card_key):
+            st.caption(f"LETTER {index + 1:02d} · " + " · ".join(value for value in
+                       (item["author_name"], item["updated_at"]) if value))
+            st.subheader(item["title"])
+            st.write(item["content"])
+    st.markdown('<p class="good-notice-footer">확인한 공지는 홈의 공지 목록에서 다시 볼 수 있어요.</p>', unsafe_allow_html=True)
     if st.button("확인했어요", key="acknowledge_announcements", type="primary", width="stretch"):
         acknowledge_announcements(user, displayed)
         st.session_state.pop(_displayed_key(user), None)
