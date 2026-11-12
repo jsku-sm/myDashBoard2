@@ -3,12 +3,13 @@ const {JSDOM}=require('jsdom');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'../teacher_planner/frontend');
 const dates=fs.readFileSync(path.join(root,'dates.mjs'),'utf8').replaceAll('export ','');
-const app=fs.readFileSync(path.join(root,'app.js'),'utf8').replace(/^import .*?;\n/,'');
+const app=fs.readFileSync(path.join(root,'app.js'),'utf8').replace(/^import .*?;\n/gm,'');
+const viewport=fs.readFileSync(path.join(root,'dialog_viewport.mjs'),'utf8').replaceAll('export ','');
 const fixture=()=>({today:'2026-10-20',classes:['1-1','1-2'],subjects:['공통수학1','공통수학2'],periods:['미정','1교시','2교시','3교시','4교시','5교시','6교시','7교시','방과후'],pending:false,local:false,rules:[],lessons:[{id:'lesson1',revision:'1',date:'2026-10-20',class:'1-1',subject:'공통수학2',period:'2교시',content:'함수의 뜻',status:'예정',assessment_title:'픽토그램',assessment_date:'2026-11-03',assessment_period:'3교시',assessment_status:'예정',deleted_at:''}],diary:[{id:'task1',revision:'1',date:'2026-10-20',kind:'task',title:'회의 준비',body:'회의 자료',time:'09:00',deadline:'2026-10-21',done:'0',important:'1',deleted_at:''}]});
 function setup(mode='progress',data=fixture()) {
- const dom=new JSDOM(fs.readFileSync(path.join(root,'index.html'),'utf8'),{runScripts:'outside-only',url:'https://component.example/'}),w=dom.window;
+ const dom=new JSDOM(fs.readFileSync(path.join(root,'index.html'),'utf8'),{runScripts:'outside-only',pretendToBeVisual:true,url:'https://component.example/'}),w=dom.window;
  w.ResizeObserver=class{observe(){}};w.HTMLElement.prototype.scrollIntoView=()=>{};w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;};w.confirm=()=>true;
- const messages=[];w.postMessage=x=>messages.push(x);w.eval(dates+'\n'+app+'\nwindow.dateChecks={addDays,weekDates,addMonths,validRange};');
+ const messages=[];w.postMessage=x=>messages.push(x);w.eval(dates+'\n'+viewport+'\n'+app+'\nwindow.dateChecks={addDays,weekDates,addMonths,validRange};');
  const render=(ack=null,next=data)=>w.dispatchEvent(new w.MessageEvent('message',{source:w,data:{type:'streamlit:render',args:{data:next,mode,ack}}}));
  render();const q=s=>w.document.querySelector(s),click=s=>{assert(q(s),s);q(s).click();},command=()=>messages.filter(m=>m.type==='streamlit:setComponentValue').at(-1)?.value;
  const input=(n,v)=>{const e=q(`[name="${n}"]`);e.value=v;e.dispatchEvent(new w.Event('input',{bubbles:true}));};
