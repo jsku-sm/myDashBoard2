@@ -234,7 +234,7 @@ class RecordAI:
                 raise ArchiveError("파일 분석 결과의 필수 항목이 없습니다.")
         return {"result":result, "metadata":meta, "manifest":public_manifest(files), "status":"교사 확인 전"}
 
-    def draft(self, subject, facts, identities=(), target_chars=400, *, consent=False):
+    def draft(self, subject, facts, identities=(), target_chars=400, *, consent=False, guidance=""):
         if not facts or len(facts) > 30:
             raise ArchiveError("초안 근거는 1~30개를 선택하세요.")
         if any(f.get("source") == "상점·벌점" for f in facts):
@@ -242,7 +242,12 @@ class RecordAI:
         text = draft_input(subject, facts, identities, target_chars)
         if len(text) > MAX_TEXT:
             raise ArchiveError("확인한 근거가 너무 깁니다. 전송 미리보기를 줄여 주세요(4만 자 이하).")
-        result, meta = self._call(DRAFT_RULES, [{"type":"input_text", "text":text}], DRAFT_SCHEMA, consent=consent)
+        if not isinstance(guidance, str) or len(guidance) > 16000:
+            raise ArchiveError("교사 제공 작성 기준은 16,000자 이내로 입력하세요.")
+        instructions = DRAFT_RULES
+        if guidance.strip():
+            instructions += "\n교사가 제공한 추가 작성 기준입니다. 위의 사실·근거 제한을 지키는 범위에서 적용하세요.\n" + guidance.strip()
+        result, meta = self._call(instructions, [{"type":"input_text", "text":text}], DRAFT_SCHEMA, consent=consent)
         allowed = {f["evidence_id"] for f in facts}
         sentences = result.get("sentences")
         if not isinstance(sentences, list) or not sentences:

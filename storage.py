@@ -52,7 +52,7 @@ SCHEMAS: dict[str, list[str]] = {
                     "teacher_comment_at"],
     "questions": ["id", "created_at", "subject", "class", "student_id", "name", "anonymous", "unit",
                   "title", "content", "answer", "answered_at"],
-    "observations": ["id", "created_at", "class", "student_id", "name", "category", "content", "author_id"],
+    "observations": ["id", "created_at", "class", "student_id", "name", "category", "content", "author_id", "subject"],
     "points": ["id", "created_at", "class", "student_id", "name", "kind", "score", "reason"],
     "records": ["id", "updated_at", "period", "subject", "class", "student_id", "name", "text", "sources", "author_id"],
     "sudanotes": ["id", "created_at", "date", "time", "class", "student_id", "name", "subject",

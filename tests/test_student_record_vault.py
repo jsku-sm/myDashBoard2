@@ -463,9 +463,9 @@ def test_archive_path_checked_before_any_network(gh):
 
 def test_branding_and_entrypoint_only_teacher():
     app=(ROOT/'app.py').read_text();ui=(ROOT/'ui.py').read_text()
-    assert 'Good쌤을 만나,' in app and '수학이 달라졌다' in app
+    assert 'Good쌤의<br><span>수학교실</span>' in app
     assert '스스로 발견한 가능성과 자신감' in ui
-    assert 'from record_core.view import render' in (ROOT/'views/record.py').read_text()
+    assert 'from record_core.writer_view import render' in (ROOT/'views/record.py').read_text()
 
 
 def test_save_checkpoint_retry_does_not_duplicate_notes_or_points():
