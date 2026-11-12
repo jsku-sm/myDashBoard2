@@ -375,25 +375,45 @@ def page(user):
         st.error("선생님만 볼 수 있는 화면이에요.")
         return
     ui.page_title("교사전용", "진도관리, 업무수첩, 방과후 관리, 화면 잠금, 공지사항, 관찰기록, 상점·벌점, 생기부 생성기, 학생 명단, 설정")
+    ui.retain_form_values()
     tp, td, ta, t0, t6, t1, t2, t5, t3, t4 = st.tabs(["📅 진도관리", "📔 업무수첩", "🌙 방과후 관리", "🔒 화면 잠금", "📢 공지사항", "📒 관찰기록", "⭐ 상점·벌점", "📝 생기부 생성기",
-                                      "👥 학생 명단", "⚙️ 설정"])
-    with tp:
-        tab_teaching_progress(user)
-    with td:
-        tab_teacher_diary(user)
-    with ta:
-        tab_afterschool(user)
-    with t0:
-        tab_lock()
-    with t6:
-        tab_announcements(user)
-    with t1:
-        tab_observe()
-    with t2:
-        tab_points()
-    with t5:
-        tab_record()
-    with t3:
-        tab_roster()
-    with t4:
-        tab_settings()
+                                      "👥 학생 명단", "⚙️ 설정"], key="teacher_active_tab", on_change="rerun")
+    if tp.open:
+        with tp:
+            tab_teaching_progress(user)
+
+    if td.open:
+        with td:
+            tab_teacher_diary(user)
+
+    if ta.open:
+        with ta:
+            tab_afterschool(user)
+
+    if t0.open:
+        with t0:
+            tab_lock()
+
+    if t6.open:
+        with t6:
+            tab_announcements(user)
+
+    if t1.open:
+        with t1:
+            tab_observe()
+
+    if t2.open:
+        with t2:
+            tab_points()
+
+    if t5.open:
+        with t5:
+            tab_record()
+
+    if t3.open:
+        with t3:
+            tab_roster()
+
+    if t4.open:
+        with t4:
+            tab_settings()

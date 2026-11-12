@@ -28,10 +28,8 @@ def normalized_text(text):
 def check_final(text, ai_draft, *, confirmed, review_note, byte_limit=1500):
     if not str(text).strip():
         raise ArchiveError("교사가 작성한 최종 문장을 입력하세요.")
-    if not confirmed or len(str(review_note).strip()) < 5:
-        raise ArchiveError("교사가 원본과 문장을 대조했는지 확인하고 수정·확인 사항을 남기세요.")
-    if ai_draft and normalized_text(text) == normalized_text(ai_draft):
-        raise ArchiveError("AI 초안 그대로는 최종 확인본으로 저장하지 않습니다. 사실을 대조하고 교사의 문장으로 직접 수정하세요.")
+    if not confirmed:
+        raise ArchiveError("내용과 근거를 검토한 뒤 완성본 확정 항목을 체크하세요.")
     if byte_count(text) > byte_limit:
         raise ArchiveError(f"설정한 분량 기준({byte_limit}B)을 넘었습니다. 학교의 입력 기준을 확인하고 분량을 조정하세요.")
 

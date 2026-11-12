@@ -13,6 +13,8 @@ import uuid
 from cryptography.fernet import Fernet, InvalidToken
 import requests
 
+_STORE_INIT_LOCK = threading.Lock()
+
 
 class AppError(Exception):
     pass
@@ -338,7 +340,10 @@ class GitHubStore:
                                   "X-GitHub-Api-Version": "2022-11-28"})
         self.base = "https://api.github.com/repos/" + repo
         self._read_lock = threading.RLock()
+        self._write_lock = threading.RLock()
         self._cached_state = None
+        self._cached_sha = None
+        self._cached_write_ready = False
         self._cache_until = 0
         self._check_private()
         key = key or self._persistent_encryption_key()
@@ -408,34 +413,76 @@ class GitHubStore:
         # must not cause one GitHub GET per student per pen stroke.
         with self._read_lock:
             if self._cached_state is None or time.monotonic() >= self._cache_until:
-                raw, _ = self._get("state.enc")
+                raw, sha = self._get("state.enc")
                 self._cached_state = blank() if raw is None else decode(self.fernet, raw)
+                self._cached_sha = sha
+                self._cached_write_ready = True
                 self._cache_until = time.monotonic() + 3
             return copy.deepcopy(self._cached_state)
 
     def invalidate(self):
         with self._read_lock:
             self._cache_until = 0
+            self._cached_write_ready = False
 
     def transaction(self, change):
+        # Serialize writers in this shared app process. Callbacks stay on their
+        # original session thread; source SHA still guards external writers.
+        with _STORE_INIT_LOCK:
+            # In-place upgrades preserve older cached stores and migration adapters.
+            if not hasattr(self, '_read_lock'): self._read_lock = threading.RLock()
+            if not hasattr(self, '_cached_state'): self._cached_state = None
+            if not hasattr(self, '_cache_until'): self._cache_until = 0
+        with self._read_lock:
+            if not hasattr(self, '_write_lock'):
+                self._write_lock = threading.RLock()
+            write_lock = self._write_lock
+        with write_lock:
+            return GitHubStore._transaction(self, change)
+
+    def _transaction(self, change):
         self._check_private()
         for n in range(6):
-            raw, sha = self._get("state.enc")
-            state = blank() if raw is None else decode(self.fernet, raw)
+            with self._read_lock:
+                if (self._cached_state is not None and getattr(self, '_cached_write_ready', False)
+                        and time.monotonic() < self._cache_until):
+                    state, sha = copy.deepcopy(self._cached_state), self._cached_sha
+                else:
+                    raw, sha = self._get("state.enc")
+                    state = blank() if raw is None else decode(self.fernet, raw)
+                    self._cached_state = copy.deepcopy(state)
+                    self._cached_sha = sha
+                    self._cached_write_ready = True
+                    self._cache_until = time.monotonic() + 3
             previous = copy.deepcopy(state)
             result = change(state)
+            if state == previous:
+                # No-op operations must not create a commit on every rerun.
+                if getattr(self, '_archive_retry', False):
+                    from record_core.assessment import after_commit
+                    after_commit(self, previous, state)
+                return copy.deepcopy(result)
             encrypted = self.fernet.encrypt(json.dumps(state, ensure_ascii=False).encode())
             if len(encrypted) > 12_000_000:
                 raise AppError("학습 기록 파일이 커졌습니다. 교사 화면에서 기록을 내보내고 새 운영 저장소를 준비하세요.")
             _prepare_submissions(self, previous, state)
             r = self._put("state.enc", encrypted, sha)
             if r.status_code in (200, 201):
-                self.invalidate()
+                try:
+                    saved_sha = r.json().get('content', {}).get('sha')
+                except (AttributeError, TypeError, ValueError):
+                    saved_sha = None
+                with self._read_lock:
+                    self._cached_state = copy.deepcopy(state)
+                    self._cached_sha = saved_sha
+                    self._cached_write_ready = bool(saved_sha)
+                    self._cache_until = time.monotonic() + 3
                 from record_core.assessment import after_commit
                 after_commit(self, previous, state)
                 return copy.deepcopy(result)
             if r.status_code not in (409, 422):
                 raise AppError("GitHub 저장 실패: 토큰 쓰기 권한과 요청 제한을 확인하세요.")
+            self.invalidate()  # Reload external edits before replaying the callback.
             time.sleep(0.15 * (n + 1))
         raise AppError("동시 제출로 저장이 지연되었습니다. 같은 제출 버튼을 다시 눌러주세요.")
 

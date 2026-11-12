@@ -124,7 +124,7 @@ enabled = true
 api_key = "OpenAI_API_키"
 model = "gpt-5.4-mini"''',language="toml")
         st.caption("OPENAI_API_KEY / OPENAI_MODEL 또는 공식 OpenAI용 [openai] 설정도 재사용할 수 있습니다. enabled는 이 기능의 외부 전송 허용 설정입니다.")
-        st.markdown("**최종 입력 전:** 교사의 직접 관찰·평가 사실과 대조하고, 학생 자기기록·AI 추정과 구별하세요. 기재 가능 범위와 분량은 학교의 최신 지침을 확인하세요. AI 초안을 그대로 최종 확인본으로 저장하지 않도록 했습니다.")
+        st.markdown("**최종 입력 전:** 교사의 직접 관찰·평가 사실과 대조하고, 학생 자기기록·AI 추정과 구별하세요. 기재 가능 범위와 분량은 학교의 최신 지침을 확인하세요. 검토한 AI 초안은 그대로 확정하거나 필요한 부분을 수정할 수 있습니다.")
         st.link_button("학교생활기록부 공식 기재요령", "https://star.moe.go.kr/web/contents/m21100.do")
     st.caption(VERSION+" · 기존 학습게임/수행평가/퀴즈 유지 · 선택 전송 · 교사 최종 확인")
 
@@ -216,7 +216,7 @@ def _workspace(service,workspace,prefix,config):
                 st.session_state[prefix+"draft"]=draft
                 st.session_state[prefix+"text"]=draft["text"]
                 service.save(workspace,reviews,draft["text"],draft,st.session_state.get(prefix+"analyses",[]))
-            st.success("참고 초안을 저장했습니다. 근거와 대조하고 교사의 문장으로 직접 수정하세요.")
+            st.success("참고 초안을 저장했습니다. 근거와 대조해 검토한 뒤 그대로 확정하거나 필요한 부분을 수정하세요.")
         except Exception as error: _error(error)
     draft=st.session_state.get(prefix+"draft")
     if draft:

@@ -12,7 +12,7 @@ from pathlib import Path
 
 DASHBOARD_UPDATE = 'GOOD_RECORDS_1.1_FINAL5'
 _UPDATE_FILES = ('ui.py', 'storage.py', 'views/record.py', 'views/teacher.py', 'views/sudanote.py', 'think_app/storage.py', 'think_app/embedded.py', 'record_core/__init__.py', 'record_core/archive.py', 'record_core/assessment.py', 'record_core/checkpoint.py', 'record_core/evidence.py', 'record_core/ai.py', 'record_core/service.py', 'record_core/view.py')
-_UPDATE_FILES += ('confirmed_changes.py', 'record_core/game_evidence.py')
+_UPDATE_FILES += ('confirmed_changes.py', 'record_core/game_evidence.py', 'record_core/writer_view.py', 'record_core/presentation.py')
 
 def dashboard_update_issues(root=None):
     root = Path(root) if root is not None else Path(__file__).resolve().parent
@@ -23,7 +23,8 @@ def dashboard_update_issues(root=None):
             issues.append(relative + "  — 파일 없음")
         else:
             try:
-                header = path.read_text(encoding="utf-8")[:256]
+                with path.open(encoding="utf-8") as source:
+                    header = source.read(256)
             except (OSError, UnicodeError):
                 issues.append(relative + "  — 읽기 실패")
                 continue

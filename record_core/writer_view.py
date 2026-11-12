@@ -1,7 +1,9 @@
+# GOOD_RECORDS_1.1_FINAL5
 """Teacher-facing semester writer. No hidden AI button; editable single/bulk views."""
 from __future__ import annotations
 import copy
 import hashlib
+import json
 import uuid
 from datetime import date
 import pandas as pd
@@ -13,6 +15,7 @@ from .ai import AIConfig, RecordAI
 from .service import byte_count
 from .semester import SemesterRecords, RecordPending, RecordConflict, term_dates
 from .view import values, _files
+from .presentation import evidence_card, math_markdown
 
 CSS = '''<style>
 .record-writer-steps{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 18px}.record-writer-steps span{padding:7px 13px;border-radius:20px;background:#f5f1e8;color:#756c57;font-size:.82rem;border:1px solid #e3dfd4}
@@ -61,9 +64,9 @@ def _capture(ctx, sid):
         r = old.get(eid, {}); item = known[eid]
         unchanged = r.get('evidence_hash', item['evidence_hash']) == item['evidence_hash']
         reviews.append(dict(evidence_id=eid, evidence_hash=item['evidence_hash'], subject=data['subject'],
-                            fact=st.session_state.get(p + eid + '_fact', r.get('fact', '')),
-                            context=st.session_state.get(p + eid + '_context', r.get('context', '확인 필요')),
-                            teacher_confirmed=st.session_state.get(p + eid + '_confirm', r.get('teacher_confirmed', False) and unchanged)))
+                            fact=st.session_state.get(p + eid + '_fact', r.get('fact') if unchanged and r.get('fact') else evidence_card(item)['fact']),
+                            context=st.session_state.get(p + eid + '_context', r.get('context') if r.get('context') not in (None, '확인 필요') else '정규 교과수업'),
+                            teacher_confirmed=r.get('teacher_confirmed', False) and unchanged))
     b.update(reviews=reviews, text=st.session_state.get(p + 'text', b['text']),
              review_note=st.session_state.get(p + 'review_note', b['review_note']))
     if p + 'analyses' in st.session_state:
@@ -96,14 +99,21 @@ def _readiness(service, b, config, target):
     if not config.api_key or not config.model:
         return False, 'AI API 키와 모델 설정을 확인해 주세요.'
     try:
-        preview = service.input_preview(b['workspace'], b['reviews'], target)
+        preview = service.input_preview(b['workspace'], _confirmed_reviews(b), target)
     except (ArchiveError, PermissionError) as exc:
         return False, str(exc)
     return True, preview
 
 
+def _confirmed_reviews(b):
+    # Preview uses a copy; actual approval is recorded only on generate/finalize.
+    return [dict(r, teacher_confirmed=True) for r in b['reviews']]
+
+
 def _save(service, ctx, sid, settings, final=False, confirmed=False):
     b = _capture(ctx, sid)
+    if final and confirmed:
+        b['reviews'] = _confirmed_reviews(b)
     payload = service.save_term(b['workspace'], b['reviews'], b['text'], b['ai_draft'], b['analyses'],
                                 final=final, confirmed=confirmed, review_note=b['review_note'], **settings)
     _install(ctx, sid, service.with_saved(b['workspace'], payload), preserve_backup=False)
@@ -129,6 +139,7 @@ def _generate(service, ctx, sid, config, settings, token, item=None):
         b['workspace'] = service.with_saved(b['workspace'], payload)
         if item is not None:
             item['input_hash'] = _batch_fingerprint(b)
+    b['reviews'] = _confirmed_reviews(b)
     payload = service.generate(b['workspace'], b['reviews'], RecordAI(config), token, consent=True, **settings)
     _install(ctx, sid, service.with_saved(b['workspace'], payload), preserve_backup=False)
 
@@ -139,7 +150,7 @@ def render():
         st.error('생기부 작성기는 교사만 사용할 수 있어요.'); return
     with st.container(key='school_record_writer'):
         st.markdown(CSS, unsafe_allow_html=True)
-        st.markdown('<div class="record-writer-steps"><span>01 자료 확인</span><span>02 AI 초안</span><span>03 교사 수정</span><span>04 저장 · CSV</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="record-writer-steps"><span>01 자료 선택·확인</span><span>02 AI 초안 생성</span><span>03 검토·수정</span><span>04 확정 저장</span></div>', unsafe_allow_html=True)
         try:
             backend = db._ready_backend()
             secrets = values()
@@ -220,29 +231,37 @@ def _student(service, ctx, sid, config, settings, year, term, subject, start, en
                 warning = _load(service, ctx, sid, year, term, subject, start, end, sync=True)
             ctx['notice'] = warning or '학습 자료와 저장본을 불러왔습니다.'; st.rerun()
         except Exception as exc: _error(exc)
+    _evidence(service, ctx, sid, p)
+    b = _capture(ctx, sid)
+    st.markdown('#### 2. 선택한 자료로 AI 초안 만들기')
     ready, preview = _readiness(service, b, config, settings['target_chars'])
-    consent = st.checkbox('선택한 근거와 전송 내용을 확인했으며 이 학생의 AI 초안 생성을 진행합니다.', key=p+'consent')
+    st.caption('생성 버튼을 누르면 선택 자료를 이 과목의 정규 수업 근거로 확인하고 AI에 전송합니다. 이름·학번은 가려서 보내며, 초안은 검토 전까지 확정되지 않습니다.')
     replace = st.checkbox('이미 작성한 글도 보관한 뒤 새 초안으로 바꾸기', key=p+'replace') if b['text'].strip() else True
-    if st.button('✨ AI 교과세특 초안 생성', type='primary', key=p+'generate', disabled=not(ready and consent and replace) or service.pending()):
+    if st.button('✨ AI 교과세특 초안 생성', type='primary', key=p+'generate', disabled=not(ready and replace) or service.pending()):
         try:
-            with st.spinner('확인한 근거로 초안을 작성하고 저장합니다.'):
+            with st.spinner('선택한 자료로 초안을 작성하고 저장합니다.'):
                 _generate(service, ctx, sid, config, settings, uuid.uuid4().hex)
-            ctx['notice'] = 'AI 초안을 저장했습니다. 아래 수정란에서 교사의 문장으로 다듬어 주세요.'; st.rerun()
+            ctx['notice'] = 'AI 초안이 작성되었습니다. 내용을 검토한 뒤 그대로 확정하거나 수정해 저장하세요.'; st.rerun()
         except Exception as exc:
             if getattr(exc, 'completed_draft', None): b['candidate'] = exc.completed_draft
             _error(exc)
     if not ready: st.info('생성 준비: ' + preview)
-    elif not consent: st.caption('근거가 준비되었습니다. 위 확인 항목을 체크하면 AI 생성 버튼을 사용할 수 있어요.')
-    with st.expander('AI에 보낼 근거 미리보기', expanded=False):
-        st.text(preview)
-        if settings['guidance']: st.text('교사 제공 작성 기준:\n' + settings['guidance'])
-    _evidence(service, ctx, sid, p)
+    else: st.caption(f"선택한 자료 {len(b['reviews'])}건으로 생성할 수 있습니다. 추가 메모 입력은 선택 사항입니다.")
+    with st.expander('AI에 전달할 내용 확인', expanded=False):
+        if ready:
+            for fact in json.loads(preview)['facts']:
+                st.caption(f"{fact['date']} · {fact['source']} · {fact['title']}")
+                st.markdown(math_markdown(fact['confirmed_fact']))
+        else:
+            st.caption(preview)
+        if settings['guidance']: st.markdown(math_markdown('교사 제공 작성 기준:\n' + settings['guidance']))
     # Text editor always exists, including students with no submitted evidence.
-    st.markdown('#### 교사 작성·수정')
+    st.markdown('#### 3. 초안 검토·수정 후 확정')
+    st.caption('내용이 적절하면 그대로 확정할 수 있습니다. 수정이 필요한 부분만 고쳐 주세요.')
     b['text'] = st.text_area('교과세특 작성 내용', value=b['text'], height=240, key=p+'text')
     st.caption(f"{len(b['text'])}자 · UTF-8/CRLF 참고 {byte_count(b['text'])}B / 설정 기준 {settings['byte_limit']}B")
-    b['review_note'] = st.text_input('교사 확인·수정 메모', value=b['review_note'], key=p+'review_note', placeholder='예: 학생 풀이와 대조하고 개념 설명을 수정함.')
-    verified = st.checkbox('원본과 기재 기준을 확인하고 교사가 직접 작성 또는 수정한 완성본입니다.', key=p+'verified')
+    b['review_note'] = st.text_input('교사 확인·수정 메모', value=b['review_note'], key=p+'review_note', placeholder='선택 사항 · 추가로 남길 검토 내용이 있을 때 입력하세요.')
+    verified = st.checkbox('내용과 근거를 검토했으며, 이 문장을 완성본으로 확정합니다.', key=p+'verified')
     a, c = st.columns(2)
     if a.button('초안 저장', key=p+'save', width='stretch', disabled=service.pending()):
         try: _save(service, ctx, sid, settings); ctx['notice']='작성 중 내용을 저장했습니다.'; st.rerun()
@@ -255,7 +274,12 @@ def _student(service, ctx, sid, config, settings, year, term, subject, start, en
     if b['ai_draft']:
         with st.expander('AI 원문 · 문장별 근거 · 직접 작성 전환'):
             st.text(b['ai_draft'].get('text', ''))
-            for s in b['ai_draft'].get('sentences', []): st.write({'문장':s['text'],'근거':s['evidence_ids']})
+            for sentence in b['ai_draft'].get('sentences', []):
+                st.markdown(math_markdown(sentence['text']))
+                sources = {e['id']: e for e in data['evidence']}
+                for eid in sentence['evidence_ids']:
+                    source = sources.get(eid, {})
+                    st.caption('근거: ' + ' · '.join(str(source.get(k, '')) for k in ('date', 'label', 'title')))
             for caution in b['ai_draft'].get('cautions', []): st.info(caution)
             if st.button('AI 연결 해제 · 교사 직접 작성', key=p+'manual'):
                 b['ai_draft']=None; st.rerun()
@@ -279,7 +303,8 @@ def _student(service, ctx, sid, config, settings, year, term, subject, start, en
 
 def _evidence(service, ctx, sid, p):
     b=ctx['buffers'][sid]; data=b['workspace']['data']; items={e['id']:e for e in data['evidence'] if e['eligible']}
-    st.markdown('#### 사용할 자료와 교사 확인 근거')
+    st.markdown('#### 1. 초안에 반영할 자료 선택')
+    st.caption('자료를 선택하면 학습 내용과 학생 응답을 읽기 쉽게 정리합니다. 원본에 없는 성취를 추가하지 않습니다.')
     counts={label:sum(e['label']==label for e in items.values()) for label in dict.fromkeys(e['label'] for e in items.values())}
     st.caption(' · '.join(f'{k} {v}건' for k,v in counts.items()) or '선택 기간에 제출된 자료가 없습니다. 직접 작성하거나 교사 관찰을 추가할 수 있어요.')
     points = [e for e in data['evidence'] if e['category'] == 'points']
@@ -306,14 +331,30 @@ def _evidence(service, ctx, sid, p):
     selected=st.multiselect('활용할 자료 선택 · 수다노트/관찰/수행평가/퀴즈/게임',list(items),default=[x for x in old if x in items],
                             format_func=lambda k:f"{items[k]['date']} · {items[k]['label']} · {items[k]['title']}" + (' · 과목 미지정' if items[k]['category']=='observations' and not items[k]['subject'] else ''),max_selections=30,key=p+'selected')
     for eid in selected:
-        e=items[eid]; r=old.get(eid,{})
-        with st.expander(f"{e['label']} · {e['date']} · {e['title']}",expanded=not r.get('teacher_confirmed',False)):
-            st.caption(e['origin']); st.text(e['text'])
-            st.text_area('교사가 확인한 구체적 사실', value=r.get('fact',''), key=p+eid+'_fact', height=100)
-            context=st.selectbox('활동 맥락',['확인 필요','정규 교과수업','방과후·자유 학습','기타'],
-                                 index=['확인 필요','정규 교과수업','방과후·자유 학습','기타'].index(r.get('context','확인 필요')),key=p+eid+'_context')
-            unchanged=r.get('evidence_hash',e['evidence_hash'])==e['evidence_hash']
-            st.checkbox('선택 과목의 정규 수업에서 확인한 사실입니다.',value=r.get('teacher_confirmed',False) and unchanged,key=p+eid+'_confirm')
+        e=items[eid]; r=old.get(eid,{}); card=evidence_card(e)
+        with st.expander(f"{e['label']} · {e['date']} · {e['title']}", expanded=len(selected)<=3):
+            st.markdown(math_markdown(card['summary']))
+            for label, value in card['sections']:
+                st.markdown('**' + label + '**')
+                st.markdown(math_markdown(value))
+            if card['questions']:
+                with st.expander('문항별 문제·응답·도움 사용 확인'):
+                    for title, rows in card['questions']:
+                        st.markdown('**' + title + '**')
+                        for label, value in rows:
+                            st.markdown('**' + label + '** · ' + math_markdown(value))
+            st.caption(card['check'])
+            with st.expander('반영 내용 보완·활동 맥락 변경 (선택)'):
+                unchanged=r.get('evidence_hash',e['evidence_hash'])==e['evidence_hash']
+                fact=r.get('fact') if unchanged and r.get('fact') else card['fact']
+                st.text_area('AI에 반영할 사실 · 필요할 때만 수정', value=fact, key=p+eid+'_fact', height=140)
+                contexts=['정규 교과수업','방과후·자유 학습','기타']
+                context=r.get('context','정규 교과수업')
+                st.selectbox('활동 맥락',contexts,index=contexts.index(context) if context in contexts else 0,key=p+eid+'_context')
+                st.caption('방과후·자유 학습과 기타 활동은 이 교과세특 초안에서 제외해 주세요.')
+            with st.expander('저장된 원문 확인 (선택)'):
+                st.caption(e['origin'])
+                st.text(e['text'])
             for i,f in enumerate(e['attachments']):
                 if st.button('원본 첨부 열기 · '+f['name'],key=p+eid+'_file_'+str(i)):
                     st.session_state[p+eid+'_raw_'+str(i)]=service.file(b['workspace'],eid,i)
@@ -371,7 +412,7 @@ def _whole(service, ctx, names, settings, year, term, subject, start, end):
                         and b['analyses']==current.get('analyses',[]) and not edit['final']):
                     continue
                 try:
-                    payload=service.save_term(b['workspace'],b['reviews'],edit['text'],b['ai_draft'],b['analyses'],
+                    payload=service.save_term(b['workspace'],_confirmed_reviews(b) if edit['final'] and verified else b['reviews'],edit['text'],b['ai_draft'],b['analyses'],
                                               final=edit['final'],confirmed=verified,review_note=edit['review_note'],**settings)
                     _install(ctx,sid,service.with_saved(b['workspace'],payload));saved+=1
                 except Exception as exc: errors.append(names[sid]+' · '+str(exc))

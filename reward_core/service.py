@@ -271,8 +271,14 @@ def snapshot(user, code):
                 v['question']['hint']=q['hint'] if s['hinted'] else None
             p=json.loads(profiles._row(b,u)['state_json'])
             v['coins']=avatar.wallet(p); v['badges']=p.get('reward_arcade',{}).get('badges',[])
-            v['personal_best']={g:max([x['score'] for old in b.read('reward_attempts') if old['student_id']==u['id']
-                                    for x in json.loads(old['state_json'])['runs'] if x['game']==g and x['ranked']] or [0]) for g in GAMES}
+            # Parse each saved run once, rather than once per game on every poll.
+            best={g:0 for g in GAMES}
+            for old in b.read('reward_attempts'):
+                if old['student_id']!=u['id']:continue
+                for run in json.loads(old['state_json'])['runs']:
+                    if run['game'] in best and run['ranked']:
+                        best[run['game']]=max(best[run['game']],run['score'])
+            v['personal_best']=best
         return v
 
 

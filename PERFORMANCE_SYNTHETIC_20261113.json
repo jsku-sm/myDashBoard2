@@ -1,0 +1,25 @@
+{
+  "type": "synthetic comparison; 4ms artificial request delay; text records only; no actual GitHub/student data",
+  "results": [
+    {
+      "version": "기존 코드",
+      "students": 25,
+      "completed": 6,
+      "stored": 6,
+      "conflicts": 129,
+      "requests": 296,
+      "state_reads": 135,
+      "elapsed_seconds": 3.224
+    },
+    {
+      "version": "수정 코드",
+      "students": 25,
+      "completed": 25,
+      "stored": 25,
+      "conflicts": 0,
+      "requests": 52,
+      "state_reads": 1,
+      "elapsed_seconds": 0.221
+    }
+  ]
+}

@@ -41,9 +41,9 @@ def prepare_student(ui):
     multi=pick(app.multiselect,'활용할 자료 선택 · 수다노트/관찰/수행평가/퀴즈/게임')
     evidence=next(e for e in ctx(app)['buffers'][SID]['workspace']['data']['evidence'] if e['category']=='sudanotes')
     multi.select(evidence['id']).run()
-    pick(app.text_area,'교사가 확인한 구체적 사실').set_value('좌표의 부호 오류를 찾아 수정하는 과정을 관찰함.')
+    pick(app.text_area,'AI에 반영할 사실 · 필요할 때만 수정').set_value('좌표의 부호 오류를 찾아 수정하는 과정을 관찰함.')
     pick(app.selectbox,'활동 맥락').select('정규 교과수업')
-    pick(app.checkbox,'선택 과목의 정규 수업에서 확인한 사실입니다.').check().run()
+    app.run()
     assert not app.exception
 
 
@@ -68,14 +68,13 @@ def test_individual_draft_reload_and_csv(ui):
 
 def test_generate_then_edit_and_finalize(ui):
     app=ui.app;prepare_student(ui)
-    pick(app.checkbox,'선택한 근거와 전송 내용을 확인했으며 이 학생의 AI 초안 생성을 진행합니다.').check().run()
     assert not pick(app.button,'✨ AI 교과세특 초안 생성').disabled
     pick(app.button,'✨ AI 교과세특 초안 생성').click().run()
     assert not app.exception and not app.error
     assert ui.ai.draft.call_count==1 and pick(app.text_area,'교과세특 작성 내용').value=='좌표 관계를 확인함.'
     pick(app.text_area,'교과세특 작성 내용').set_value('대칭이동에 따른 좌표의 부호 변화를 비교하며 자신의 풀이를 점검함.')
     pick(app.text_input,'교사 확인·수정 메모').set_value('수다노트와 풀이를 대조하여 문장을 수정함.')
-    pick(app.checkbox,'원본과 기재 기준을 확인하고 교사가 직접 작성 또는 수정한 완성본입니다.').check().run()
+    pick(app.checkbox,'내용과 근거를 검토했으며, 이 문장을 완성본으로 확정합니다.').check().run()
     pick(app.button,'완성본 저장').click().run()
     assert not app.exception and not app.error
     assert ui.s.load_term(SID,'공통수학2',2026,2)['data']['current']['kind']=='final'
@@ -188,3 +187,67 @@ def test_points_are_visible_separately_and_not_offered_as_ai_evidence(ui):
     options=pick(app.multiselect,'활용할 자료 선택 · 수다노트/관찰/수행평가/퀴즈/게임').options
     assert not any('상점·벌점' in str(x) for x in options)
     assert not ui.ai.draft.called
+
+
+def test_select_generate_and_accept_unchanged_without_typing_or_extra_approvals(ui):
+    app=ui.app
+    evidence=next(e for e in ctx(app)['buffers'][SID]['workspace']['data']['evidence'] if e['category']=='sudanotes')
+    pick(app.multiselect,'활용할 자료 선택 · 수다노트/관찰/수행평가/퀴즈/게임').select(evidence['id']).run()
+    assert not ui.ai.draft.called
+    assert not pick(app.button,'✨ AI 교과세특 초안 생성').disabled
+    assert any('대칭의 부호를 확인함' in m.value for m in app.markdown)
+    assert not ctx(app)['buffers'][SID]['reviews'][0]['teacher_confirmed']
+    pick(app.button,'✨ AI 교과세특 초안 생성').click().run()
+    assert not app.exception and not app.error
+    assert ui.ai.draft.call_count==1
+    facts=ui.ai.draft.call_args.args[1]
+    assert len(facts)==1 and facts[0]['evidence_id']==evidence['id']
+    assert '학생이 설명한 핵심 개념' in facts[0]['confirmed_fact']
+    assert '교사 관찰 아님' in facts[0]['confirmed_fact']
+    generated=pick(app.text_area,'교과세특 작성 내용').value
+    assert generated=='좌표 관계를 확인함.'
+    assert pick(app.button,'완성본 저장').disabled
+    pick(app.checkbox,'내용과 근거를 검토했으며, 이 문장을 완성본으로 확정합니다.').check().run()
+    pick(app.button,'완성본 저장').click().run()
+    assert not app.exception and not app.error
+    saved=ui.s.load_term(SID,'공통수학2',2026,2)['data']['current']
+    assert saved['kind']=='final' and saved['text']==generated
+    assert saved['teacher_confirmed'] and saved['ai_draft']
+    assert saved['review_note']==''
+    app.run();assert ui.ai.draft.call_count==1
+
+
+def test_selection_removal_and_nonclass_context_disable_generation(ui):
+    app=ui.app
+    evidence=next(e for e in ctx(app)['buffers'][SID]['workspace']['data']['evidence'] if e['category']=='sudanotes')
+    pick(app.multiselect,'활용할 자료 선택 · 수다노트/관찰/수행평가/퀴즈/게임').select(evidence['id']).run()
+    pick(app.selectbox,'활동 맥락').select('방과후·자유 학습').run()
+    assert pick(app.button,'✨ AI 교과세특 초안 생성').disabled
+    pick(app.selectbox,'활동 맥락').select('정규 교과수업').run()
+    assert not pick(app.button,'✨ AI 교과세특 초안 생성').disabled
+    pick(app.multiselect,'활용할 자료 선택 · 수다노트/관찰/수행평가/퀴즈/게임').unselect(evidence['id']).run()
+    assert pick(app.button,'✨ AI 교과세특 초안 생성').disabled
+    assert not ui.ai.draft.called
+
+
+def test_arcade_card_renders_math_and_generation_uses_readable_event(ui):
+    import json
+    profile={'play_lab':{'records':[{'game':'function-factory','runId':'lesson-run','seq':1,
+        'type':'success','at':'2026-11-12 10:00:00','stage':1,
+        'question':r'$f(x)=3x+1,\quad g(x)=x+3$에 입력 $-2$를 처리하시오.',
+        'skill':'합성함수', 'message':r'출력 $4$예요.'}]}}
+    ui.env.b.rows['game_profiles'].append({'id':'arcade-test','student_id':SID,'state_json':json.dumps(profile)})
+    ui.s.sync_sources(SID)
+    w=ui.s.load_term(SID,'공통수학2',2026,2)
+    ui.v._install(ctx(ui.app),SID,w)
+    ui.app.run()
+    e=next(e for e in w['data']['evidence'] if e.get('extra',{}).get('source_kind')=='arcade_event')
+    pick(ui.app.multiselect,'활용할 자료 선택 · 수다노트/관찰/수행평가/퀴즈/게임').select(e['id']).run()
+    assert not ui.app.exception
+    assert any(r'$f(x)=3x+1,\quad g(x)=x+3$' in m.value for m in ui.app.markdown)
+    assert not pick(ui.app.button,'✨ AI 교과세특 초안 생성').disabled
+    pick(ui.app.button,'✨ AI 교과세특 초안 생성').click().run()
+    assert not ui.app.exception and not ui.app.error
+    fact=ui.ai.draft.call_args.args[1][0]['confirmed_fact']
+    assert '실제 학생 답과 풀이 과정은 이 기록에 없어' in fact
+    assert '학생에게 표시된 피드백' in fact

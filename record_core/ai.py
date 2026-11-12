@@ -157,7 +157,7 @@ DRAFT_RULES = """한국 고등학교 수학 교사의 교과세특 작성 보조
 상벌점/벌점 사유/게임 보상/캐릭터 꾸미기/순위/접속 빈도를 교과 역량이나 성실성의 증거로 쓰지 않는다. 방과후 활동·교외 활동·부모/학교/학생 이름·학번·기관명·자격증·수상 실적을 넣지 않는다.
 ~함. ~했음. ~보임. 형태의 명사형 종결을 사용한다. 추상적 최상급 칭찬과 근거 없는 미래 예측을 피한다.
 각 문장은 반드시 입력에 있는 evidence_id를 근거로 지정한다. 최소 글자 수를 맞추려고 사실을 발명하지 않는다.
-최종 입력은 교사가 원문을 대조하고 직접 수정해야 하는 참고 초안이다. 학교의 최신 지침을 자동 충족한다고 주장하지 않는다."""
+최종 입력 전 교사가 원문과 대조해 검토할 참고 초안이다. 교사는 검토 후 그대로 확정하거나 수정할 수 있다. 학교의 최신 지침을 자동 충족한다고 주장하지 않는다."""
 
 @dataclass
 class AIConfig:
@@ -258,4 +258,4 @@ class RecordAI:
                 or not set(sentence["evidence_ids"]).issubset(allowed)):
                 raise ArchiveError("초안의 문장별 근거가 유효하지 않습니다. 확정하지 않습니다.")
         return {"text":" ".join(s["text"].strip() for s in sentences), "sentences":sentences,
-                "cautions":result.get("cautions", []), "metadata":meta, "input_preview":text, "status":"AI 참고 초안 · 교사 수정 필요"}
+                "cautions":result.get("cautions", []), "metadata":meta, "input_preview":text, "status":"AI 참고 초안 · 교사 검토 필요"}

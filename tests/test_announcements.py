@@ -196,6 +196,7 @@ def test_teacher_page_includes_the_announcement_tab_without_changing_other_tools
         "teacher.page(st.session_state['user'])\n"
     )
     app.session_state["user"] = dict(TEACHER)
+    app.session_state["teacher_active_tab"] = "📢 공지사항"
     app.run()
     assert not app.exception and not app.error
     assert [tab.label for tab in app.tabs] == ["📅 진도관리", "📔 업무수첩", "🌙 방과후 관리", "🔒 화면 잠금", "📢 공지사항", "📒 관찰기록", "⭐ 상점·벌점",

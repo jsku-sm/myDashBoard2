@@ -181,7 +181,7 @@ def validate_reviews(evidence, reviews, subject):
             raise ArchiveError("선택한 교과와 근거 확인 과목이 다릅니다.")
         text = str(review.get("fact", "")).strip()
         if not 5 <= len(text) <= 6000:
-            raise ArchiveError("교사가 확인한 구체적인 사실을 5~6000자로 기록하세요.")
+            raise ArchiveError("선택 자료에 반영할 학습 내용이 부족하거나 너무 깁니다. 자료 카드의 ‘반영 내용 보완’에서 원본을 확인한 내용을 5~6000자로 정리하세요.")
         facts.append({"evidence_id":e["id"], "date":e["date"], "source":e["label"], "title":e["title"],
                       "confirmed_fact":text, "provenance":e["origin"]})
     if not facts:

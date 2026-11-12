@@ -43,7 +43,11 @@ class CaptureUI:
     def form(self,*args,**kw): return self
     def text_input(self,*args,**kw): return ''
     def form_submit_button(self,*args,**kw): return False
-    def tabs(self,labels): self.calls.append(('tabs',labels)); return [self]*len(labels)
+    def tabs(self,labels,**kw):
+        self.calls.append(('tabs',labels)); tabs=[]
+        for label in labels:
+            tab=CaptureUI();tab.open=label==self.session_state.get(kw.get('key'),labels[0]);tabs.append(tab)
+        return tabs
     def error(self,value,**kw): self.calls.append(('error',value))
     def warning(self,value,**kw): self.calls.append(('warning',value))
 
@@ -97,12 +101,12 @@ def test_sidebar_function_renders_requested_motto():
 
 
 def test_teacher_route_calls_record_tab():
-    st=CaptureUI();hits=[]
-    ns={'st':st,'ui':SimpleNamespace(page_title=lambda *a:None)}
-    for name in ['tab_teaching_progress','tab_afterschool','tab_lock','tab_announcements','tab_observe','tab_points','tab_record','tab_roster','tab_settings']:
+    st=CaptureUI();hits=[];st.session_state['teacher_active_tab']='📝 생기부 생성기'
+    ns={'st':st,'ui':SimpleNamespace(page_title=lambda *a:None,retain_form_values=lambda:None)}
+    for name in ['tab_teaching_progress','tab_teacher_diary','tab_afterschool','tab_lock','tab_announcements','tab_observe','tab_points','tab_record','tab_roster','tab_settings']:
         ns[name]=(lambda *a,_name=name: hits.append(_name))
     function('views/teacher.py','page',ns)({'role':'teacher'})
-    assert hits.count('tab_record')==1
+    assert hits==['tab_record']
     assert any('📝 생기부 생성기' in value for kind,value in st.calls if kind=='tabs')
 
 

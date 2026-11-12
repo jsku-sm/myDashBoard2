@@ -348,10 +348,11 @@ def test_save_unconfirmed_work_then_restore_and_finalize(env):
     assert any('/school_records/' in p and '/history/' in p for p in env.b.files)
 
 
-def test_final_requires_edit_and_does_not_accept_stale_source(env):
+def test_final_accepts_reviewed_ai_and_does_not_accept_stale_source(env):
     w=env.load();e=next(e for e in w['data']['evidence'] if e['category']=='sudanotes');r=review(e)
     d={'text':'AI 초안 문장임.','evidence_hashes':{e['id']:e['evidence_hash']}}
-    with pytest.raises(ArchiveError):env.s.save(w,[r],d['text']+' ',d,final=True,confirmed=True,review_note='자료를 다시 대조함.')
+    env.s.save(w,[r],d['text'],d,final=True,confirmed=True)
+    w=env.load()
     env.b.update('sudanotes','note1',{'q1':'교사가 아직 보지 않은 새 내용'});env.b.flush()
     with pytest.raises(ArchiveError):env.s.save(w,[r],'교사의 수정 문장임.',d,final=True,confirmed=True,review_note='자료를 다시 대조함.')
 

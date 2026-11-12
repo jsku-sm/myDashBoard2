@@ -631,3 +631,26 @@ def embed(url: str, height: int = 600):
     else:
         import streamlit.components.v1 as components
         components.iframe(url, height=height, scrolling=True)
+
+
+def retain_form_values():
+    """Keep small editable inputs across lazy tabs; never persist button triggers.
+
+    Files/canvas data already use their dedicated draft stores. Explicit review
+    checkboxes reset when hidden, so navigating back cannot silently approve work.
+    """
+    from datetime import date, datetime
+    for key, value in list(st.session_state.items()):
+        if isinstance(value, bool):
+            continue
+        editable = isinstance(value, (str, int, float, date, datetime)) or (
+            isinstance(value, (list, tuple)) and len(value) <= 100 and all(
+                isinstance(v, (str, int, float, date, datetime)) for v in value))
+        if editable:
+            try:
+                st.session_state[key] = value
+            except st.errors.StreamlitAPIException:
+                # A parent navigation widget rendered earlier in this run is
+                # already alive and needs no retention. Read-only keys likewise
+                # stay under the owning widget's control.
+                continue

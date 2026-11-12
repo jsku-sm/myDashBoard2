@@ -3,6 +3,26 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import threading
+from functools import lru_cache
+
+
+_HASH_LOCK = threading.RLock()
+
+
+@lru_cache(maxsize=256)
+def _file_digest(path, stamp):
+    # Stamp includes ctime as well as mtime, so same-size replacements still
+    # invalidate. No student data or authorization result is cached here.
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _digest(path):
+    stat = path.stat()
+    stamp = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
+    # One initial hash per asset even when 25 sessions arrive together.
+    with _HASH_LOCK:
+        return _file_digest(str(path.resolve()), stamp)
 
 
 def release_issues(root=None):
@@ -28,7 +48,7 @@ def release_issues(root=None):
         if not path.resolve().is_relative_to(root.resolve()):
             return ['퀴즈 실행 파일 경로를 확인해 주세요.']
         try:
-            actual = hashlib.sha256(path.read_bytes()).hexdigest()
+            actual = _digest(path)
         except OSError:
             issues.append(relative + ' · 파일 없음')
             continue

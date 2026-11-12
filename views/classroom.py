@@ -814,31 +814,37 @@ def _course_detail(service, course, user):
                 if st.session_state.get(_key(user, "show_focus_editor")):
                     _lesson_editor(service, course, lesson, user, key="focused")
     teacher = _teacher(user)
+    ui.retain_form_values()
     tabs = st.tabs([
         "공지", "수업·자료", "과제·퀴즈·수행평가", "수업 달력·진도",
-        *(["구성원", "수업 설정"] if teacher else [])])
+        *(["구성원", "수업 설정"] if teacher else [])], key=_key(user, "course_tab_" + course["id"]), on_change="rerun")
     stream, materials, assignments, calendar = tabs[:4]
-    with stream:
-        _work_tab("render_stream", service, course, user)
-    with materials:
-        _work_tab("render_materials", service, course, user)
-        with st.expander("기존 자료실·과제방·수다노트 기록 연결"):
-            if st.checkbox("기존 기록 불러오기", key=_key(user, "legacy_records_" + course["id"])):
-                try:
-                    from views.classroom_legacy_ui import render_legacy_records
-                    render_legacy_records(service, course)
-                except Exception as error:
-                    _error(error)
-    with assignments:
-        _work_tab("render_assignments", service, course, user)
-    with calendar:
-        _calendar(service, [course], user, _today(), key="course_" + course["id"])
+    if stream.open:
+        with stream:
+            _work_tab("render_stream", service, course, user)
+    if materials.open:
+        with materials:
+            _work_tab("render_materials", service, course, user)
+            with st.expander("기존 자료실·과제방·수다노트 기록 연결"):
+                if st.checkbox("기존 기록 불러오기", key=_key(user, "legacy_records_" + course["id"])):
+                    try:
+                        from views.classroom_legacy_ui import render_legacy_records
+                        render_legacy_records(service, course)
+                    except Exception as error:
+                        _error(error)
+    if assignments.open:
+        with assignments:
+            _work_tab("render_assignments", service, course, user)
+    if calendar.open:
+        with calendar:
+            _calendar(service, [course], user, _today(), key="course_" + course["id"])
     if teacher:
-        with tabs[4]:
-            _members(service, course, user)
-        with tabs[5]:
-            _settings(service, course, user)
-
+        if tabs[4].open:
+            with tabs[4]:
+                _members(service, course, user)
+        if tabs[5].open:
+            with tabs[5]:
+                _settings(service, course, user)
 
 def _work_tab(function, service, course, user):
     try:

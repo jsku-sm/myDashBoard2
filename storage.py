@@ -676,6 +676,10 @@ class GitHubBackend:
 
     def flush(self):
         with self.flush_lock:
+            # Briefly coalesce simultaneous submissions; acknowledgements still
+            # wait for the durable commit. Never hold the data lock while waiting.
+            if self.pending_count():
+                time.sleep(0.08)
             with self.lock:
                 if not self.dirty and not self.pending_files and not getattr(self, "archive_dirty", {}) and not getattr(self, "archive_pending", {}):
                     return
