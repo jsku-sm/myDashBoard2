@@ -10,6 +10,7 @@ import auth
 import realtime as rt
 import storage as db
 import ui
+from confirmed_changes import perform, pending_controls
 from views.record import tab_record
 from views.announcements import tab_announcements
 from views.teaching_progress import calendar_page as tab_teaching_progress
@@ -226,6 +227,8 @@ def _roster_row_selected(table_key, student_ids):
 
 
 def tab_roster():
+    if pending_controls('_roster_save_retry'):
+        return
     st.markdown("#### 명단 파일로 한 번에 등록")
     tmpl = "학번,이름,학급,초기비밀번호\n10101,김수학,1-1,\n10102,이함수,1-1,\n10201,박방정,1-2,\n"
     st.download_button("📄 명단 양식 내려받기 (CSV)", tmpl.encode("utf-8-sig"),
@@ -243,20 +246,27 @@ def tab_roster():
             overwrite = st.checkbox("이미 있는 학번은 이름·학급을 새 값으로 바꾸기")
             if st.button(f"{len(rows)}명 등록", type="primary"):
                 with st.spinner("등록 중..."):
-                    a, u, s = auth.add_students(rows, overwrite)
-                st.success(f"새로 등록 {a}명 · 정보 수정 {u}명 · 건너뜀 {s}명")
+                    saved, result = perform('학생 명단', lambda: auth.add_students(rows, overwrite))
+                if saved:
+                    a, u, s = result
+                    st.success(f"새로 등록 {a}명 · 정보 수정 {u}명 · 건너뜀 {s}명 · 저장 완료")
+                else:
+                    return
         except Exception as e:
             st.error(f"파일을 읽지 못했어요: {e}")
 
     st.markdown("#### 한 명 추가")
-    with st.form("add_one", clear_on_submit=True):
+    with st.form("add_one", clear_on_submit=False):
         c1, c2, c3 = st.columns(3)
         sid = c1.text_input("학번")
         name = c2.text_input("이름")
         cls = c3.selectbox("학급", CLASSES)
         ok = st.form_submit_button("추가")
     if ok and sid.strip() and name.strip():
-        a, _, s = auth.add_students([{"id": sid, "name": name, "class": cls}], False)
+        saved, result = perform('학생 등록', lambda: auth.add_students([{"id": sid, "name": name, "class": cls}], False))
+        if not saved:
+            return
+        a, _, s = result
         if a:
             st.success("추가했어요. 초기 비밀번호는 학번과 같아요.")
         else:
@@ -292,14 +302,18 @@ def tab_roster():
         stu = by_id[sid]
         c1, c2 = st.columns(2)
         if c1.button("🔑 비밀번호 초기화 (학번으로)", width="stretch"):
-            auth.reset_password(stu["id"])
-            st.success(f"{stu['name']} 학생의 비밀번호를 학번으로 초기화했어요.")
+            saved, _ = perform('학생 비밀번호 초기화', lambda: auth.reset_password(stu["id"]))
+            if not saved:
+                return
+            st.success(f"{stu['name']} 학생의 비밀번호를 학번으로 초기화하고 저장했어요.")
         if c2.button("🗑️ 학생 삭제", width="stretch"):
             st.session_state["_confirm_del"] = stu["id"]
         if st.session_state.get("_confirm_del") == stu["id"]:
             st.warning(f"{stu['name']} 학생을 명단에서 지울까요? (기록은 남아요)")
             if st.button("네, 지울게요", type="primary"):
-                db.delete("users", stu["id"])
+                saved, _ = perform('학생 명단 삭제', lambda: db.delete("users", stu["id"]))
+                if not saved:
+                    return
                 st.session_state.pop("_confirm_del")
                 st.rerun()
     else:
@@ -309,6 +323,8 @@ def tab_roster():
 
 # --------------------------------------------------------------- 설정 ---
 def tab_settings():
+    if pending_controls('_settings_save_retry'):
+        return
     st.markdown("#### 자동 피드백 문구")
     st.caption("한 줄에 하나씩. 학생이 결과물을 올리면 이 중 하나가 무작위로 전송돼요. `{name}` 자리에 학생 이름이 들어가요.")
     fb = st.text_area("격려 메시지", value=db.get_setting("feedback_messages"), height=180)
@@ -326,15 +342,19 @@ def tab_settings():
                      value=db.get_setting("show_points_to_students") == "1")
 
     if st.button("설정 저장", type="primary"):
-        db.set_setting("feedback_messages", fb)
-        db.set_setting("short_feedback", short)
-        for s, v in unit_vals.items():
-            db.set_setting(f"units_{s}", v)
-        db.set_setting("show_points_to_students", "1" if show else "0")
+        def apply_settings():
+            db.set_setting("feedback_messages", fb)
+            db.set_setting("short_feedback", short)
+            for s, v in unit_vals.items():
+                db.set_setting(f"units_{s}", v)
+            db.set_setting("show_points_to_students", "1" if show else "0")
+        saved, _ = perform('설정', apply_settings)
+        if not saved:
+            return
         st.success("저장했어요.")
 
     st.markdown("#### 백업")
-    st.caption("모든 표 데이터를 CSV로 내려받아요. 같은 데이터가 깃허브 데이터 저장소에도 자동으로 쌓여요.")
+    st.caption("접근 가능한 표를 CSV로 내려받아요. 이 기능은 첨부파일·암호화 자료함을 포함한 전체 복원용 백업이 아닙니다. 게임·업무 기록은 각 메뉴의 조회 권한을 따릅니다.")
     table = st.selectbox("표", sorted(db.SCHEMAS.keys() - {"users", "settings"}))
     rows = db.read(table)
     st.download_button(f"📄 {table}.csv 내려받기",

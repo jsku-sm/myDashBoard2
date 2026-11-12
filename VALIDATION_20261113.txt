@@ -1,0 +1,47 @@
+검증 결과 · 2026-11-13 · 코드 보완 및 학생 식별 준비
+
+기준
+- 기존 전체 코드: myDashBoard2_quizpop_updated.zip 버전 21
+- 비교한 GitHub 코드 커밋: 07010638e4a7d1dbb4ea9a2aa5d3687dd6f742d7
+- Python 3.12, Streamlit 1.67.0. 프로젝트 requirements.txt 범위의 별도 시험 환경 사용.
+- 실제 학생·교사 계정 변경, GitHub 쓰기, 실제 AI 요청은 수행하지 않았습니다.
+
+결과
+- 변경 관련 집중 검사: 55개 통과.
+- 광범위 Python 검사: 2,193개 통과, 9개 실패.
+- 9개 실패는 이전 전체 점검과 동일한 테스트이며 새로 실패한 항목은 없습니다.
+- 퀴즈 JavaScript 검사: 39개 통과.
+- JavaScript 화면 시나리오: 6개 통과.
+  생성 클릭, 설정 누락, 오류 응답, 학생 배정 상태, 참여코드 저장 오류, 교사 문제 확인.
+- Vite 빌드 완료. 교사 문제 확인·참여코드 표시가 포함된 index-BsOkodF7.js 생성 확인.
+- Python 소스 269개 문법 검사: 오류 0개.
+- quiz_pop 실행 묶음 검사: 서버·화면·자산 65개 해시 일치.
+
+실제 재현한 내용
+- 공통수학1·2의 7개 개념퀴즈 단원을 실제 엔진으로 풀고 학생 응답이 근거 목록에 연결됨.
+- 날짜·과목·학생 필터, 중복 이벤트 제거, 기존 아바타 세션 유지.
+- 20개 아케이드의 문제 포함 학습 이벤트 연결. 점수·코인·시작/승리 이벤트만으로는 근거 생성 안 함.
+- 비밀번호 변경 저장 실패 시 성공 안내 없음. 재시도 후 저장 확인. 비밀번호 변경은 한 번만 실행.
+- 명단 클릭·학생 선택·비밀번호 초기화 대상·삭제 대상 동기화 유지.
+- 2027년의 같은 학번은 새 학생에게 연결, 기존 학생 진급은 같은 고유번호에 연결.
+- 학년도 불일치·이미 사용한 학번·중복 연결 거부. 학번 앞자리 0 보존.
+- 학생 식별 검토 명령은 원본의 내용과 해시를 유지하고, 기존 출력 파일 덮어쓰기·원본 폴더 출력·--apply를 거부.
+
+남아 있는 기존 테스트 9개
+1개: 수행평가 cloud 시험용 설정에 현재 요구되는 대시보드 자료함 연결이 없음.
+1개: 관찰기록 권한 시험이 이전 인증 대역만 사용함.
+4개: 퀴즈 시험용 GitHub 백엔드에 현행 자료함 보호·초기화 상태가 없음.
+1개: 퀴즈 경로를 이전 메뉴로 기대함.
+1개: 로그인 제목을 변경 전 문구로 기대함.
+1개: 교사 메뉴 시험에 업무수첩 함수 대역이 없음.
+이번 변경을 통과시키려고 이 보호 장치나 실패 테스트를 제거하지 않았습니다.
+
+광범위 검사 명령
+python -m pytest tests -q --tb=short --ignore=tests/test_afterschool_browser.py --ignore=tests/test_afterschool_v2_browser.py --ignore=tests/test_game_visuals.py --ignore=tests/test_module_cleanup.py --ignore=tests/test_quiz_dashboard_browser.py --ignore=tests/test_quiz_student_visual_browser.py --ignore=tests/test_teacher_progress_browser.py --ignore=tests/test_teaching_progress_grid_browser.py
+
+검증 범위의 한계
+- 실제 브라우저 기반 7개 파일과 폐기된 구조를 전제로 하는 test_module_cleanup.py는 제외했습니다.
+- 화면 동작은 Streamlit AppTest와 JSDOM으로 확인했습니다. 실제 배포 URL·모바일 화면 검증은 아닙니다.
+- 실제 데이터 저장소 내용과 암호화 키에는 접근하지 않았습니다.
+- 기존 운영 자료로 학생별 이전 건수를 확인하거나 복원 검사를 수행한 것은 아닙니다.
+- 생기부 문구의 생활기록부 지침 적합성, 모든 수학 문항 정답의 전수 검증은 이번 범위가 아닙니다.

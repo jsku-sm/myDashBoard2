@@ -19,7 +19,7 @@ def as_json(value, default):
 
 
 def _date(row):
-    return str(next((row.get(key) for key in ("date", "created_at", "submitted_at", "created", "updated_at", "started_at") if row.get(key)), ""))[:10]
+    return str(next((row.get(key) for key in ("date", "created_at", "submitted_at", "created", "updated_at", "started_at", "at") if row.get(key)), ""))[:10]
 
 
 def _subject(task, course=None):
@@ -158,6 +158,9 @@ def project(bundles, *, sid, teacher_id, legacy_teacher_id, subject, start, end)
                         "학생 한 줄 기록: " + session.get("reflection", "")])
                     add(bundle, session, "session:" + str(session.get("id")), topic.get("label", "개념 학습게임"), text,
                         "자동 학습 로그 · 보상/아이템과 교과 성취는 구분", topic.get("subject", ""), extra={"mission_id":session.get("mission_id", "")})
+                from .game_evidence import learning_events
+                for item in learning_events(profile, rid):
+                    add(bundle, attachments=[], **item)
     # Stable opaque IDs make widget keys and teacher approval survive sorting.
     return sorted(result, key=lambda r: (r["date"], r["id"]), reverse=True)
 

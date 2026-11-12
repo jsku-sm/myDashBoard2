@@ -24,7 +24,9 @@ def roster_ui(monkeypatch):
         deleted.append(sid)
         students[:] = [u for u in students if u['id'] != sid]
     monkeypatch.setattr(teacher.db, 'delete', delete)
+    monkeypatch.setattr(teacher.db, 'flush_now', lambda: None)
     app = AppTest.from_string('from views.teacher import tab_roster\ntab_roster()', default_timeout=20)
+    app.session_state['user'] = {'id': 'teacher', 'role': 'teacher'}
     app.run()
     assert not app.exception
     return SimpleNamespace(app=app, students=students, resets=resets, deleted=deleted)

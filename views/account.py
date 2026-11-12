@@ -3,6 +3,7 @@ import streamlit as st
 
 import auth
 import ui
+from confirmed_changes import perform, pending_controls
 
 
 _CSS = """
@@ -183,6 +184,8 @@ def _password_heading():
 
 
 def _pw_form(user, require_current: bool, key: str):
+    if pending_controls():
+        return False
     with st.form(key):
         cur = st.text_input("지금 비밀번호", type="password") if require_current else None
         new = st.text_input("새 비밀번호 (4자 이상)", type="password")
@@ -199,8 +202,8 @@ def _pw_form(user, require_current: bool, key: str):
     elif new == user["id"]:
         st.error("학번과 같은 비밀번호는 쓸 수 없어요.")
     else:
-        auth.change_password(user["id"], new)
-        return True
+        saved, _ = perform('비밀번호', lambda: auth.change_password(user["id"], new))
+        return saved
     return False
 
 
