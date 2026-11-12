@@ -21,7 +21,7 @@ from config import CLASSES, SUBJECTS
 TABLE = "teaching_progress"
 LESSON_STATUSES = ("예정", "진행 중", "완료", "휴강")
 ASSESSMENT_STATUSES = ("예정", "완료", "취소")
-PERIODS = ("미정",) + tuple(f"{i}교시" for i in range(1, 9)) + ("방과후",)
+PERIODS = ("미정",) + tuple(f"{i}교시" for i in range(1, 8)) + ("방과후",)
 FIELDS = ("date", "subject", "period", "content", "status", "assessment_title",
           "assessment_date", "assessment_period", "assessment_status", "memo")
 WEEKDAYS = ("월", "화", "수", "목", "금", "토", "일")

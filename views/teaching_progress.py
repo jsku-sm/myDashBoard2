@@ -69,7 +69,7 @@ def _form(prefix, row=None, *, disabled=False):
                                index=SUBJECTS.index(row.get("subject", SUBJECTS[-1])),
                                key=prefix + "_subject", disabled=disabled)
         c4, c5 = st.columns(2)
-        period = c4.selectbox("수업 교시", svc.PERIODS, index=svc.PERIODS.index(row.get("period", "미정")),
+        period = c4.selectbox("수업 교시", svc.PERIODS, index=svc.PERIODS.index(row.get("period")) if row.get("period") in svc.PERIODS else 0,
                              key=prefix + "_period", disabled=disabled)
         status = c5.selectbox("진행 상태", svc.LESSON_STATUSES,
                              index=svc.LESSON_STATUSES.index(row.get("status", "예정")),
@@ -87,7 +87,7 @@ def _form(prefix, row=None, *, disabled=False):
                                        min_value=date(2000, 1, 1), max_value=date(2100, 12, 31), format="YYYY-MM-DD",
                                        key=prefix + "_assessment_date", disabled=disabled)
         assessment_period = a2.selectbox("평가 교시", svc.PERIODS,
-                                         index=svc.PERIODS.index(row.get("assessment_period") or "미정"),
+                                         index=svc.PERIODS.index(row.get("assessment_period")) if row.get("assessment_period") in svc.PERIODS else 0,
                                          key=prefix + "_assessment_period", disabled=disabled)
         assessment_status = a3.selectbox("평가 상태", svc.ASSESSMENT_STATUSES,
                                          index=svc.ASSESSMENT_STATUSES.index(row.get("assessment_status") or "예정"),

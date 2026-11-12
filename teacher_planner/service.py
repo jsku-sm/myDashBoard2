@@ -12,6 +12,8 @@ import teaching_progress_service as tp
 from config import CLASSES, SUBJECTS
 from .schema import TABLES
 
+SCHOOL_PERIODS = tuple(f'{n}교시' for n in range(1, 8))
+
 KINDS = {'task': '할 일', 'meeting': '회의', 'event': '행사', 'note': '하루 메모'}
 
 
@@ -86,7 +88,7 @@ def rule_payload(p):
     weekday = str(p.get('weekday', ''))
     if weekday not in tuple(str(n) for n in range(7)):
         raise ValueError('요일을 선택해 주세요.')
-    if p.get('period') not in tp.PERIODS[1:] or p.get('class') not in CLASSES or p.get('subject') not in SUBJECTS:
+    if p.get('period') not in SCHOOL_PERIODS or p.get('class') not in CLASSES or p.get('subject') not in SUBJECTS:
         raise ValueError('학급·과목·교시를 확인해 주세요.')
     return dict(weekday=weekday, period=p['period'], **{'class': p['class']}, subject=p['subject'],
                 content=tp._text(p.get('content', ''), '기본 수업내용', 4000) or '수업 내용 정하기')
@@ -201,7 +203,7 @@ def _generation(b, uid, start, end, excluded):
     if not isinstance(excluded, list) or len(excluded) > 366:
         raise ValueError('제외 날짜를 확인해 주세요.')
     excluded = {tp._date(x, '제외 날짜') for x in excluded}
-    rules = sorted([r for r in b.read('teacher_timetable') if r['author_id'] == uid and not r['deleted_at']], key=lambda r: r['id'])
+    rules = sorted([r for r in b.read('teacher_timetable') if r['author_id'] == uid and not r['deleted_at'] and r['period'] in SCHOOL_PERIODS], key=lambda r: r['id'])
     if not rules:
         raise ValueError('주간 시간표를 먼저 한 칸 이상 등록해 주세요.')
     lessons = [r for r in b.read(tp.TABLE) if r['author_id'] == uid]

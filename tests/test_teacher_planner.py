@@ -176,3 +176,29 @@ def test_teacher_partition_paths_and_reload(planner):
     rows=e.backend.read('teacher_diary')
     assert len({e.db.GitHubBackend._path('teacher_diary',r) for r in rows})==2
     assert len(e.planner.snapshot(e.other)['diary'])==1
+
+
+@pytest.mark.parametrize('kind',['task','meeting','event','note'])
+def test_all_work_types_complete_and_uncomplete_persist(planner,kind):
+    e=planner;r=diary(e,kind=kind)
+    e.planner.dispatch(e.t,dict(token='complete-work-01',action='save_diary',payload=dict(r,done='1')))
+    done=e.planner.snapshot(e.t)['diary'][0]
+    assert done['done']=='1' and done['deadline']==r['deadline'] and done['body']==r['body']
+    assert e.db.LocalBackend(e.backend.root).read('teacher_diary')[0]['done']=='1'
+    with pytest.raises(e.svc.ConflictError):
+        e.planner.dispatch(e.t,dict(token='stale-work-check',action='save_diary',payload=dict(r,done='0')))
+    e.planner.dispatch(e.t,dict(token='uncomplete-work-01',action='save_diary',payload=dict(done,done='0')))
+    assert e.db.LocalBackend(e.backend.root).read('teacher_diary')[0]['done']=='0'
+
+
+def test_seven_period_timetable_rejects_eighth_and_skips_old_template(planner):
+    e=planner
+    assert '7교시' in e.planner.snapshot(e.t)['periods'] and '8교시' not in e.planner.snapshot(e.t)['periods']
+    with pytest.raises(ValueError):rule(e,period='8교시')
+    with pytest.raises(ValueError):e.create(period='8교시')
+    r=rule(e,period='7교시')
+    legacy=dict(r,id='historical-eighth',period='8교시')
+    e.backend.append('teacher_timetable',legacy)
+    preview=e.planner.generate(e.t,'2026-10-20','2026-10-20',[])
+    assert preview['count']==1 and preview['sample'][0]['period']=='7교시'
+    assert any(r['period']=='8교시' for r in e.backend.read('teacher_timetable'))
