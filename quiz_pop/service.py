@@ -46,7 +46,8 @@ def snapshot(user):
         if actor['role'] != 'teacher':
             raise PermissionError('학생은 선생님이 알려 준 참여코드로 퀴즈에 입장해 주세요.')
         state = st.session_state.get('_quizpop_preview_'+actor['id'], _state({}))
-        return {'userId':actor['id'], 'preview':True, 'role':'teacher', 'revision':state['revision'], 'saved':deepcopy(state['saved'])}
+        return {'userId':actor['id'], 'preview':True, 'role':'teacher', 'revision':state['revision'],
+                'saved':deepcopy(state['saved']), 'publication':deepcopy(st.session_state.get('_quizpop_publication_'+actor['id']))}
 
 
 def validate_saved(value):
