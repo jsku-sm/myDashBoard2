@@ -46,7 +46,9 @@ def _install(ctx, sid, workspace, preserve_backup=True):
     ctx['buffers'][sid] = dict(workspace=workspace, text=current.get('text', ''), reviews=copy.deepcopy(current.get('reviews', [])),
                               ai_draft=copy.deepcopy(current.get('ai_draft')), analyses=copy.deepcopy(current.get('analyses', [])),
                               review_note=current.get('review_note', ''), epoch=old.get('epoch', 0) + 1, backups=backups,
-                              candidate=old.get('candidate'))
+                              candidate=old.get('candidate') if preserve_backup else None,
+                              generation_attempt=old.get('generation_attempt') if preserve_backup else None,
+                              last_error='')
     ctx['table_epoch'] += 1
     ctx['table_edits'].pop(sid, None)
     return ctx['buffers'][sid]
@@ -94,10 +96,8 @@ def _load(service, ctx, student, year, term, subject, start, end, sync=False):
 
 
 def _readiness(service, b, config, target):
-    if not config.enabled:
-        return False, 'AI 설정에서 enabled=true가 필요해요.'
-    if not config.api_key or not config.model:
-        return False, 'AI API 키와 모델 설정을 확인해 주세요.'
+    if config.problem():
+        return False, config.problem()
     try:
         preview = service.input_preview(b['workspace'], _confirmed_reviews(b), target)
     except (ArchiveError, PermissionError) as exc:
@@ -124,7 +124,7 @@ def _batch_fingerprint(b):
     return fingerprint([b['workspace']['data']['revision'], b['reviews'], b['text'], b['review_note'], b['ai_draft'], b['analyses']])
 
 
-def _generate(service, ctx, sid, config, settings, token, item=None):
+def _generate(service, ctx, sid, config, settings, token, item=None, progress=None):
     b = _capture(ctx, sid)
     edit = ctx['table_edits'].get(sid)
     if edit and edit.get('dirty') and (edit['text'] != b['text'] or edit['review_note'] != b['review_note']):
@@ -140,8 +140,45 @@ def _generate(service, ctx, sid, config, settings, token, item=None):
         if item is not None:
             item['input_hash'] = _batch_fingerprint(b)
     b['reviews'] = _confirmed_reviews(b)
-    payload = service.generate(b['workspace'], b['reviews'], RecordAI(config), token, consent=True, **settings)
+    b['generation_attempt'] = dict(workspace=copy.deepcopy(b['workspace']), reviews=copy.deepcopy(b['reviews']),
+                                   token=token, settings=copy.deepcopy(settings))
+    b['last_error'] = ''
+    payload = service.generate(b['workspace'], b['reviews'], RecordAI(config), token, consent=True, progress=progress, **settings)
     _install(ctx, sid, service.with_saved(b['workspace'], payload), preserve_backup=False)
+
+
+def _retain_generated(b, result):
+    """Make a completed but unsaved draft editable without erasing teacher prose."""
+    if b['text'].strip() and b['text'] != result['text']:
+        b['backups'] = (b['backups'] + [b['text']])[-5:]
+    b.update(candidate=copy.deepcopy(result), text=result['text'], ai_draft=copy.deepcopy(result), epoch=b['epoch'] + 1)
+
+
+def _resume_generated(service, ctx, sid):
+    b = _capture(ctx, sid)
+    attempt = b.get('generation_attempt')
+    if not attempt:
+        raise ArchiveError('저장 요청 정보를 찾지 못했습니다. 작성 칸의 초안을 보관한 뒤 최신 저장본을 확인해 주세요.')
+    service.retry()
+    # resume_only forbids a new AI request even when the receipt is missing.
+    payload = service.generate(attempt['workspace'], attempt['reviews'], None, attempt['token'],
+                               consent=True, resume_only=True, **attempt['settings'])
+    editing = {k:copy.deepcopy(b[k]) for k in ('text', 'reviews', 'ai_draft', 'review_note', 'analyses')}
+    installed = _install(ctx, sid, service.with_saved(attempt['workspace'], payload), preserve_backup=False)
+    installed.update(editing)
+    return editing['text'] != payload['text']
+
+
+def _connection_status(config):
+    with st.expander('AI 연결 상태 · 설정 도움말', expanded=bool(config.problem())):
+        if config.problem():
+            st.info(config.problem())
+        else:
+            st.caption('API 키 설정을 찾았습니다. 실제 연결 결과는 초안 생성 시 확인합니다.')
+        st.caption(f'사용 모델: {config.model} · 키 설정 위치: {config.key_source or "미설정"}')
+        st.caption('기존 OpenAI·퀴즈·수행평가 API 키를 재사용합니다. 키 값은 화면에 표시하지 않습니다.')
+        st.code('[school_record_ai]\nenabled = true\n# model = "gpt-5.4-mini"  # 모델을 별도로 지정할 때만 입력\n# api_key = "본인의 OpenAI API 키"  # 기존 키 설정이 없다면 입력', language='toml')
+        st.caption('Streamlit 앱 Settings → Secrets에서 설정합니다. 이미 같은 구역이 있으면 중복 추가하지 말고 해당 값을 수정하세요.')
 
 
 def render():
@@ -216,8 +253,7 @@ def render():
             st.markdown('**작성 초안·완성본:** 같은 저장소의 학생별 암호화 자료함에 학년도·학기·과목별로 저장합니다. 원본 자료와 이전 수정 이력을 보존합니다.')
             st.markdown('**불러오기와 CSV:** 자료를 불러오거나 CSV를 내려받는 동작은 AI를 호출하지 않습니다. CSV는 내려받는 별도 파일이며 학생 자료를 공개하지 않습니다.')
             st.markdown('**일괄 생성:** 학생별로 먼저 근거를 선택·확인합니다. 선택한 학생을 한 명씩 처리하고, 실패 시 나머지 작업을 일시 정지합니다. 이미 완료한 학생은 다시 호출하지 않습니다.')
-            st.code('[school_record_ai]\nenabled = true\napi_key = "기존 OpenAI API 키"\nmodel = "사용 가능한 모델 이름"', language='toml')
-            st.caption(f'현재 AI 설정: {"사용 가능" if config.enabled and config.api_key and config.model else "설정 확인 필요"} · API 키는 화면에 표시하지 않습니다. 기존 학생 자료함 암호화키는 유지하세요.')
+            st.caption('AI 연결 상태와 설정 방법은 학생별 작성 화면의 생성 버튼 바로 위에서 확인할 수 있습니다. 기존 학생 자료함 암호화키는 유지하세요.')
         _batch_step(service, ctx, config)
 
 
@@ -234,17 +270,36 @@ def _student(service, ctx, sid, config, settings, year, term, subject, start, en
     _evidence(service, ctx, sid, p)
     b = _capture(ctx, sid)
     st.markdown('#### 2. 선택한 자료로 AI 초안 만들기')
+    _connection_status(config)
     ready, preview = _readiness(service, b, config, settings['target_chars'])
     st.caption('생성 버튼을 누르면 선택 자료를 이 과목의 정규 수업 근거로 확인하고 AI에 전송합니다. 이름·학번은 가려서 보내며, 초안은 검토 전까지 확정되지 않습니다.')
     replace = st.checkbox('이미 작성한 글도 보관한 뒤 새 초안으로 바꾸기', key=p+'replace') if b['text'].strip() else True
-    if st.button('✨ AI 교과세특 초안 생성', type='primary', key=p+'generate', disabled=not(ready and replace) or service.pending()):
+    if b.get('candidate'):
+        st.warning('AI 초안은 작성되어 아래 작성 칸에 표시했습니다. 아직 저장 확인이 필요합니다. 새로 생성할 필요 없이 저장만 다시 확인할 수 있어요.')
+        if b.get('generation_attempt') and st.button('생성된 초안 저장 다시 확인 · AI 호출 없음', key=p+'resume_generated'):
+            try:
+                edited = _resume_generated(service, ctx, sid)
+                ctx['notice'] = ('AI 초안 저장을 확인했습니다. 이후 수정한 문장은 작성 칸에 유지했으니 초안 저장을 눌러 반영하세요.'
+                                 if edited else 'AI를 다시 호출하지 않고 생성된 초안의 저장을 확인했습니다.')
+                st.rerun()
+            except Exception as exc: _error(exc)
+    if b.get('last_error'): st.error(b['last_error'])
+    if st.button('✨ AI 교과세특 초안 생성', type='primary', key=p+'generate', disabled=not(ready and replace) or service.pending() or bool(b.get('candidate'))):
         try:
-            with st.spinner('선택한 자료로 초안을 작성하고 저장합니다.'):
-                _generate(service, ctx, sid, config, settings, uuid.uuid4().hex)
+            with st.status('생성 준비를 확인하고 있어요.', expanded=True) as status:
+                try:
+                    _generate(service, ctx, sid, config, settings, uuid.uuid4().hex,
+                              progress=lambda stage: status.update(label=stage))
+                except Exception:
+                    status.update(label='생성 또는 저장 상태를 확인해 주세요.', state='error')
+                    raise
+                status.update(label='AI 초안 작성과 저장을 마쳤습니다.', state='complete')
             ctx['notice'] = 'AI 초안이 작성되었습니다. 내용을 검토한 뒤 그대로 확정하거나 수정해 저장하세요.'; st.rerun()
         except Exception as exc:
-            if getattr(exc, 'completed_draft', None): b['candidate'] = exc.completed_draft
-            _error(exc)
+            b['last_error'] = str(exc) if isinstance(exc, (ArchiveError, PermissionError, db.SetupError)) else '초안 처리 중 오류가 발생했습니다. 선택 자료와 작성 내용은 유지했습니다. AI 연결 상태를 확인해 주세요.'
+            if getattr(exc, 'completed_draft', None):
+                _retain_generated(b, exc.completed_draft)
+            st.rerun()
     if not ready: st.info('생성 준비: ' + preview)
     else: st.caption(f"선택한 자료 {len(b['reviews'])}건으로 생성할 수 있습니다. 추가 메모 입력은 선택 사항입니다.")
     with st.expander('AI에 전달할 내용 확인', expanded=False):
@@ -286,7 +341,7 @@ def _student(service, ctx, sid, config, settings, year, term, subject, start, en
     if b.get('candidate'):
         with st.expander('저장 확인이 필요한 AI 생성 결과', expanded=True):
             st.text(b['candidate']['text'])
-            st.caption('기존 수정 내용과 충돌하거나 저장이 중단된 결과입니다. 최신 저장본을 확인한 뒤 필요한 내용을 옮겨 적을 수 있어요.')
+            st.caption('위 작성 칸에서 검토·수정할 수 있습니다. 생성된 초안 저장 다시 확인 버튼은 AI를 호출하지 않습니다. 이전 수정 내용도 보관합니다.')
     if b['backups']:
         with st.expander('다시 불러오기 전 수정 중이던 내용'):
             for text in b['backups'][::-1]: st.text(text)
@@ -474,7 +529,7 @@ def _batch_step(service,ctx,config):
         item.update(state='done',message='초안 저장 완료')
     except Exception as exc:
         b=ctx['buffers'][item['sid']]
-        if getattr(exc,'completed_draft',None):b['candidate']=exc.completed_draft
+        if getattr(exc,'completed_draft',None):_retain_generated(b,exc.completed_draft)
         item.update(state='failed',message=str(exc) if isinstance(exc,(ArchiveError,PermissionError)) else '처리 확인 필요. 입력을 유지했습니다.')
         job['active']=False
     st.rerun()

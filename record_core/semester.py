@@ -248,8 +248,11 @@ class SemesterRecords(RecordService):
         self.backend.queue_archive(d['student_id'], 'drafts', 'generation:' + d['scope_id'] + ':' + job['request_id'], job)
         self._flush(d['scope_id'], d['teacher_id'], draft=job.get('result'))
 
-    def generate(self, workspace, reviews, ai, request_id, *, consent=False, target_chars=400, byte_limit=1500, guidance=''):
+    def generate(self, workspace, reviews, ai, request_id, *, consent=False, target_chars=400, byte_limit=1500, guidance='',
+                 progress=None, resume_only=False):
         d = self.validate(workspace); _settings(target_chars, byte_limit, guidance)
+        report = progress or (lambda stage: None)
+        report('자료와 저장 상태를 확인하고 있어요.')
         if not isinstance(request_id, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{8,100}', request_id):
             raise ArchiveError('AI 생성 요청을 다시 준비하세요.')
         if not consent:
@@ -268,6 +271,8 @@ class SemesterRecords(RecordService):
             current = self._latest(self._bundles(d['student_id']), d['scope_id'], d['teacher_id'])
             if current and current.get('generation_id') == request_id:
                 return current  # An interrupted acknowledgement must not call AI again.
+            if resume_only and (not job or job.get('state') != 'generated'):
+                raise ArchiveError('저장할 생성 결과를 찾지 못했습니다. AI를 다시 호출하지 않았습니다. 최신 저장본과 작성 내용을 확인해 주세요.')
             if job and job['state'] in ('running', 'failed'):
                 raise ArchiveError('이 요청은 처리 중이거나 결과가 불확실하여 자동 재호출하지 않습니다. 저장 기록과 오류를 확인한 뒤 필요한 경우 새 작업을 시작하세요.')
             if int((current or {}).get('revision', 0)) != d['revision']:
@@ -283,18 +288,33 @@ class SemesterRecords(RecordService):
             else:
                 new = False
         if new:
+            report('생성 요청을 기록하고 있어요. 아직 AI에 전송하지 않았습니다.')
             self._flush(d['scope_id'], d['teacher_id'])  # Do not charge before the request receipt is durable.
+            report('AI가 선택한 자료로 초안을 작성하고 있어요.')
             try:
                 result = ai.draft(d['subject'], facts, self.identities(), target_chars, consent=True, guidance=guidance)
                 self.actor()
-            except Exception:
+            except Exception as error:
                 job.update(state='failed', finished_at=utcnow())
-                self._put_job(d, job)
+                try:
+                    self._put_job(d, job)
+                except Exception:
+                    # Preserve the actual AI error even if its receipt cannot be saved.
+                    # _flush already marks the pending write for explicit recovery.
+                    pass
+                if not isinstance(error, (ArchiveError, PermissionError)):
+                    raise ArchiveError('AI 초안 생성 중 처리 오류가 발생했습니다. 선택 자료와 작성 내용은 유지했습니다. AI 연결 상태를 확인해 주세요. 자동 재호출하지 않았습니다.') from None
                 raise
             result['evidence_hashes'] = {r['evidence_id']: r['evidence_hash'] for r in reviews}
             job.update(state='generated', result=result, finished_at=utcnow())
-            self._put_job(d, job)
+            report('AI 초안 작성 완료 · 생성 결과를 저장하고 있어요.')
+            try:
+                self._put_job(d, job)
+            except Exception as error:
+                error.completed_draft = result
+                raise
         result = job['result']
+        report('초안을 작성 칸과 저장 목록에 반영하고 있어요.')
         try:
             payload = self.save_term(workspace, reviews, result['text'], result,
                                      (d.get('current') or {}).get('analyses', []), target_chars=target_chars,

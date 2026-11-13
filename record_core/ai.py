@@ -9,9 +9,11 @@ import base64
 import hashlib
 import io
 import json
+import os
 import re
 import warnings
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from PIL import Image, ImageOps
 from pypdf import PdfReader, PdfWriter
 import requests
@@ -161,20 +163,92 @@ DRAFT_RULES = """한국 고등학교 수학 교사의 교과세특 작성 보조
 
 @dataclass
 class AIConfig:
-    api_key: str
+    api_key: str = field(repr=False)
     model: str = "gpt-5.4-mini"
     enabled: bool = False
+    key_source: str = ""
+    config_error: str = ""
 
     @classmethod
-    def from_values(cls, values):
-        group = values.get("school_record_ai", {})
-        shared = values.get("openai", {})
-        if str(shared.get("base_url", "https://api.openai.com/v1")).rstrip("/") != "https://api.openai.com/v1":
-            shared = {}
-        key = str(group.get("api_key", values.get("OPENAI_API_KEY", shared.get("api_key", "")))).strip()
-        model = str(group.get("model", values.get("OPENAI_MODEL", shared.get("model", "gpt-5.4-mini")))).strip()
-        enabled = group.get("enabled", False) in (True, "true", "1", 1)
-        return cls(key, model, enabled)
+    def from_values(cls, values, environ=None):
+        """Reuse existing official credentials without requiring a new opt-in flag.
+
+        Generation itself still requires an explicit teacher action and consent.
+        An explicit school_record_ai.enabled=false always wins. Models stay
+        paired with their credential source unless the teacher overrides one.
+        """
+        mapping = lambda value: value if isinstance(value, Mapping) else {}
+        clean = lambda value: value.strip() if isinstance(value, str) else ""
+        values = mapping(values)
+        environ = os.environ if environ is None else mapping(environ)
+        group = mapping(values.get("school_record_ai"))
+        official = lambda source: clean(source.get("base_url", "https://api.openai.com/v1")).rstrip("/") == "https://api.openai.com/v1"
+        if group and not official(group):
+            return cls("", config_error="생기부 AI는 공식 OpenAI 주소를 사용합니다. [school_record_ai] base_url 설정을 확인하세요.")
+        sources = [("school_record_ai", group), ("openai", mapping(values.get("openai"))),
+                   ("OPENAI_API_KEY", {"api_key": values.get("OPENAI_API_KEY"), "model": values.get("OPENAI_MODEL"),
+                                       "base_url": values.get("OPENAI_BASE_URL", "https://api.openai.com/v1")}),
+                   ("서버 환경변수", {"api_key": environ.get("OPENAI_API_KEY"), "model": environ.get("OPENAI_MODEL"),
+                                      "base_url": environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")}),
+                   ("quiz_ai", mapping(values.get("quiz_ai"))),
+                   ("snorkl", dict(mapping(values.get("snorkl"))))]
+        snorkl = sources[-1][1]
+        snorkl["api_key"] = snorkl.get("openai_api_key") or snorkl.get("OPENAI_API_KEY") or snorkl.get("api_key")
+        snorkl["model"] = snorkl.get("openai_model") or snorkl.get("OPENAI_MODEL") or snorkl.get("model")
+        source, chosen = next(((name, s) for name, s in sources if official(s) and clean(s.get("api_key"))), ("", {}))
+        key = clean(chosen.get("api_key"))
+        model = clean(group.get("model")) or clean(chosen.get("model")) or "gpt-5.4-mini"
+        flag = group.get("enabled", chosen.get("enabled", bool(key)) if source == "openai" else bool(key))
+        error = ""
+        if isinstance(flag, bool):
+            enabled = flag
+        elif str(flag).strip().lower() in ("true", "1", "yes", "on"):
+            enabled = True
+        elif str(flag).strip().lower() in ("false", "0", "no", "off", ""):
+            enabled = False
+        else:
+            enabled = False
+            error = "[school_record_ai] enabled 값은 true 또는 false로 입력하세요."
+        return cls(key, model, enabled, source, error)
+
+    def problem(self):
+        if self.config_error:
+            return self.config_error
+        if not self.api_key:
+            return "AI API 키를 찾지 못했어요. Streamlit 앱의 Settings → Secrets에서 기존 OpenAI API 키 설정을 확인해 주세요."
+        if not self.enabled:
+            return "생기부 AI가 사용 안 함으로 설정되어 있어요. [school_record_ai] enabled = true로 변경해 주세요."
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,150}", self.model):
+            return "AI 모델 이름을 확인해 주세요. 설정 예시의 안내 문구 대신 실제 사용 가능한 모델 이름을 입력하세요."
+        return ""
+
+
+def _api_error(status, data):
+    """Only fixed, actionable diagnostics; never echo provider/student/key text."""
+    error = data.get("error", {}) if isinstance(data, dict) else {}
+    error = error if isinstance(error, dict) else {}
+    code, param = error.get("code"), error.get("param")
+    if code in ("insufficient_quota", "billing_hard_limit_reached", "billing_not_active"):
+        help_text = "OpenAI API 잔액·결제·프로젝트 사용 한도를 확인하세요."
+    elif status == 429:
+        help_text = "요청이 몰렸거나 API 사용 한도에 도달했습니다. 사용량을 확인한 뒤 잠시 후 다시 생성해 주세요."
+    elif status == 401:
+        help_text = "OpenAI API 키가 유효하지 않거나 만료되었습니다. Secrets의 키를 확인하세요."
+    elif status == 403:
+        help_text = "OpenAI 프로젝트 또는 모델 사용 권한이 없습니다. 해당 키의 권한을 확인하세요."
+    elif status == 404 or code == "model_not_found":
+        help_text = "설정한 모델을 찾지 못하거나 이 계정에서 사용할 수 없습니다. AI 연결 상태에 표시된 모델 이름을 확인하세요."
+    elif code == "context_length_exceeded":
+        help_text = "선택한 자료가 모델의 입력 한도를 넘었습니다. 반영 자료 수나 사실 메모를 줄여 주세요."
+    elif status == 400 and param in ("text.format", "response_format", "text.format.type"):
+        help_text = "이 모델은 초안의 구조화 출력 형식을 지원하지 않습니다. Responses API와 구조화 출력을 지원하는 모델로 설정하세요."
+    elif status == 400:
+        help_text = "모델의 Responses API·구조화 출력 지원 여부를 확인하세요. 파일 분석 중이라면 파일 형식과 크기도 확인해 주세요."
+    elif status >= 500:
+        help_text = "AI 서비스에서 일시적인 오류가 발생했습니다. 잠시 후 다시 생성해 주세요."
+    else:
+        help_text = "AI 연결 설정을 확인해 주세요."
+    return ArchiveError(f"AI 요청 실패({status}). {help_text} 자동으로 재호출하지 않았으며 입력은 유지됩니다.")
 
 class RecordAI:
     def __init__(self, config, session=None):
@@ -182,34 +256,48 @@ class RecordAI:
         self.http = session or requests.Session()
 
     def _call(self, instructions, content, schema, *, consent):
-        if not consent or not self.config.enabled:
-            raise ArchiveError("외부 AI 사용 설정과 이번 전송 동의를 확인하세요. 자료를 전송하지 않았습니다.")
-        if not self.config.api_key or not self.config.model:
-            raise ArchiveError("생기부 AI용 API 키와 PDF·이미지 입력을 지원하는 모델을 설정하세요.")
+        if not consent:
+            raise ArchiveError("전송할 근거를 확인한 뒤 AI 생성 버튼을 눌러 주세요. 자료를 전송하지 않았습니다.")
+        if self.config.problem():
+            raise ArchiveError(self.config.problem())
         body = {"model":self.config.model, "store":False, "instructions":instructions,
                 "input":[{"role":"user", "content":content}], "max_output_tokens":7000,
                 "text":{"format":{"type":"json_schema", "name":"teacher_evidence", "strict":True, "schema":schema}}}
         try:
             response = self.http.post(OFFICIAL_ENDPOINT, headers={"Authorization":"Bearer " + self.config.api_key, "Content-Type":"application/json"},
                                       json=body, timeout=(10, 150), allow_redirects=False)
+        except requests.Timeout:
+            raise ArchiveError("AI 응답 대기 시간이 초과되었습니다. 요청이 처리되었을 수 있어 자동 재시도하지 않았습니다. API 사용량을 확인한 뒤 다시 시도해 주세요. 선택 자료와 작성 내용은 유지됩니다.") from None
         except requests.RequestException:
-            raise ArchiveError("AI 응답을 확인하지 못했습니다. 과금 여부와 전송 상태가 불확실할 수 있으므로 자동 재시도하지 않습니다. 입력은 유지됩니다.") from None
-        if response.status_code != 200:
-            messages = {401:"API 키를 확인하세요.", 403:"API 모델/프로젝트 접근 권한을 확인하세요.", 429:"API 사용 한도나 결제 상태를 확인하세요.",
-                        400:"모델의 PDF·이미지·구조화 출력 지원 여부와 파일 크기를 확인하세요.", 404:"모델 이름을 확인하세요."}
-            raise ArchiveError(f"AI 요청 실패({response.status_code}). " + messages.get(response.status_code,"서비스 상태를 확인하세요. 자동 재시도하지 않습니다."))
+            raise ArchiveError("앱 서버에서 OpenAI에 연결하지 못했습니다. 네트워크 연결을 확인하세요. 요청 처리 여부가 불확실하여 자동 재시도하지 않았으며 입력은 유지됩니다.") from None
         try:
             data = response.json()
-            if data.get("status") != "completed":
+        except (ValueError, TypeError, AttributeError):
+            data = None
+        if response.status_code != 200:
+            raise _api_error(response.status_code, data)
+        if isinstance(data, dict) and data.get("status") == "incomplete":
+            details = data.get("incomplete_details") or {}
+            reason = details.get("reason") if isinstance(details, dict) else None
+            message = ("AI가 출력 한도 안에 초안을 끝내지 못했습니다. 반영 자료 수나 목표 글자 수를 줄여 다시 생성해 주세요."
+                       if reason == "max_output_tokens" else "AI 응답이 중단되었습니다. 선택한 자료의 내용을 확인한 뒤 다시 생성해 주세요.")
+            raise ArchiveError(message + " 완성되지 않은 문장은 저장하지 않았으며 자동 재호출하지 않습니다.")
+        if isinstance(data, dict) and data.get("status") == "failed":
+            raise _api_error(500, data)
+        try:
+            if not isinstance(data, dict) or data.get("status") != "completed":
                 raise ValueError()
-            parts = [p for o in data.get("output", []) if o.get("type") == "message" for p in o.get("content", [])]
+            parts = [p for o in data.get("output", []) if isinstance(o, dict) and o.get("type") == "message"
+                     for p in o.get("content", []) if isinstance(p, dict)]
             if any(p.get("type") == "refusal" for p in parts):
-                raise ValueError()
+                raise ArchiveError("AI가 해당 자료로 초안을 작성하지 못했습니다. 선택한 학습 근거를 확인해 주세요. 입력은 유지되며 자동 재호출하지 않습니다.")
             value = json.loads("".join(p.get("text", "") for p in parts if p.get("type") == "output_text"))
             if not isinstance(value, dict):
                 raise ValueError()
+        except ArchiveError:
+            raise
         except (ValueError, TypeError, KeyError):
-            raise ArchiveError("AI 응답이 거절·중단되었거나 형식이 불완전합니다. 확정 자료로 저장하지 않습니다.") from None
+            raise ArchiveError("AI 응답 형식이 불완전하여 초안으로 표시하지 못했습니다. Responses API와 구조화 출력을 지원하는 모델 설정을 확인하세요. 입력은 유지됩니다.") from None
         return value, {"model":data.get("model", self.config.model), "response_id":data.get("id", ""), "usage":data.get("usage", {}), "store":False}
 
     def analyze(self, files, *, consent=False):
@@ -255,6 +343,7 @@ class RecordAI:
         for sentence in sentences:
             if (not isinstance(sentence, dict) or not isinstance(sentence.get("text"), str) or not sentence["text"].strip()
                 or not isinstance(sentence.get("evidence_ids"), list) or not sentence["evidence_ids"]
+                or not all(isinstance(eid, str) for eid in sentence["evidence_ids"])
                 or not set(sentence["evidence_ids"]).issubset(allowed)):
                 raise ArchiveError("초안의 문장별 근거가 유효하지 않습니다. 확정하지 않습니다.")
         return {"text":" ".join(s["text"].strip() for s in sentences), "sentences":sentences,

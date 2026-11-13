@@ -153,7 +153,7 @@ def test_request_receipt_must_commit_before_call(term):
 
 def test_failed_ai_never_automatically_recalled(term):
     w=term.load();ai=fake_ai(lambda: (_ for _ in ()).throw(RuntimeError('timeout')))
-    with pytest.raises(RuntimeError):term.s.generate(w,reviews(w),ai,'request_3',consent=True)
+    with pytest.raises(ArchiveError, match='AI 초안 생성 중'):term.s.generate(w,reviews(w),ai,'request_3',consent=True)
     with pytest.raises(ArchiveError):term.s.generate(w,reviews(w),ai,'request_3',consent=True)
     assert ai.draft.call_count==1
 

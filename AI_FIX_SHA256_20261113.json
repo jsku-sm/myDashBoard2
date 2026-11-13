@@ -1,0 +1,8 @@
+{
+  "record_core/ai.py": "8dc6094538e5892755fa3effaca849cce9c2f7492542d297beabac8ca6223223",
+  "record_core/writer_view.py": "850aa9c9c253c7692a8c8f211648226a4cf5dd17e0a85cdd56499168d350bfcf",
+  "record_core/semester.py": "48e853c131160d0a4a8eb72da19546c84d084c4670b951d96e44a9bf9c93689c",
+  "tests/test_school_record_ai_connection.py": "a9cc227d9fa1bf53d639be32cba9f6098f0acbc49e77136187fbc7dfc52b33d6",
+  "tests/test_semester_records.py": "00a19afb3c661bdda8473489d97c9a4c0c077297470eb44649dd123b5095904d",
+  "SCHOOL_RECORD_AI_FIX_20261113.txt": "cad4436ed3c22c7d698d4dcd94d2fa0b757d0792cd37c556baaa6ec587fe3a34"
+}
