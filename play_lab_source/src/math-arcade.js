@@ -273,6 +273,7 @@ export function createMathArcade(api) {
       if (session.phase === 'playing') frame = requestAnimationFrame(loop);
       else if(!document.querySelector('.modal,.focus-overlay')) root.querySelector('#arc-overlay [data-action]')?.focus({ preventScroll: true });
     }
+    window.dispatchEvent(new window.Event('goodmath:layout'));
   }
   function updateHUD() {
     if (!root || !selected) return;
@@ -493,7 +494,7 @@ export function createMathArcade(api) {
       s.ball = { x: 1, y: 1, age: 0 }; audio.cue('launch'); feedback('발사! 예측한 포물선과 실제 궤적을 비교해 보세요.');
     } else return;
     s.shots++; s.trace = []; syncTools(); updateMission();
-    if (window.innerWidth <= 1150) canvas?.scrollIntoView({block:'center',behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+    if (!document.body.classList.contains('lab-playing') && window.innerWidth <= 1150) canvas?.scrollIntoView({block:'center',behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
   }
   function flipCard(index) {
     const s = session;

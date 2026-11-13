@@ -14,9 +14,14 @@ const keys = new Set(GAMES.map(g=>g.id));
 const makeId=()=>globalThis.crypto?.randomUUID?.() || `event-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const categories=[['all','전체'],['geometry','도형의 방정식'],['function','함수'],['sets','집합'],['logic','명제']];
 function resize(){
- let viewport=720;
- try{viewport=window.parent.innerHeight-(window.parent.innerWidth<600?100:125);}catch{}
- const n=args?.view==='arena'?Math.max(250,viewport||595):Math.ceil(root.getBoundingClientRect().height)+8;
+ for(const board of root.querySelectorAll?.('.arc-board-wrap,.c2-board-shell')||[]){
+  const panel=board.querySelector('.arc-overlay-card,.c2-overlay>div,.c2-result-toast');
+  const min=panel?panel.offsetHeight+28:0;
+  const value=min+'px';if(board.style.getPropertyValue('--overlay-min')!==value)board.style.setProperty('--overlay-min',value);
+ }
+ // Report the whole natural content; the host fits it once in both dimensions.
+ // A fixed iframe height here clips boards or creates a second scrolling surface.
+ const n=Math.ceil(Math.max(root.scrollHeight||0,root.getBoundingClientRect().height))+12;
  if(n!==height){height=n;post('streamlit:setFrameHeight',{height:n});}
 }
 function persist(){try{sessionStorage.setItem(storageKey,JSON.stringify({pending,sequences}));}catch{saveError='브라우저 임시 저장 공간이 부족해요. 저장 상태를 확인해 주세요.';}}
@@ -98,6 +103,7 @@ window.addEventListener('message',e=>{
 });
 window.addEventListener('pagehide',()=>{arcade?.unmount();persist();});
 window.addEventListener('resize',resize);
+window.addEventListener('goodmath:layout',resize);
 document.addEventListener('visibilitychange',()=>{if(document.hidden){persist();flush();}});
 new ResizeObserver(resize).observe(root);
 post('streamlit:componentReady',{apiVersion:1});

@@ -100,7 +100,7 @@ export function createCommon2Arcade(api){
  }
  function focused(){const el=document.activeElement;return root?.contains(el)&&el?.dataset?.c2Action?{...el.dataset}:null;}
  function restoreFocus(data){if(data){const next=[...root.querySelectorAll('[data-c2-action]')].find(el=>Object.entries(data).every(([k,v])=>el.dataset[k]===v));next?.focus({preventScroll:true});}}
- function refresh(){if(!root)return;const focus=focused();root.innerHTML=body();root.dataset.phase=s.phase;soundUI();restoreFocus(focus);}
+ function refresh(){if(!root)return;const focus=focused();root.innerHTML=body();root.dataset.phase=s.phase;soundUI();restoreFocus(focus);window.dispatchEvent(new window.Event('goodmath:layout'));}
  function paint(){if(!root)return;const focus=focused();root.querySelector('[data-scene]').innerHTML=scene();root.querySelector('[data-controls]').innerHTML=controls();restoreFocus(focus);}
  function pause(){if(!active())return;setPhase('paused');report('pause');refresh();}
  function check(undefinedValue=false){

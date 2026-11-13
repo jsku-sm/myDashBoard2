@@ -14,3 +14,76 @@ body.lab-playing .lab-top{position:sticky;top:0;z-index:80;background:#f7f5ff;pa
 .lab-top .lab-return:focus-visible{outline:4px solid #643bff;outline-offset:4px}
 body.lab-playing .lab-route{font-size:13px;margin-bottom:12px}
 @media(max-width:600px){body.lab-playing .lab-top{padding:10px 0 14px}.lab-top .lab-return{font-size:14px;padding:9px 12px;min-height:48px}body.lab-playing .lab-user{max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+
+/* Complete board fitting: no nested scrollbar or height based on card width. */
+body.lab-playing{overflow:hidden}
+body.lab-playing #lab{height:auto;max-width:none;overflow:visible;padding:6px 8px 12px;scroll-padding:0}
+body.lab-playing .lab-top{position:relative;top:auto;padding:0 0 6px;margin:0 0 6px;gap:8px}
+body.lab-playing .lab-return{min-height:40px;font-size:15px;padding:8px 14px;border-width:2px;box-shadow:3px 3px #20203a}
+body.lab-playing .lab-route{padding:0;margin:0 0 6px;font-size:12px}
+body.lab-playing .lab-savebar{margin-top:8px;min-height:18px;font-size:11px}
+body.lab-playing .arc-audio{padding:5px 10px;margin:0 0 6px;gap:8px;flex-wrap:nowrap}
+body.lab-playing .arc-audio-title small{display:none}
+body.lab-playing .arc-audio-controls{width:auto;gap:6px}
+body.lab-playing .arc-audio-controls button{min-height:30px;padding:4px 8px}
+body.lab-playing .arc-stage-heading{margin:0 0 6px;gap:8px;flex-wrap:nowrap}
+body.lab-playing .arc-stage-heading h2{font-size:20px;margin:0}
+body.lab-playing .arc-stage-heading .btn{min-height:32px;padding:4px 10px;font-size:12px}
+body.lab-playing .arc-topic{font-size:11px}
+body.lab-playing .arc-play-layout{grid-template-columns:minmax(0,1fr) 240px;gap:12px;align-items:start}
+body.lab-playing .arc-toolbox{grid-template-columns:1fr;gap:8px}
+body.lab-playing .arc-toolbox>:last-child:nth-child(3){grid-column:auto}
+body.lab-playing .arc-toolbox .panel{padding:10px}
+body.lab-playing .arc-toolbox h3{font-size:15px;margin:4px 0}
+body.lab-playing .arc-toolbox p{font-size:12px;line-height:1.5;margin:4px 0 7px}
+body.lab-playing .arc-toolbox .field{padding:6px 8px;font-size:13px}
+body.lab-playing .arc-toolbox .arc-mode-label{margin:7px 0 4px}
+body.lab-playing .arc-slider{margin:8px 0}
+body.lab-playing .arc-equation{margin:6px 0;padding:6px}
+body.lab-playing .arc-hud{padding:7px 12px;min-height:38px}
+body.lab-playing .arc-mission{min-height:48px;padding:7px 10px;font-size:15px;line-height:1.5}
+body.lab-playing .arc-mission strong{font-size:15px}
+body.lab-playing .arc-board-wrap{min-height:0;display:block}
+body.lab-playing #arc-canvas{width:100%;height:auto;aspect-ratio:8/5;display:block}
+body.lab-playing .arc-memory-board{width:100%;height:auto;min-height:0;aspect-ratio:8/5;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(3,minmax(0,1fr));padding:10px;gap:8px}
+body.lab-playing .arc-memory-card{min-height:0;font-size:13px}
+body.lab-playing .arc-bottom-line{padding:6px 10px;min-height:28px}
+body.lab-playing .arc-touch-controls{margin-top:7px;gap:7px}
+body.lab-playing .arc-feedback{min-height:0;margin-top:7px;padding:7px 10px;font-size:13px;line-height:1.5}
+body.lab-playing .arc-discovery>.eyeline,body.lab-playing .arc-discovery>p,body.lab-playing #arc-lessons{display:none}
+body.lab-playing .arc-discovery .btn{margin:0}
+body.lab-playing .arc-overlay-card{padding:12px;max-width:90%}
+body.lab-playing .arc-overlay-card h3{font-size:20px;margin:3px 0 6px}
+body.lab-playing .arc-overlay-card p{font-size:13px;line-height:1.5;margin:0 0 8px;color:#55456b}
+body.lab-playing .arc-overlay-icon,body.lab-playing .arc-overlay-card>small{display:none}
+/* Common-math 2: keep the coordinate board and its actual controls side by side. */
+body.lab-playing .c2-arcade{padding:10px;margin:0;border-width:2px;box-shadow:0 3px #211e40}
+body.lab-playing .c2-top{gap:8px}
+body.lab-playing .c2-top h2{font-size:21px;margin:0}
+body.lab-playing .c2-top p{margin:3px 0;font-size:12px}
+body.lab-playing .c2-top .c2-eyebrow{display:none}
+body.lab-playing .c2-top-actions{gap:6px;flex-wrap:nowrap}
+body.lab-playing .c2-arcade button{min-height:36px;padding:6px 10px;font-size:13px}
+body.lab-playing .c2-hud{gap:8px 14px;padding:8px 12px;margin:7px 0;font-size:12px}
+body.lab-playing .c2-score{font-size:18px}
+body.lab-playing .c2-mission{padding:8px 12px;margin-bottom:8px}
+body.lab-playing .c2-mission>span{display:none}
+body.lab-playing .c2-mission>div{font-size:16px;line-height:1.5}
+body.lab-playing .c2-layout{grid-template-columns:minmax(0,1fr) 245px;gap:10px}
+body.lab-playing .c2-board-shell{min-height:300px}
+body.lab-playing .c2-coordinate{max-height:390px}
+body.lab-playing .c2-console{padding:10px}
+body.lab-playing .c2-console h3{font-size:16px;margin:3px 0 8px}
+body.lab-playing .c2-console>.c2-eyebrow{display:none}
+body.lab-playing .c2-adjust{margin:7px 0;gap:5px}
+body.lab-playing .c2-feedback{padding:7px 10px;min-height:0;line-height:1.5;font-size:13px;margin-top:7px}
+body.lab-playing .c2-audio{margin-top:8px;padding-top:8px;gap:8px}
+body.lab-playing .c2-audio small{display:none}
+body.lab-playing .c2-overlay{padding:12px}
+body.lab-playing .c2-overlay h3{font-size:19px;margin:5px 0}
+body.lab-playing .c2-overlay p{font-size:13px;margin:6px 0;line-height:1.5}
+body.lab-playing .c2-overlay label{margin:8px 0}
+body.lab-playing .c2-overlay select{padding:6px;margin-top:4px}
+@media(max-width:850px){body.lab-playing .arc-play-layout{grid-template-columns:minmax(0,1fr) 200px}body.lab-playing .c2-layout{grid-template-columns:minmax(0,1fr) 220px}}
+body.lab-playing .arc-board-wrap{min-height:var(--overlay-min,0px);display:grid;align-items:center}
+body.lab-playing .c2-board-shell{min-height:max(300px,var(--overlay-min,0px))}
