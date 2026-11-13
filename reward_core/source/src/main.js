@@ -2,6 +2,7 @@ import katex from 'katex';
 import {step,HZ} from './simulation.js';
 import {paint} from './paint.js';
 import './style.css';
+import {fitGeometry,contentWidth} from '../../../game_core/play_viewport_frontend/geometry.js';
 
 const root=document.querySelector('#app');
 let view=null,pending=null,game=null,lastRender='',lastReceive=performance.now(),serverBase=0,clockBase=0,sound=false,audio=null;
@@ -80,11 +81,20 @@ function render(force=false){
   height();
 }
 function height(){
-  let h=Math.ceil(document.documentElement.scrollHeight);
-  if(returnToGames){try{h=Math.max(300,window.parent.innerHeight-210);}catch{h=620;}}
+  if(document.fullscreenElement===root){
+    const shell=root.querySelector('.shell');if(!shell)return;
+    const w=window.innerWidth,h=window.innerHeight;
+    shell.style.width=contentWidth(w,h)+'px';shell.style.transformOrigin='top left';
+    const fit=fitGeometry({width:w,height:h,contentWidth:Math.max(shell.scrollWidth,shell.offsetWidth),contentHeight:Math.max(shell.scrollHeight,shell.offsetHeight)});
+    shell.style.transform=`translate(${fit.left}px,${fit.top}px) scale(${fit.scale})`;
+    return;
+  }
+  // The parent viewport controller handles fit; never crop the natural game area.
+  const h=Math.ceil(Math.max(root.scrollHeight,root.getBoundingClientRect().height))+12;
   if(h!==lastHeight){lastHeight=h;post('streamlit:setFrameHeight',{height:h});}
 }
 window.addEventListener('resize',height);
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement){const shell=root.querySelector('.shell');if(shell){shell.style.width='';shell.style.transform='';}}height();});
 new ResizeObserver(height).observe(root);
 function persist(){if(!game)return;try{sessionStorage.setItem('reward-run-'+game.id,JSON.stringify(game.inputs));}catch{}}
 function mountGame(run){
@@ -140,7 +150,7 @@ window.addEventListener('message',event=>{
 });
 root.addEventListener('click',e=>{
   if(e.target.closest('[data-game-list]')){leaveGames();return;}
-  const util=e.target.closest('[data-util]');if(util){if(util.dataset.util==='sound'){sound=!sound;util.textContent=sound?'♪ 효과음 켜짐':'♪ 효과음 꺼짐';beep();}else{const shell=root.querySelector('.shell');if(document.fullscreenElement)document.exitFullscreen?.();else shell.requestFullscreen?.().catch(()=>{lastError='이 브라우저에서는 전체화면이 제한돼요. 넓은 화면이나 가로 모드로 플레이해 주세요.';root.querySelector('#error').textContent=lastError;});}return;}
+  const util=e.target.closest('[data-util]');if(util){if(util.dataset.util==='sound'){sound=!sound;util.textContent=sound?'♪ 효과음 켜짐':'♪ 효과음 꺼짐';beep();}else{if(document.fullscreenElement)document.exitFullscreen?.();else root.requestFullscreen?.().catch(()=>{lastError='이 브라우저에서는 전체화면이 제한돼요. 넓은 화면이나 가로 모드로 플레이해 주세요.';root.querySelector('#error').textContent=lastError;});}return;}
   const select=e.target.closest('[data-select]');if(select){chosen=select.dataset.select;render(true);return;}
   const b=e.target.closest('[data-act]');if(!b||b.disabled)return;
   const action=b.dataset.act;

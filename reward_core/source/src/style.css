@@ -13,3 +13,29 @@
 #app.active-run .head{margin-bottom:12px;gap:12px}#app.active-run .head h1{font-size:22px}#app.active-run .head .eyebrow{display:none}
 #app.active-run .head p{margin:4px 0}#app.active-run .timer{padding:8px 14px;font-size:24px}
 @media(max-width:600px){.game-return{gap:8px}.game-return span{display:none}.game-return button{font-size:14px;padding:10px 12px;min-height:48px}#app.focused-play .shell{padding:10px}}
+
+/* Natural-size layout; the shared host fits the whole activity to the viewport. */
+#app.focused-play{height:auto;overflow:visible;scroll-padding:0}
+#app.focused-play .shell{padding:6px 8px 10px;max-width:none}
+#app.focused-play .game-return{position:relative;padding:0 0 6px;margin-bottom:6px}
+#app.focused-play .game-return button{min-height:38px;font-size:14px;padding:6px 12px;box-shadow:3px 3px #23213d}
+#app.focused-play .head{margin-bottom:6px;gap:8px}
+#app.focused-play .head h1{font-size:22px;margin:3px 0}
+#app.focused-play .head .eyebrow{display:none}
+#app.focused-play .head p{margin:3px 0;font-size:13px}
+#app.focused-play .split{grid-template-columns:minmax(0,1fr) 230px;gap:12px}
+#app.focused-play .stats{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0}
+#app.focused-play .stat{padding:8px 12px}#app.focused-play .stat b{font-size:22px}
+#app.focused-play .panel{padding:12px;margin-bottom:10px}
+#app.focused-play .panel h2{font-size:20px}
+#app.focused-play .arena{padding:8px}
+#app.focused-play .game-help{margin:5px 0;font-size:12px}
+#app.focused-play .footer-note{margin-top:8px;font-size:12px}
+#app.focused-play .question{font-size:21px;margin:12px 0}
+#app.focused-play .options{grid-template-columns:1fr 1fr;gap:8px}
+#app.focused-play .option{padding:10px;font-size:15px;min-height:48px}
+#app.focused-play .actions{margin-top:10px}
+#app.focused-play .grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+#app.focused-play .game-card{padding:12px}
+#app:fullscreen{width:100vw;height:100dvh;overflow:hidden;background:#f7f5ff;position:relative}
+#app:fullscreen .shell{position:absolute;left:0;top:0;max-width:none;height:auto;overflow:visible}
