@@ -61,7 +61,8 @@ def page(user, avatar_page):
             st.caption("교사 미리보기 · 학생 기록에 영향을 주지 않습니다.")
         else:
             from .view import _save_panel
-            _save_panel(user)
+            with st.expander('☁ 기록 저장 상태 · 재시도'):
+                _save_panel(user)
     else:
         _frame(user, data, "hub")
 

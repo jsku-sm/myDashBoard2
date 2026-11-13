@@ -4,3 +4,22 @@
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 
 .question-text,.feedback p{white-space:pre-wrap;overflow-wrap:anywhere}.quiz-math{max-width:100%;overflow-x:auto;vertical-align:middle}.katex-display{overflow-x:auto;overflow-y:hidden}.topic .desc{font-size:14px;line-height:1.6}.intro-note{line-height:1.6}
+
+/* Compact natural layout before the shared viewport fit; keep every option visible. */
+#app{padding:12px}
+.top{margin-bottom:10px;gap:12px}.brand{font-size:12px}.spark{width:30px;height:30px;font-size:22px}
+h1{font-size:27px}.intro-note{font-size:13px;margin-top:5px}
+.level-strip{margin:10px 0;gap:8px}.level{min-height:60px;padding:8px;display:flex;align-items:center;gap:8px}.level .circle{width:28px;height:28px;margin:0;font-size:16px}.level b{font-size:12px}
+.stats{margin:8px 0 12px;gap:8px}.stat{padding:8px 12px}.stat strong{font-size:24px}.stat small{font-size:12px}
+.section-head{margin:8px 0}.section-head h2{font-size:21px!important;margin-top:6px!important}
+.topics{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}
+.topic{min-height:118px;padding:12px}.topic strong{font-size:18px}.topic .symbol{font-size:22px;margin-bottom:5px}.topic .no{font-size:10px}.topic .desc{font-size:12px;line-height:1.4}
+.question-layout{grid-template-columns:minmax(0,1fr) 230px;gap:12px}
+.question-card{padding:14px}.question-text{font-size:22px;margin:14px 0;line-height:1.6}
+.choices{gap:8px}.choice{padding:10px 12px;min-height:46px}.choice .copy{font-size:17px}
+.side{padding:16px}.side-progress{font-size:32px;margin:8px 0}.side h3{font-size:19px}.mini-topics button{padding:8px;font-size:12px}
+.timer{padding:7px 12px}.timer output{font-size:23px}.timer small{font-size:11px}
+.feedback{padding:10px;margin-top:10px}.feedback p{font-size:14px;line-height:1.6;margin-top:5px}
+.actions{margin-top:10px;gap:8px}.primary,.secondary,.back{min-height:40px;padding:8px 12px;font-size:14px}
+.foot{margin-top:10px;font-size:11px;line-height:1.5}.level-win{padding:8px;margin-top:8px}
+@media(max-width:800px){.side{display:none}.question-layout{grid-template-columns:1fr}}

@@ -1,14 +1,20 @@
 """Viewport play space and fragment-scoped navigation; no student data cache."""
 import streamlit as st
+from pathlib import Path
+
+_viewport_component = None
 
 CSS = '''<style>
 .st-key-good_game_stage {
- position:fixed!important; inset:62px 12px 12px!important; z-index:900;
- width:auto!important; max-width:none!important; height:auto!important;
- padding:14px 18px 22px; overflow:auto; overscroll-behavior:contain;
+ /* Start inside the main column. JS positions the fitted pane only after measuring it. */
+ position:relative!important; z-index:10; isolation:isolate;
+ width:100%; max-width:100%; height:calc(100dvh - 80px);
+ padding:0; overflow:hidden; box-sizing:border-box;
  background:#f8f7ff; color:#20203a; border:3px solid #282342;
- border-radius:24px; box-shadow:0 0 0 100vmax rgba(28,24,50,.42),0 14px 50px #201d3540;
+ border-radius:24px; box-shadow:inset 0 0 0 1px #d4cbee;
 }
+.st-key-good_game_content {position:absolute!important;left:0;top:0;max-width:none!important;
+ transform-origin:top left;box-sizing:border-box;gap:8px!important;}
 .st-key-good_game_stage h1,.st-key-good_game_stage h2,.st-key-good_game_stage h3 {color:#20203a;}
 .st-key-game_return_bar {position:sticky!important;top:-14px;z-index:15;background:#f8f7ff;
  padding:10px 0 12px;border-bottom:2px solid #d4cbee;}
@@ -16,9 +22,17 @@ CSS = '''<style>
  border:3px solid #20203a!important;border-radius:15px!important;min-height:52px;
  box-shadow:4px 4px #20203a;font-size:1.05rem;font-weight:900;}
 .st-key-game_return_bar button:hover {background:#e7ff8c!important;}
-@media(max-width:600px){.st-key-good_game_stage{inset:54px 4px 4px!important;padding:8px 8px 18px;border-radius:16px;}
+@media(max-width:600px){.st-key-good_game_stage{border-radius:16px;}
  .st-key-game_return_bar{top:-8px}.st-key-game_return_bar button{min-height:48px;font-size:.95rem}}
 </style>'''
+
+
+def fit_viewport():
+    global _viewport_component
+    if _viewport_component is None:
+        import streamlit.components.v1 as components
+        _viewport_component=components.declare_component('good_game_viewport',path=str(Path(__file__).with_name('play_viewport_frontend')))
+    _viewport_component(key='good_game_viewport',default=None)
 
 
 def rerun():

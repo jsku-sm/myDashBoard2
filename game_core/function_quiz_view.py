@@ -12,14 +12,17 @@ _component=None
 def _choose_unit(key, default="polynomials"):
     info=unit_info(default)
     subjects=["공통수학1","공통수학2"]
-    subject=st.selectbox("과목 선택",subjects,index=subjects.index(info['subject']),key=key+"_subject")
+    left,right=st.columns(2)
+    with left:
+        subject=st.selectbox("과목 선택",subjects,index=subjects.index(info['subject']),key=key+"_subject")
     choices=[u for u in UNITS if unit_info(u)['subject']==subject]
     # Streamlit removes hidden widget values. Keep each course's last unit in
     # non-widget state so changing courses returns to the same learning place.
     memory_key="_last_"+key+"_"+subject
     remembered=st.session_state.get(memory_key,default)
-    selected=st.selectbox("단원 선택",choices,index=choices.index(remembered) if remembered in choices else 0,
-                          format_func=lambda u:unit_info(u)['title'],key=key+"_unit_"+subject)
+    with right:
+        selected=st.selectbox("단원 선택",choices,index=choices.index(remembered) if remembered in choices else 0,
+                              format_func=lambda u:unit_info(u)['title'],key=key+"_unit_"+subject)
     st.session_state[memory_key]=selected
     return selected
 
