@@ -128,6 +128,35 @@ class ArchiveCrypto:
         return content
 
 
+def snapshot_tables(all_tables, dirty_pairs):
+    """Detach only pending student archives and their referenced quiz/room data.
+
+    Caller holds the backend lock. Keep every row for each affected student,
+    including empty tables after deletion; encryption and I/O happen unlocked.
+    """
+    students_by_table = {}
+    for table, sid in dirty_pairs:
+        students_by_table.setdefault(table, set()).add(str(sid))
+    if not students_by_table:
+        return {}
+    students = set().union(*students_by_table.values())
+    snapshot = {table: copy.deepcopy([r for r in all_tables.get(table, [])
+                                    if str(r.get("student_id")) in ids])
+                for table, ids in students_by_table.items()}
+    snapshot["users"] = copy.deepcopy([r for r in all_tables.get("users", [])
+                                       if str(r.get("id")) in students])
+    for table, field, related in (
+        ("quiz_attempts", "quiz_id", "quiz_sets"),
+        ("review_attempts", "room_id", "review_rooms"),
+        ("quizpop_attempts", "room_id", "quizpop_rooms"),
+        ("reward_attempts", "room_id", "reward_rooms"),
+    ):
+        if table in snapshot:
+            ids = {r.get(field) for r in snapshot[table]}
+            snapshot[related] = copy.deepcopy([r for r in all_tables.get(related, []) if r.get("id") in ids])
+    return snapshot
+
+
 def table_bundle(crypto, table, sid, rows, all_tables, load_file):
     """Snapshot the complete saved table for one student, including empty deletes."""
     if table not in TABLE_CATEGORIES:
