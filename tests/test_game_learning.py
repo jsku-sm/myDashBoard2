@@ -20,6 +20,7 @@ from test_concept_quiz import FakeST,load
 
 class Rerun(BaseException):pass
 class GameST(FakeST):
+    errors=types.SimpleNamespace(StreamlitAPIException=type('StreamlitAPIException',(Exception,),{}))
     def rerun(self,**kw):raise Rerun()
     def metric(self,*args,**kw):self._out('metric',args,**kw)
     def file_uploader(self,label,*args,key=None,**kw):return self.session_state.get(key)
@@ -42,7 +43,7 @@ def game_env(monkeypatch,tmp_path):
     import game_core
     monkeypatch.setattr(game_core,'service',svc,raising=False)
     # Keep imported subviews bound to this test's fresh Streamlit/session store.
-    for name in ('function_quiz_service','function_quiz_view','play_lab_service','play_lab_view'):
+    for name in ('play_screen','function_quiz_service','function_quiz_view','play_lab_service','play_lab_view'):
         module=load('game_core.'+name,ROOT/'game_core'/f'{name}.py',monkeypatch)
         monkeypatch.setattr(game_core,name,module,raising=False)
         if name.endswith('_view'):

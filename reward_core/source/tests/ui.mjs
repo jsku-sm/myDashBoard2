@@ -57,3 +57,14 @@ if(process.argv[2]){
   console.log(`Rendered ${items.length} question texts and ${formulas} formulas without KaTeX errors.`);
 }
 console.log('DOM flow passed: hints, retries, tickets, five canvases, touch release, stable rerenders, timed finish, rankings, cooperation, teacher controls.');
+
+// Leaving a live game first acknowledges its unconfirmed controls.
+const leaveRun={id:'leave-run',game:'jump',start:1000,until:1090,sim:initial('jump',33)};
+mono=0;
+window.dispatchEvent(new window.MessageEvent('message',{source:window,data:{type:'streamlit:render',args:{view:{...base,run:leaveRun,question:undefined},ack:last().id,returnToGames:true}}}));
+assert(document.querySelector('[data-game-list]'),'all-game return is present inside fullscreen content');
+mono=1200;raf();click('[data-game-list]');const exitProgress=last();assert.equal(exitProgress.action,'progress');assert(exitProgress.inputs.length>0);
+const leaveSim=initial('jump',33);const {step:advance}=await import('../src/simulation.js');for(const input of exitProgress.inputs)advance(leaveSim,input);
+window.dispatchEvent(new window.MessageEvent('message',{source:window,data:{type:'streamlit:render',args:{view:{...base,run:{...leaveRun,sim:leaveSim},question:undefined},ack:exitProgress.id,returnToGames:true}}}));
+assert.equal(last().action,'game_list','navigation happens only after input acknowledgement');
+console.log('PASS: conspicuous game-list return and save-before-exit for live reward games.');

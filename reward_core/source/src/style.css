@@ -3,3 +3,13 @@
 @media(max-width:850px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.split{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.head{align-items:flex-start}.panel{padding:20px}.timer{font-size:22px;padding:9px 12px;min-width:88px}}
 @media(max-width:480px){.shell{padding:14px 10px 25px}.head{gap:10px}.head p{font-size:12px}.grid,.options{grid-template-columns:1fr}.panel{padding:17px;border-radius:20px}.game-card{padding:14px}.control{min-width:46px;min-height:52px;padding:5px}.direction{gap:5px}.jump{min-width:74px;font-size:18px}.question{font-size:20px}.option{padding:13px}.hud strong,.hud .clock{font-size:19px}.code{font-size:48px}.actions button{flex:1}.stat{padding:10px}.stats{gap:8px}.arena{padding:8px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}button:hover{transform:none}}
+
+/* Current-screen play area; the exit remains visible even in fullscreen. */
+#app.focused-play{height:100dvh;overflow:auto;overscroll-behavior:contain;scroll-padding-top:80px}
+.game-return{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:16px;padding:10px 0 16px;background:#f8f5ff;border-bottom:2px solid #ded5f4;margin-bottom:12px}
+.game-return button{min-height:52px;background:#caff38;color:#23213d;border:3px solid #23213d;border-radius:15px;box-shadow:4px 4px #23213d;font-size:17px;font-weight:900;padding:12px 18px;cursor:pointer}
+.game-return button:focus-visible{outline:4px solid #6033f0;outline-offset:3px}
+.game-return span{font-size:13px;color:#514c65}
+#app.active-run .head{margin-bottom:12px;gap:12px}#app.active-run .head h1{font-size:22px}#app.active-run .head .eyebrow{display:none}
+#app.active-run .head p{margin:4px 0}#app.active-run .timer{padding:8px 14px;font-size:24px}
+@media(max-width:600px){.game-return{gap:8px}.game-return span{display:none}.game-return button{font-size:14px;padding:10px 12px;min-height:48px}#app.focused-play .shell{padding:10px}}

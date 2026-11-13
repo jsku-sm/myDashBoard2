@@ -685,8 +685,8 @@ class GitHubBackend:
                     return
                 archive_versions = dict(getattr(self, "archive_dirty", {}))
                 archive_queued = dict(getattr(self, "archive_pending", {}))
-                import copy
-                archive_rows = copy.deepcopy(self.rows) if archive_versions else {}
+                from record_core.archive import snapshot_tables
+                archive_rows = snapshot_tables(self.rows, archive_versions)
                 versions = dict(self.dirty)
                 entries = [{"path": p, "mode": "100644", "type": "blob", "content": self._csv(p)}
                            for p in versions]

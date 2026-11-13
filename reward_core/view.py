@@ -6,6 +6,7 @@ from config import CLASSES
 from game_core.concept_quiz_catalog import UNITS, unit_info
 from . import service as svc
 from .catalog import GAMES, MODES, DIFFICULTIES
+from game_core.play_screen import rerun as rerun_game
 
 _component = None
 CSS = '''<style>
@@ -34,7 +35,9 @@ def show_paper(paper, editable=False, prefix=''):
 
 def page(user):
     st.markdown(CSS,unsafe_allow_html=True)
-    st.markdown('<div class="reward-hero"><small>GOOD MATH · PLAY YOUR PROGRESS</small>'
+    room_key=('_reward_teacher_' if user.get('role')=='teacher' else '_reward_student_')+user['id']
+    if not st.session_state.get(room_key):
+        st.markdown('<div class="reward-hero"><small>GOOD MATH · PLAY YOUR PROGRESS</small>'
                 '<h2>단원 마무리 챌린지 ⚡</h2><p>3문제 맞히고, 90초 신나게!<br>나의 기록을 넘고, 친구들과 도전하고, 우리 반의 목표를 함께 채워요.</p></div>',unsafe_allow_html=True)
     if user.get('role')!='teacher':
         student_page(user); return
@@ -42,15 +45,15 @@ def page(user):
     code=st.session_state.get(key)
     if code:
         if st.button('← 활동 목록 · 새 활동 만들기',key='reward_teacher_back'):
-            st.session_state.pop(key,None);st.rerun()
+            st.session_state.pop(key,None);rerun_game()
         with st.expander('출제 문제·정답 확인'):
             show_paper(svc.paper(user,code))
-        live(user,code);return
+        live(user,code,return_to_games=True);return
     previous=svc.history(user)
     if previous:
         with st.expander('이전에 만든 활동 · 결과 다시 보기'):
             code=st.selectbox('활동', [r['code'] for r in previous],format_func=lambda c:next(f"{r['created_at']} · {r['title']} · {c}" for r in previous if r['code']==c))
-            if st.button('활동 열기',key='reward_history_open'):st.session_state[key]=code;st.rerun()
+            if st.button('활동 열기',key='reward_history_open'):st.session_state[key]=code;rerun_game()
     with st.container(key='reward_setup'):
         st.markdown('### 01 · 오늘 마친 단원을 골라요')
         subject=st.selectbox('과목',['공통수학1','공통수학2'],key='reward_subject')
@@ -86,18 +89,18 @@ def page(user):
         checked=st.checkbox('문제·정답과 출제 범위를 확인했습니다.',key='reward_checked_'+draft['id']+str(len(kept)))
         if st.button('참여코드 만들기',type='primary',disabled=not checked or len(kept)<3 or not classes,width='stretch'):
             code=svc.create(user,unit=unit,topics=topics,difficulty=difficulty,paper=kept,game=game,mode=mode,classes=classes,duration=minutes*60)
-            st.session_state[key]=code;st.rerun()
+            st.session_state[key]=code;rerun_game()
 
 
 def student_page(user):
     key='_reward_student_'+user['id'];code=st.session_state.get(key)
     if code:
-        if st.button('← 다른 활동 참여',key='reward_student_change'):st.session_state.pop(key,None);st.rerun()
-        live(user,code);return
+        if st.button('← 다른 활동 참여',key='reward_student_change'):st.session_state.pop(key,None);rerun_game()
+        live(user,code,return_to_games=True);return
     with st.form('reward_join'):
         entered=st.text_input('선생님의 6자리 참여코드',max_chars=6,placeholder='예: 123456')
         if st.form_submit_button('챌린지 참여',type='primary'):
-            code=entered.strip();svc.join(user,code);st.session_state[key]=code;st.rerun()
+            code=entered.strip();svc.join(user,code);st.session_state[key]=code;rerun_game()
     st.caption('선생님이 단원과 게임을 설정한 뒤 알려 주신 코드로 참여해요. 왼쪽 메뉴의 참여코드 입력도 사용할 수 있어요.')
     records(user)
 
@@ -124,7 +127,7 @@ def records(user, student_id=None):
 
 
 @st.fragment(run_every=2)
-def live(user, code):
+def live(user, code, return_to_games=False):
     global _component
     try:
         view=svc.snapshot(user,code)
@@ -132,10 +135,15 @@ def live(user, code):
             import streamlit.components.v1 as components
             _component=components.declare_component('good_reward_arcade',path=str(Path(__file__).with_name('frontend')))
         key='_reward_event_'+user['id']+'_'+code
-        event=_component(view=view,ack=st.session_state.get(key),error=st.session_state.get(key+'_error',''),
+        event=_component(view=view,returnToGames=return_to_games,ack=st.session_state.get(key),error=st.session_state.get(key+'_error',''),
                          key='reward_live_'+user['id']+'_'+code,default=None)
         if isinstance(event,dict) and event.get('id') and event['id']!=st.session_state.get(key):
             st.session_state[key]=event['id'];st.session_state.pop(key+'_error',None)
+            if event.get('action')=='game_list' and return_to_games:
+                st.session_state['_lab_'+user['id']+'_selection']='hub'
+                st.session_state['_gg_nav_next']='개념 학습게임'
+                # Exit the nested live fragment and rebuild its parent route once.
+                st.rerun(scope='app')
             try:
                 if event.get('action') in ('start','end'):svc.control(user,code,event['action'])
                 else:svc.act(user,code,event)

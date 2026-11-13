@@ -6,6 +6,7 @@ import './style.css';
 const root=document.querySelector('#app');
 let view=null,pending=null,game=null,lastRender='',lastReceive=performance.now(),serverBase=0,clockBase=0,sound=false,audio=null;
 let keys=0,touchKeys=0,keyboardKeys=0,chosen='',lastError='',lastPost=0;
+let returnToGames=false,leaving=false,lastHeight=0;
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function math(value){
   return String(value??'').split(/(\$\$[\s\S]*?\$\$|\$[^$\n]+\$)/g).map(s=>{
@@ -21,6 +22,14 @@ function send(action,extra={}){
   post('streamlit:setComponentValue',{value:pending});setBusy();
 }
 function setBusy(){root.querySelectorAll('[data-act]').forEach(b=>b.disabled=!!pending||(b.dataset.act==='answer'&&!!view?.feedback?.correct));}
+function leaveGames(){
+  if(!returnToGames)return;
+  leaving=true;clearInput();
+  if(pending)return;
+  if(game&&view.run?.id===game.id&&game.state.t>game.confirmed){progress(false);return;}
+  if(document.fullscreenElement)document.exitFullscreen?.();
+  send('game_list');
+}
 const now=()=>serverBase+(performance.now()-clockBase)/1000;
 const remaining=()=>view?.ends_at?Math.max(0,view.ends_at-now()):view?.duration??0;
 const timeText=n=>{const t=Math.ceil(Math.max(0,n));return `${Math.floor(t/60).toString().padStart(2,'0')}:${(t%60).toString().padStart(2,'0')}`;};
@@ -59,14 +68,23 @@ function render(force=false){
   const focused=document.activeElement?.closest('[data-act]');
   const focusSelector=focused?`[data-act="${focused.dataset.act}"]${focused.dataset.choice!==undefined?`[data-choice="${focused.dataset.choice}"]`:''}`:null;
   const inGame=!!view.run;
+  root.classList.toggle('focused-play',returnToGames);
+  root.classList.toggle('active-run',inGame);
   root.innerHTML=`<main class="shell"><header class="head"><div><div class="eyebrow">GOOD MATH · AFTER CLASS ARCADE</div><h1>${view.role==='teacher'?'우리 반 플레이 보드':'3문제, 그다음은 PLAY!'}</h1><p>${esc(view.title)} · ${esc(view.modes[view.mode])}</p></div><div class="timer" id="roomclock"><span>남은 활동 시간</span>${timeText(remaining())}</div></header><div id="error" class="banner error" role="alert">${esc(lastError)}</div><div id="net" class="banner" role="status"></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:14px"><button class="sound" data-util="sound">${sound?'♪ 효과음 켜짐':'♪ 효과음 꺼짐'}</button><button class="sound" data-util="full">⛶ 전체화면</button></div>${view.status==='lobby'?lobby():view.role==='teacher'?teacher():inGame?gameHtml(view.run):student()}<p class="footer-note">정답은 쌓이고, 도전은 계속! · 게임 보상은 아바타 꾸미기에 사용해요.</p></main>`;
+  if(returnToGames)root.querySelector('.shell').insertAdjacentHTML('afterbegin','<div class="game-return"><button data-game-list>← 모든 게임 목록으로 돌아가기</button><span>기록을 반영한 뒤 돌아가요</span></div>');
   setBusy();if(view.feedback?.correct)root.querySelectorAll('[data-act="answer"]').forEach(b=>b.disabled=true);
   if(focusSelector)root.querySelector(focusSelector)?.focus({preventScroll:true});
   if(inGame&&view.role==='student')mountGame(view.run);
   else if(game){try{sessionStorage.removeItem('reward-run-'+game.id);}catch{}game=null;keys=0;keyboardKeys=0;touchKeys=0;}
+  if(force){root.scrollTop=0;root.querySelector('.shell').scrollTop=0;}
   height();
 }
-function height(){post('streamlit:setFrameHeight',{height:Math.ceil(document.documentElement.scrollHeight)});}
+function height(){
+  let h=Math.ceil(document.documentElement.scrollHeight);
+  if(returnToGames){try{h=Math.max(300,window.parent.innerHeight-210);}catch{h=620;}}
+  if(h!==lastHeight){lastHeight=h;post('streamlit:setFrameHeight',{height:h});}
+}
+window.addEventListener('resize',height);
 new ResizeObserver(height).observe(root);
 function persist(){if(!game)return;try{sessionStorage.setItem('reward-run-'+game.id,JSON.stringify(game.inputs));}catch{}}
 function mountGame(run){
@@ -91,7 +109,7 @@ function tick(){
     const net=root.querySelector('#net');if(net)net.textContent=performance.now()-lastReceive>8000?'연결을 확인하고 있어요. 최근 조작은 이 기기에 임시 보관하고, 다시 연결되면 전송합니다.':'';
     if(pending&&performance.now()-lastPost>6000){post('streamlit:setComponentValue',{value:{...pending,retry:Date.now()}});lastPost=performance.now();}
   }
-  if(game&&view?.run?.id===game.id){
+  if(game&&view?.run?.id===game.id&&!leaving){
     const before=game.state.score,target=Math.min(1800,Math.floor(Math.max(0,Math.min(now()-.25,game.until)-game.start)*HZ));
     let steps=0;
     while(game.state.t<target&&steps<1800){const input=document.hidden?0:keys;game.inputs.push(input);step(game.state,input);steps++;}
@@ -108,17 +126,20 @@ function tick(){
 window.addEventListener('message',event=>{
   if(event.source!==window.parent||event.data?.type!=='streamlit:render')return;
   const args=event.data.args||{},next=args.view;if(!next)return;
+  const returnChanged=returnToGames!==!!args.returnToGames;returnToGames=!!args.returnToGames;
   const old=view;view=next;lastReceive=performance.now();serverBase=view.server_time;clockBase=performance.now();
   const acked=pending&&args.ack===pending.id;
-  if(acked){const was=pending;pending=null;lastError=args.error||'';if(was.action==='answer')beep(!!view.feedback?.correct);
+  if(acked){const was=pending;pending=null;lastError=args.error||'';if(lastError)leaving=false;if(was.action==='answer')beep(!!view.feedback?.correct);
     if(lastError&&game&&view.run?.id===game.id){game.state=structuredClone(view.run.sim);game.inputs=game.inputs.slice(0,view.run.sim.t);game.confirmed=view.run.sim.t;game.finalSent=false;persist();}
   }
   if(game&&view.run?.id===game.id){game.confirmed=view.run.sim.t;game.until=view.run.until;if(game.state.t<view.run.sim.t){game.state=structuredClone(view.run.sim);while(game.inputs.length<game.state.t)game.inputs.push(0);}}
-  const changed=old?.run?.id!==view.run?.id;
+  const changed=old?.run?.id!==view.run?.id||returnChanged;
   render(changed);
   const error=root.querySelector('#error');if(error)error.textContent=lastError;
+  if(leaving&&!pending)leaveGames();
 });
 root.addEventListener('click',e=>{
+  if(e.target.closest('[data-game-list]')){leaveGames();return;}
   const util=e.target.closest('[data-util]');if(util){if(util.dataset.util==='sound'){sound=!sound;util.textContent=sound?'♪ 효과음 켜짐':'♪ 효과음 꺼짐';beep();}else{const shell=root.querySelector('.shell');if(document.fullscreenElement)document.exitFullscreen?.();else shell.requestFullscreen?.().catch(()=>{lastError='이 브라우저에서는 전체화면이 제한돼요. 넓은 화면이나 가로 모드로 플레이해 주세요.';root.querySelector('#error').textContent=lastError;});}return;}
   const select=e.target.closest('[data-select]');if(select){chosen=select.dataset.select;render(true);return;}
   const b=e.target.closest('[data-act]');if(!b||b.disabled)return;
