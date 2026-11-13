@@ -2,6 +2,7 @@
 from pathlib import Path
 import logging
 import streamlit as st
+from .play_screen import rerun as rerun_game
 from . import play_lab_service as svc, play_lab_engine as lab
 
 _component = None
@@ -23,7 +24,7 @@ def _frame(user, data, view, *, game_id=None, title=""):
         target = event.get("target")
         if target in {"hub", "avatar", "quiz", *lab.TITLES}:
             st.session_state[prefix+"_selection"] = target
-            st.rerun()
+            rerun_game()
         return
     if event.get("action") != "record":
         return
@@ -39,20 +40,22 @@ def _frame(user, data, view, *, game_id=None, title=""):
         logging.getLogger(__name__).warning("Play lab save failed: %s", type(error).__name__)
         st.session_state[prefix+"_failed"] = event["id"]
         st.session_state[prefix+"_error"] = "기록을 반영하지 못했어요. 연결을 확인하고 다시 저장해 주세요."
-    st.rerun()
+    rerun_game()
 
 
 def page(user, avatar_page):
-    data = svc.snapshot(user, preview=user.get("role") == "teacher")
     selection = st.session_state.get("_lab_"+user["id"]+"_selection", "hub")
-    if selection == "avatar":
-        _frame(user, data, "header", title="나의 아바타 퀘스트")
-        avatar_page()
-    elif selection == "quiz":
-        _frame(user, data, "header", title="단계별 개념퀴즈")
-        from .function_quiz_view import page as quiz_page
-        quiz_page(user)
-    elif selection in lab.TITLES:
+    # Avatar/quiz have their own authorized snapshots. Do not load arcade history.
+    if selection in ('avatar','quiz'):
+        from .play_screen import return_bar
+        return_bar(user)
+        if selection=='avatar': avatar_page()
+        else:
+            from .function_quiz_view import page as quiz_page
+            quiz_page(user)
+        return
+    data = svc.snapshot(user, preview=user.get("role") == "teacher", history=False)
+    if selection in lab.TITLES:
         _frame(user, data, "arena", game_id=selection)
         if data["preview"]:
             st.caption("교사 미리보기 · 학생 기록에 영향을 주지 않습니다.")

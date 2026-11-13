@@ -96,5 +96,5 @@ def apply(state, events, at):
                 del state["runs"][rid]
 
 
-def public(state):
-    return {"games": deepcopy(state["games"]), "records": deepcopy(state["records"][-30:])}
+def public(state, *, history=True):
+    return {"games": deepcopy(state["games"]), "records": deepcopy(state["records"][-30:]) if history else []}

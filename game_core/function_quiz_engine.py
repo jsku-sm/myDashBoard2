@@ -104,7 +104,7 @@ def apply(state,event,now,*,preview=False,unit="functions"):
     state["events"]=(state["events"]+[event["id"]])[-40:]
 
 
-def public(state,*,preview=False,unit="functions"):
+def public(state,*,preview=False,unit="functions",history=True):
     info=unit_info(unit);content=bank(unit)
     active=state.get("active");q=None
     if active:
@@ -115,4 +115,4 @@ def public(state,*,preview=False,unit="functions"):
                 topics=content["topics"],levels=content["levels"],unlocked=5 if preview else unlocked(state),
                 stages=deepcopy(state["stages"]),points=sum(state["awards"].values()),
                 totals=deepcopy(state["totals"]),skills=deepcopy(state["skills"]),
-                mastered_at=state["mastered_at"],question=q,preview=preview,records=deepcopy(state["records"][-30:]))
+        mastered_at=state["mastered_at"],question=q,preview=preview,records=deepcopy(state["records"][-30:]) if history else [])

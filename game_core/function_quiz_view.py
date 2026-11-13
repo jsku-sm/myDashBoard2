@@ -2,6 +2,7 @@
 from pathlib import Path
 import logging
 import streamlit as st
+from .play_screen import rerun as rerun_game
 from . import function_quiz_service as svc, service as games
 from .concept_quiz_catalog import UNITS, unit_info
 
@@ -66,15 +67,18 @@ def page(user):
             summary(user,sid)
             return
         st.caption("교사 미리보기 · 5단계를 자유롭게 체험하며 학생 기록에 저장되지 않습니다.")
-    previous=svc.snapshot(user,preview=preview)
-    default="functions" if previous['totals']['answered'] or previous.get('question') else "polynomials"
+    default_key='_concept_initial_unit_'+user['id']
+    if default_key not in st.session_state:
+        previous=svc.snapshot(user,preview=preview,history=False,include_overview=False)
+        st.session_state[default_key]="functions" if previous['totals']['answered'] or previous.get('question') else "polynomials"
+    default=st.session_state[default_key]
     unit=_choose_unit("concept_picker_"+user['id'],default)
     st.caption("2022 개정 교육과정 · 과목 → 단원 → 주제 선택 · 단원별 5단계 진도는 각각 저장됩니다.")
     global _component
     if _component is None:
         import streamlit.components.v1 as components
         _component=components.declare_component("good_function_quiz",path=str(Path(__file__).with_name("function_quiz_frontend")))
-    data=svc.snapshot(user,preview=preview,unit=unit)
+    data=svc.snapshot(user,preview=preview,unit=unit,history=False,include_overview=False)
     event_key="_concept_event_"+user["id"]+"_"+unit
     error_key="_concept_error_"+user["id"]+"_"+unit
     event=_component(data=data,error=st.session_state.get(error_key,""),key="function_quiz_"+user["id"]+"_"+unit,default=None)
@@ -86,7 +90,7 @@ def page(user):
         except Exception as error:
             logging.getLogger(__name__).warning("Function quiz action failed: %s",type(error).__name__)
             st.session_state[error_key]="기록을 반영하지 못했어요. 연결을 확인하고 다시 시도해 주세요."
-        st.rerun()
+        rerun_game()
     if not preview:
         from .view import _save_panel
         _save_panel(user)

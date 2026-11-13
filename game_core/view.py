@@ -5,6 +5,7 @@ import logging
 import hashlib
 import secrets
 import streamlit as st
+from .play_screen import rerun as rerun_game
 from config import CLASSES
 from . import bank, engine, presentation as art, service as svc
 from .curriculum import EDITIONS, TOPICS, rows, topic
@@ -33,7 +34,7 @@ def _change(fn,*args,message="학습 기록에 반영했어요.",flush_user=None
         logging.getLogger(__name__).warning("Game operation failed: %s",type(exc).__name__)
         st.error("처리를 완료하지 못했어요. 이 창을 유지하고 다시 시도해 주세요. 토큰이나 학생 정보는 화면으로 보내지 마세요.")
         return None
-    st.rerun()
+    rerun_game()
     return result
 
 
@@ -128,7 +129,7 @@ def _lesson(user,p,s,preview=False):
             elif kind=="switch":engine.switch(ds,args["mode"])
             elif kind=="pause":dp["active_id"]=""
             elif kind=="reflection":ds["reflection"]=args["text"]
-            st.session_state["_gg_demo"]=dp;st.rerun()
+            st.session_state["_gg_demo"]=dp;rerun_game()
         else:
             done=(kind=="advance" and ix==4) or kind=="pause"
             _change(svc.lesson_action,user,sid,ix,p["revision"],kind,**args,
@@ -280,7 +281,7 @@ def _teacher_preview(user):
     level=st.selectbox("숫자의 복잡도",["천천히","기본","한 걸음 더"],key="gg_preview_level")
     if st.button("5문제 미리보기 시작",key="gg_demo_start",type="primary"):
         dp=engine.new_profile();engine.start(dp,tid,mode,bank.generate(tid,secrets.randbits(64),level=level),"preview")
-        st.session_state["_gg_demo"]=dp;st.rerun()
+        st.session_state["_gg_demo"]=dp;rerun_game()
 
 
 def _question_form(user,tid,base,qid="",revision=0,published=False):
@@ -308,7 +309,7 @@ def _content_manager(user):
         key="_gg_sample_"+tid
         if key not in st.session_state:st.session_state[key]=bank.generate(tid,1729)
         if st.button("다른 숫자로 예시 보기",key="gg_regenerate"):
-            st.session_state[key]=bank.generate(tid,secrets.randbits(64));st.rerun()
+            st.session_state[key]=bank.generate(tid,secrets.randbits(64));rerun_game()
         sample=st.session_state[key]
         idx=st.selectbox("수정할 기본 문항",range(5),format_func=lambda x:f"{x+1}. {sample[x]['prompt'][:55]}",key="gg_sample_index_"+tid)
         st.caption("기본 출제는 제작 시 구성한 문항 틀입니다. 실행 중 AI에 학생 정보나 학습지를 보내지 않습니다.")
@@ -425,6 +426,17 @@ def _page(user):
                    format_func=lambda label:"학생 성장기록" if teacher and label=="나의 성장기록" else label,
                    horizontal=True,key="_gg_child")
     try:
+        from . import play_screen
+        if play_screen.active(user,child):
+            st.markdown(play_screen.CSS,unsafe_allow_html=True)
+            with st.container(key='good_game_stage'):
+                if child=='단원 마무리 챌린지':
+                    from reward_core.view import page as reward_page
+                    reward_page(user)
+                else:
+                    from .play_lab_view import page as play_lab_page
+                    play_lab_page(user,lambda:_avatar_page(user))
+            return
         if child=="개념 학습게임":
             from .play_lab_view import page as play_lab_page
             play_lab_page(user,lambda:_avatar_page(user))
@@ -439,12 +451,13 @@ def _page(user):
             _save_panel(user)
     except (ValueError,PermissionError) as exc:
         st.error(str(exc))
-        if st.button("학습 상태 다시 읽기",key="gg_reload"):st.rerun()
+        if st.button("학습 상태 다시 읽기",key="gg_reload"):rerun_game()
     except Exception as exc:
         logging.getLogger(__name__).warning("Game page failed: %s",type(exc).__name__)
         st.error("학습 화면을 열지 못했습니다. 저장 연결을 확인하고 다시 열어 주세요. 기존 학생 자료를 삭제하거나 암호화키를 바꾸지 마세요.")
 
 
+@st.fragment
 def page(user):
     with st.container(key="good_math_games"):
         _page(user)
