@@ -46,6 +46,7 @@ def game_env(monkeypatch,tmp_path):
     for name in ('play_screen','function_quiz_service','function_quiz_view','play_lab_service','play_lab_view'):
         module=load('game_core.'+name,ROOT/'game_core'/f'{name}.py',monkeypatch)
         monkeypatch.setattr(game_core,name,module,raising=False)
+        if name=='play_screen':module._viewport_component=lambda **kwargs: None
         if name.endswith('_view'):
             module._component=lambda **kwargs: None
     view=load('game_core.view',ROOT/'game_core/view.py',monkeypatch)
