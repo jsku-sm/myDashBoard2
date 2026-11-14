@@ -15,6 +15,7 @@ def _frame(user, data, view, *, game_id=None, title=""):
         _component = components.declare_component("good_math_play_lab", path=str(Path(__file__).with_name("play_lab_frontend")))
     prefix = "_lab_" + user["id"]
     event = _component(data=data, view=view, gameId=game_id, title=title,
+                       navigationAck=st.session_state.get(prefix+"_navigation_ack"),
                        ack=st.session_state.get(prefix+"_ack"), failed=st.session_state.get(prefix+"_failed"),
                        error=st.session_state.get(prefix+"_error", ""), key="math_play_lab_"+user["id"], default=None)
     if not isinstance(event, dict) or not isinstance(event.get("id"), str) or event["id"] == st.session_state.get(prefix+"_handled"):
@@ -24,6 +25,7 @@ def _frame(user, data, view, *, game_id=None, title=""):
         target = event.get("target")
         if target in {"hub", "avatar", "quiz", *lab.TITLES}:
             st.session_state[prefix+"_selection"] = target
+            st.session_state[prefix+"_navigation_ack"] = event["id"]
             rerun_game()
         return
     if event.get("action") != "record":

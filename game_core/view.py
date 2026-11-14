@@ -427,6 +427,17 @@ def _page(user):
                    horizontal=True,key="_gg_child")
     try:
         from . import play_screen
+        if child=="개념 학습게임":
+            # Keep one stable component parent for lobby and arcade. Moving the
+            # iframe into a new container on selection resets its running game.
+            st.markdown(play_screen.CSS,unsafe_allow_html=True)
+            from .play_lab_view import page as play_lab_page
+            with st.container(key='good_game_panel'):
+                play_lab_page(user,lambda:_avatar_page(user))
+            # JS arcades reveal themselves immediately, without a server wait.
+            if st.session_state.get('_lab_'+user['id']+'_selection') in ('avatar','quiz'):
+                play_screen.reveal_on_entry(user,child)
+            return
         if play_screen.active(user,child):
             st.markdown(play_screen.CSS,unsafe_allow_html=True)
             # Keep the tool picker and game navigation above the content.
@@ -438,11 +449,9 @@ def _page(user):
                 else:
                     from .play_lab_view import page as play_lab_page
                     play_lab_page(user,lambda:_avatar_page(user))
+            play_screen.reveal_on_entry(user,child)
             return
-        if child=="개념 학습게임":
-            from .play_lab_view import page as play_lab_page
-            play_lab_page(user,lambda:_avatar_page(user))
-        elif child=="단원 마무리 챌린지":
+        if child=="단원 마무리 챌린지":
             from reward_core.view import page as reward_page
             reward_page(user)
         elif teacher:

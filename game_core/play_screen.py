@@ -1,5 +1,8 @@
 """In-flow game content and fragment-scoped navigation; no viewport takeover."""
 import streamlit as st
+from pathlib import Path
+
+_entry_component = None
 
 CSS = '''<style>
 /* The panel stays AFTER the tool picker and game navigation in document flow. */
@@ -26,6 +29,21 @@ CSS = '''<style>
 def fit_viewport():
     """Compatibility only: older callers must never overlay or scale the dashboard."""
     return None
+
+
+def reveal_on_entry(user, child):
+    """One client-side scroll per game entry, without changing panel geometry."""
+    global _entry_component
+    if _entry_component is None:
+        import streamlit.components.v1 as components
+        _entry_component = components.declare_component(
+            'good_math_game_entry', path=str(Path(__file__).with_name('game_entry_frontend')))
+    if child == '개념 학습게임':
+        selection = st.session_state.get('_lab_' + user['id'] + '_selection', 'hub')
+    else:
+        prefix = '_reward_teacher_' if user.get('role') == 'teacher' else '_reward_student_'
+        selection = st.session_state.get(prefix + user['id'], '')
+    _entry_component(entry=child + ':' + str(selection), key='game_entry_' + user['id'], default=None)
 
 
 def rerun():
