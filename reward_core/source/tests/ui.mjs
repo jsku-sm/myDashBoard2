@@ -11,6 +11,19 @@ globalThis.ResizeObserver=class{observe(){} disconnect(){}};
 globalThis.requestAnimationFrame=cb=>{raf=cb;return 1;};
 window.HTMLCanvasElement.prototype.getContext=()=>new Proxy({createLinearGradient:()=>({addColorStop(){}})}, {get:(t,k)=>t[k]||(()=>{}),set:(t,k,v)=>(t[k]=v,true)});
 window.postMessage=data=>posted.push(data);window.confirm=()=>true;
+const audioSources=[];
+const param=()=>({value:0,setValueAtTime(){},linearRampToValueAtTime(){},exponentialRampToValueAtTime(){},cancelScheduledValues(){},setTargetAtTime(){}});
+const audioNode=()=>({connect(){},disconnect(){}});
+window.AudioContext=class{
+  constructor(){this.state='suspended';this.currentTime=0;this.sampleRate=44100;this.destination=audioNode();}
+  async resume(){this.state='running';this.onstatechange?.();}
+  createGain(){return {...audioNode(),gain:param()};}
+  createBiquadFilter(){return {...audioNode(),frequency:param()};}
+  createDynamicsCompressor(){return {...audioNode(),threshold:param(),knee:param(),ratio:param()};}
+  createOscillator(){const node={...audioNode(),frequency:param(),start(){audioSources.push(this);},stop(){}};return node;}
+  createBufferSource(){return this.createOscillator();}
+  createBuffer(_,n){return {getChannelData:()=>new Float32Array(n)};}
+};
 const {math}=await import('../src/main.js');
 const titles={jump:'스타 점프 어드벤처',kart:'네온 카트 러시',space:'우주 수호대',blocks:'팡팡 블록 브레이커',maze:'보물섬 대탈출'};
 const games=Object.fromEntries(Object.entries(titles).map(([id,title])=>[id,{title,icon:'★',color:'#caff38',help:'방향키로 이동',medal:300}]));
@@ -20,6 +33,14 @@ function render(v=current,ack=null,error=''){current=v;window.dispatchEvent(new 
 const click=selector=>{const el=document.querySelector(selector);assert(el,selector);el.click();};
 function last(){const e=posted.filter(e=>e.type==='streamlit:setComponentValue').at(-1);assert(e);return e.value;}
 render();assert.equal(document.querySelectorAll('.katex').length,5);assert.equal(document.querySelectorAll('.option').length,3);
+assert.equal(audioSources.length,0,'loading must not start audio');
+click('[data-util="sound"]');await Promise.resolve();
+assert.equal(document.querySelector('[data-util="sound"]').getAttribute('aria-pressed'),'true');
+click('[data-util="sound"]');assert.equal(document.querySelector('[data-util="sound"]').getAttribute('aria-pressed'),'false');
+click('[data-util="sound"]');await Promise.resolve();
+const volume=document.querySelector('[data-volume]');volume.value=25;volume.dispatchEvent(new window.Event('input',{bubbles:true}));
+assert.deepEqual(JSON.parse(window.localStorage.getItem('goodssaem-reward-audio-v1')),{effects:true,volume:.25});
+assert.equal(posted.filter(e=>e.type==='streamlit:setComponentValue').length,0,'sound controls are local and never add server work');
 click('[data-act="hint"]');let event=last();assert.equal(event.action,'hint');assert(document.querySelector('[data-act="hint"]').disabled);
 render({...current,hints:1,question:{...current.question,hint:'입력 $2$를 대입해요.'}},event.id);assert(document.querySelector('.hint').textContent.includes('입력'));
 click('[data-act="answer"][data-choice="1"]');event=last();assert.equal(event.choice,1);
@@ -50,6 +71,21 @@ render({...base,status:'ended',mode:'rank',question:undefined,runs:[{game:'jump'
 render({...base,status:'ended',mode:'coop',goal:300,contribution:350,question:undefined});assert(document.body.textContent.includes('함께 해냈어요'));
 render({...base,role:'teacher',status:'lobby',students:[]});assert(document.querySelector('.code').textContent==='123456');click('[data-act="start"]');event=last();assert.equal(event.action,'start');
 render({...base,role:'teacher',students:[{class_name:'1-1',student_id:'test',name:'가상학생',alias:'플레이어 01',correct:3,wrong:1,hints:1,games:1,best:120,coins:4,phase:'문제 풀이'}]},event.id);assert(document.body.textContent.includes('가상학생'));click('[data-act="end"]');assert.equal(last().action,'end');
+const endEvent=last();
+for(const status of ['running','ended'])for(const mode of ['solo','rank','coop']){
+  render({...base,role:'teacher',status,mode,students:[],leaderboard:[{alias:'플레이어 01',score:120,rank:1}]},endEvent.id);
+  const board=document.querySelector('.teacher-dashboard');assert(board);
+  assert(!board.querySelector('.split'),'progress table must not share a row with a sidebar');
+  assert.equal(board.querySelector('table').closest('.panel').parentElement,board);
+  assert(!document.body.textContent.includes('MY NEXT LEVEL'));
+  assert(!document.body.textContent.includes('정답은 쌓이고'));
+  assert(!document.body.textContent.includes('수학 정답과 게임 점수는 따로'));
+  if(mode==='rank')assert(board.querySelector('.teacher-summary').textContent.includes('우리 반 순위'));
+  if(mode==='coop')assert(board.querySelector('.teacher-summary [role="progressbar"]'));
+}
+assert(document.querySelector('[data-volume]'));
+render({...base});assert(document.body.textContent.includes('MY NEXT LEVEL'),'student encouragement is preserved');
+assert(document.body.textContent.includes('정답은 쌓이고'),'student reward explanation is preserved');
 assert(!math('<img src=x onerror=alert(1)>').includes('<img'));
 if(process.argv[2]){
   const items=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));let formulas=0;

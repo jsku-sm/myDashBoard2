@@ -39,3 +39,17 @@
 #app.focused-play .game-card{padding:12px}
 #app:fullscreen{width:100vw;height:100dvh;overflow:hidden;background:#f7f5ff;position:relative}
 #app:fullscreen .shell{position:absolute;left:0;top:0;max-width:none;height:auto;overflow:visible}
+
+/* The teacher's progress table owns the full content width in every mode. */
+#app.teacher-view .shell{max-width:none}
+.teacher-dashboard{width:100%;min-width:0}
+.teacher-actions{justify-content:flex-end;margin:0 7px 16px 0}
+.teacher-summary{margin-top:20px}
+.utilities,.audio-controls{display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap}
+.utilities{margin-bottom:14px}
+.volume-control{display:flex;align-items:center;gap:8px;font-size:13px;color:#514c65;font-weight:700}
+.volume-control input{width:96px;accent-color:#5935ed;min-height:32px;cursor:pointer}
+.volume-control output{min-width:3ch;font-variant-numeric:tabular-nums}
+.sound[aria-pressed=true]{background:#edffc6}
+.volume-control input:focus-visible{outline:3px solid #5935ed;outline-offset:3px;border-radius:6px}
+@media(max-width:600px){.utilities{justify-content:space-between;gap:8px}.audio-controls{gap:8px}.volume-control input{width:72px}}
