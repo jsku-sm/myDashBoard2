@@ -5,6 +5,7 @@ import './math-arcade.css';
 import './vivid.css';
 import { createMathArcade, GAMES, gameArt } from './math-arcade.js';
 import { escapeHTML as esc } from './ui.js';
+import { sizePlayBoard } from './board-size.js';
 
 const root = document.getElementById('lab');
 const post = (type, extra={}) => window.parent.postMessage({isStreamlitMessage:true,type,...extra},'*');
@@ -14,12 +15,13 @@ const keys = new Set(GAMES.map(g=>g.id));
 const makeId=()=>globalThis.crypto?.randomUUID?.() || `event-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const categories=[['all','전체'],['geometry','도형의 방정식'],['function','함수'],['sets','집합'],['logic','명제']];
 function resize(){
+ sizePlayBoard(root);
  for(const board of root.querySelectorAll?.('.arc-board-wrap,.c2-board-shell')||[]){
   const panel=board.querySelector('.arc-overlay-card,.c2-overlay>div,.c2-result-toast');
   const min=panel?panel.offsetHeight+28:0;
   const value=min+'px';if(board.style.getPropertyValue('--overlay-min')!==value)board.style.setProperty('--overlay-min',value);
  }
- // Report the whole natural content; the host fits it once in both dimensions.
+ // Report the natural content, keeping the surrounding menus in document flow.
  // A fixed iframe height here clips boards or creates a second scrolling surface.
  const n=Math.ceil(Math.max(root.scrollHeight||0,root.getBoundingClientRect().height))+12;
  if(n!==height){height=n;post('streamlit:setFrameHeight',{height:n});}

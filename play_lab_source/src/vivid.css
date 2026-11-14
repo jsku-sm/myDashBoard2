@@ -87,3 +87,8 @@ body.lab-playing .c2-overlay select{padding:6px;margin-top:4px}
 @media(max-width:850px){body.lab-playing .arc-play-layout{grid-template-columns:minmax(0,1fr) 200px}body.lab-playing .c2-layout{grid-template-columns:minmax(0,1fr) 220px}}
 body.lab-playing .arc-board-wrap{min-height:var(--overlay-min,0px);display:grid;align-items:center}
 body.lab-playing .c2-board-shell{min-height:max(300px,var(--overlay-min,0px))}
+
+/* Keep the question and controls visible when a wide screen or zoom would make
+   the canvas taller than the browser. The canvas aspect ratio stays 8:5. */
+body.lab-playing #arc-canvas{width:min(100%,calc(var(--play-board-height,560px) * 1.6));height:auto;margin-inline:auto}
+body.lab-playing .arc-memory-board{height:var(--play-board-height,500px);aspect-ratio:auto}
