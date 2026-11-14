@@ -429,15 +429,15 @@ def _page(user):
         from . import play_screen
         if play_screen.active(user,child):
             st.markdown(play_screen.CSS,unsafe_allow_html=True)
-            with st.container(key='good_game_stage'):
-                with st.container(key='good_game_content'):
-                    if child=='단원 마무리 챌린지':
-                        from reward_core.view import page as reward_page
-                        reward_page(user)
-                    else:
-                        from .play_lab_view import page as play_lab_page
-                        play_lab_page(user,lambda:_avatar_page(user))
-                play_screen.fit_viewport()
+            # Keep the tool picker and game navigation above the content.
+            # A fixed/absolute overlay or parent-wide scaling hides those controls.
+            with st.container(key='good_game_panel'):
+                if child=='단원 마무리 챌린지':
+                    from reward_core.view import page as reward_page
+                    reward_page(user)
+                else:
+                    from .play_lab_view import page as play_lab_page
+                    play_lab_page(user,lambda:_avatar_page(user))
             return
         if child=="개념 학습게임":
             from .play_lab_view import page as play_lab_page

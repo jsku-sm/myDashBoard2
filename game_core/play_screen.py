@@ -1,38 +1,31 @@
-"""Viewport play space and fragment-scoped navigation; no student data cache."""
+"""In-flow game content and fragment-scoped navigation; no viewport takeover."""
 import streamlit as st
-from pathlib import Path
-
-_viewport_component = None
 
 CSS = '''<style>
-.st-key-good_game_stage {
- /* Start inside the main column. JS positions the fitted pane only after measuring it. */
- position:relative!important; z-index:10; isolation:isolate;
- width:100%; max-width:100%; height:calc(100dvh - 80px);
- padding:0; overflow:hidden; box-sizing:border-box;
- background:#f8f7ff; color:#20203a; border:3px solid #282342;
- border-radius:24px; box-shadow:inset 0 0 0 1px #d4cbee;
+/* The panel stays AFTER the tool picker and game navigation in document flow. */
+.st-key-good_game_panel {
+ position:relative; inset:auto; z-index:auto;
+ width:100%; max-width:100%; min-width:0; height:auto;
+ padding:12px; box-sizing:border-box; overflow:visible;
+ background:#f8f7ff; color:#20203a; border:2px solid #ded8f0;
+ border-radius:20px;
 }
-.st-key-good_game_content {position:absolute!important;left:0;top:0;max-width:none!important;
- transform-origin:top left;box-sizing:border-box;gap:8px!important;}
-.st-key-good_game_stage h1,.st-key-good_game_stage h2,.st-key-good_game_stage h3 {color:#20203a;}
-.st-key-game_return_bar {position:sticky!important;top:-14px;z-index:15;background:#f8f7ff;
- padding:10px 0 12px;border-bottom:2px solid #d4cbee;}
+.st-key-good_game_panel iframe {max-width:100%;}
+.st-key-good_game_panel h1,.st-key-good_game_panel h2,.st-key-good_game_panel h3 {color:#20203a;}
+.st-key-game_return_bar {position:static;z-index:auto;background:#f8f7ff;
+ padding:6px 0 12px;border-bottom:2px solid #d4cbee;}
 .st-key-game_return_bar button {background:#d9ff4b!important;color:#20203a!important;
- border:3px solid #20203a!important;border-radius:15px!important;min-height:52px;
+ border:3px solid #20203a!important;border-radius:15px!important;min-height:48px;
  box-shadow:4px 4px #20203a;font-size:1.05rem;font-weight:900;}
 .st-key-game_return_bar button:hover {background:#e7ff8c!important;}
-@media(max-width:600px){.st-key-good_game_stage{border-radius:16px;}
- .st-key-game_return_bar{top:-8px}.st-key-game_return_bar button{min-height:48px;font-size:.95rem}}
+@media(max-width:600px){.st-key-good_game_panel{padding:8px;border-radius:16px;}
+ .st-key-game_return_bar button{font-size:.95rem}}
 </style>'''
 
 
 def fit_viewport():
-    global _viewport_component
-    if _viewport_component is None:
-        import streamlit.components.v1 as components
-        _viewport_component=components.declare_component('good_game_viewport',path=str(Path(__file__).with_name('play_viewport_frontend')))
-    _viewport_component(key='good_game_viewport',default=None)
+    """Compatibility only: older callers must never overlay or scale the dashboard."""
+    return None
 
 
 def rerun():
