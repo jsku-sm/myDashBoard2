@@ -16,6 +16,7 @@ TOOLS = [
     ("tool_apps", "5. 수학 실험실", "직접 조작하고 관찰하며 수학 개념을 이해해요."),
 ]
 ACTIVE_APP = "_tool_apps_active_app"
+DESMOS_INLINE = "_tool_desmos_inline_open"
 
 TOOL_PRESENTATION = (
     ("∿", "그래프를 그리며 탐구해요", "그래프 탐구"),
@@ -113,29 +114,29 @@ TOOLS_PAGE_CSS = """
 [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_selected_content .st-key-tool_links_menu {
     padding-top:5px;
 }
-[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a {
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu :is([data-testid="stLinkButton"] a,.st-key-tool_desmos_inline_toggle button) {
     position:relative;justify-content:flex-start;min-height:105px;padding:35px 16px 29px;
     border:1.5px solid var(--tool-line);border-radius:15px;
     background:light-dark(#FFFFFFDF,#FFFFFF08);color:var(--tool-ink);
     box-shadow:0 3px 0 color-mix(in srgb,var(--tool-line) 45%,transparent);
     text-align:left;text-decoration:none;transition:transform .15s ease,box-shadow .15s ease;
 }
-[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a::before {
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu :is([data-testid="stLinkButton"] a,.st-key-tool_desmos_inline_toggle button)::before {
     content:"수학 플레이";position:absolute;top:10px;left:16px;
     color:var(--tool-accent);font-size:.66rem;font-weight:650;letter-spacing:.04em;
 }
-[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a::after {
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu :is([data-testid="stLinkButton"] a,.st-key-tool_desmos_inline_toggle button)::after {
     content:"도구 열기 ↗";position:absolute;bottom:9px;right:14px;
     color:var(--tool-accent);font-size:.7rem;font-weight:750;
 }
-[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a p {
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu :is([data-testid="stLinkButton"] a,.st-key-tool_desmos_inline_toggle button) p {
     color:var(--tool-ink);font-size:1rem;font-weight:800;line-height:1.4;word-break:keep-all;
 }
-[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a:hover {
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu :is([data-testid="stLinkButton"] a,.st-key-tool_desmos_inline_toggle button):hover {
     border-color:var(--tool-accent);background:var(--tool-bg);transform:translateY(-2px);
     box-shadow:0 5px 12px color-mix(in srgb,var(--tool-accent) 16%,transparent);
 }
-[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a:focus-visible {
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu :is([data-testid="stLinkButton"] a,.st-key-tool_desmos_inline_toggle button):focus-visible {
     outline:3px solid var(--tool-accent);outline-offset:3px;
 }
 .tool-gallery-meta {display:flex;align-items:center;gap:7px;margin:2px 0 5px;color:var(--tool-accent);font-size:.76rem;font-weight:650;}
@@ -146,12 +147,20 @@ TOOLS_PAGE_CSS = """
 }
 .st-key-pastel_tools .st-key-tool_preparing strong {color:light-dark(#82692D,#EFDB9C);font-size:.95rem;}
 .st-key-pastel_tools .st-key-tool_preparing p {margin:5px 0 0;color:light-dark(#7D7258,#CFC5A7);font-size:.8rem;line-height:1.55;}
-[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_selected_content .st-key-tool_inline_calculator [data-testid="stExpander"] details {
-    border:1.5px solid var(--tool-line);border-radius:14px;background:light-dark(#FFFFFFC9,#FFFFFF06);
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_desmos_launch [data-testid="stLinkButton"] a::after {
+    content:"새 탭에서 열기 ↗";
 }
-[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_selected_content .st-key-tool_inline_calculator [data-testid="stExpander"] summary {
-    background:var(--tool-bg);color:var(--tool-ink);
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu .st-key-tool_desmos_inline_toggle button::after {
+    content:"이곳에서 열기 ↓";
 }
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu .st-key-tool_desmos_inline_toggle button[kind="primary"] {
+    background:var(--tool-bg);border-color:var(--tool-accent);
+}
+[data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu .st-key-tool_desmos_inline_toggle button[kind="primary"]::after {
+    content:"계산기 닫기 ↑";
+}
+.st-key-tool_inline_calculator {min-width:0;width:100%;}
+.st-key-tool_inline_calculator iframe {width:100%;max-width:100%;border-radius:14px;}
 .st-key-pastel_tools .st-key-tool_link_editor {margin-top:2px;}
 [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_link_editor [data-testid="stExpander"] details {
     border:1.5px solid light-dark(#CCBAE4,#715A89);border-radius:15px;background:light-dark(#FAF7FE,#2A2436);
@@ -189,7 +198,7 @@ TOOLS_PAGE_CSS = """
 }
 @media(prefers-reduced-motion:reduce) {
     [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_menu_picker :is(label[data-baseweb="radio"],label[data-testid="stRadioOption"]),
-    [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu [data-testid="stLinkButton"] a {transition:none;transform:none;}
+    [data-testid="stMain"] .st-key-pastel_tools .st-key-tool_links_menu :is([data-testid="stLinkButton"] a,.st-key-tool_desmos_inline_toggle button) {transition:none;transform:none;}
 }
 </style>
 """
@@ -369,6 +378,29 @@ def apps_panel(links):
     ui.embed(url, height=760)
 
 
+
+def toggle_desmos_inline():
+    st.session_state[DESMOS_INLINE] = not st.session_state.get(DESMOS_INLINE, False)
+
+
+def desmos_panel(url):
+    """Offer one calculator in two places; load its iframe only when requested."""
+    opened = st.session_state.get(DESMOS_INLINE, False)
+    with st.container(key="tool_links_menu"):
+        with st.container(key="tool_desmos_launch"):
+            outside, inside = st.columns(2)
+            outside.link_button("데스모스 전체 화면으로 열기", url, width="stretch")
+            with inside:
+                st.button(
+                    "이 화면에서 데스모스 닫기" if opened else "이 화면에서 데스모스 열기",
+                    key="tool_desmos_inline_toggle", on_click=toggle_desmos_inline,
+                    type="primary" if opened else "secondary", width="stretch",
+                )
+    if opened:
+        with st.container(key="tool_inline_calculator"):
+            ui.embed(url, height=560)
+
+
 def page(user):
     # Page-local injection also styles direct entrypoints and embedded render paths.
     st.markdown(TOOLS_PAGE_CSS + _tool_color_rules(), unsafe_allow_html=True)
@@ -463,6 +495,8 @@ def _page(user):
                         unsafe_allow_html=True,
                     )
                     st.caption("선생님이 링크를 준비 중이에요.")
+            elif key == "tool_desmos":
+                desmos_panel(links[0][1])
             elif key == "tool_apps":
                 if st.session_state.get(ACTIVE_APP) not in links:
                     st.markdown(
@@ -476,14 +510,10 @@ def _page(user):
                     cols = st.columns(min(len(links), 3))
                     for i, (name, url) in enumerate(links):
                         cols[i % len(cols)].link_button(name, url, width="stretch")
-            if key == "tool_desmos" and links:
-                with st.container(key="tool_inline_calculator"):
-                    with st.expander("이 화면에서 바로 계산기 열기"):
-                        ui.embed(links[0][1], height=560)
     if is_t:
         with st.container(key="tool_link_editor"):
             with st.expander(f"⚙️ {title} 링크 고치기"):
-                st.caption("한 줄에 하나씩 `이름|주소` 형식으로 적어 주세요.")
+                st.caption("첫 번째 줄의 주소가 두 열기 방식에 함께 적용됩니다. `이름|주소` 형식으로 적어 주세요." if key == "tool_desmos" else "한 줄에 하나씩 `이름|주소` 형식으로 적어 주세요.")
                 new = st.text_area("링크", value=db.get_setting(key), key=f"edit_{key}", height=100)
                 if st.button("저장", key=f"save_{key}"):
                     db.set_setting(key, new)
