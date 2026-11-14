@@ -187,7 +187,7 @@ def act(user, code, event):
             start = event.get('start'); data = event.get('inputs')
             if type(start) is not int or start < 0 or not isinstance(data,list) or len(data)>1800:
                 raise ValueError('게임 입력을 다시 확인해 주세요.')
-            if any(type(k) is not int or not 0 <= k <= 15 for k in data): raise ValueError('지원하지 않는 게임 입력입니다.')
+            if any(type(k) is not int or not 0 <= k <= sim.input_limit(run['sim']) for k in data): raise ValueError('지원하지 않는 게임 입력입니다.')
             if start > run['sim']['t']: raise ValueError('아직 저장하지 못한 조작이 있어요. 다시 연결해 주세요.')
             ceiling = min(1800, math.floor(max(0,min(now,run['until'])-run['start'])*sim.HZ))
             if start+len(data) > ceiling: raise ValueError('서버의 게임 시간보다 빠른 기록은 반영할 수 없어요.')

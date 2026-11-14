@@ -1,9 +1,11 @@
 """Deterministic 20 Hz games. The server replays inputs, never client scores.
 
 Integer coordinates and a 32-bit PRNG keep Python and JavaScript in agreement.
-Inputs: left=1, right=2, up/jump=4, down=8. Ticks are bounded by server time.
+Inputs: left=1, right=2, up/jump=4, down=8, space-v2 fire=16.
+Ticks are bounded by server time. Saved legacy rounds retain their old rules.
 """
 from .catalog import GAMES
+from .space_simulation import initial_space, step_space
 
 HZ = 20
 
@@ -51,7 +53,7 @@ def initial(game, seed):
     s = dict(game=game, rng=int(seed) % 4294967296, t=0, prev=0, score=0, combo=0, best_combo=0,
              hits=0, safe=0, x=140, y=340, vy=0, grounded=True, objects=[], bullets=[],
              lane=1, boost=0, bx=360, by=315, vx=5, bvy=-7, level=1)
-    if game == 'space': s['x'] = 360
+    if game == 'space': initial_space(s)
     if game == 'blocks': s['x'] = 360; blocks(s)
     if game == 'maze': maze(s)
     return s
@@ -101,9 +103,13 @@ def step(s, keys):
                 score(s, 5); o['touched'] = True
         if t % 20 == 0: s['score'] += 2
         s['objects'] = [o for o in s['objects'] if o['y'] < 480]
+    elif g == 'space' and s.get('rules_version', 1) >= 2:
+        step_space(s, keys, rand, score)
     elif g == 'space':
         s['x'] = max(30, min(690, s['x']+dx*10))
-        if t % 5 == 0: s['bullets'].append(dict(x=s['x'], y=330))
+        dy = int(bool(keys & 8)) - int(bool(keys & 4))
+        s['y'] = max(180, min(385, s['y']+dy*8))
+        if t % 5 == 0: s['bullets'].append(dict(x=s['x'], y=s['y']-10))
         if t % 14 == 1: s['objects'].append(dict(x=30+rand(s, 660), y=-20, kind='rock', dead=False))
         for b in s['bullets']: b['y'] -= 15
         for o in s['objects']:
@@ -111,7 +117,7 @@ def step(s, keys):
             for b in s['bullets']:
                 if not o['dead'] and b['y'] > -50 and abs(b['x']-o['x']) < 25 and abs(b['y']-o['y']) < 25:
                     o['dead'] = True; b['y'] = -100; score(s, 20)
-            if not o['dead'] and abs(s['x']-o['x']) < 35 and abs(340-o['y']) < 30:
+            if not o['dead'] and abs(s['x']-o['x']) < 35 and abs(s['y']-o['y']) < 30:
                 hit(s); o['dead'] = True
         s['bullets'] = [b for b in s['bullets'] if b['y'] > -20]
         s['objects'] = [o for o in s['objects'] if not o['dead'] and o['y'] < 460]
@@ -144,8 +150,12 @@ def step(s, keys):
     return s
 
 
+def input_limit(s):
+    return 31 if s['game'] == 'space' and s.get('rules_version', 1) >= 2 else 15
+
+
 def replay(s, inputs):
-    if not isinstance(inputs, list) or len(inputs) > 1800 or any(type(k) is not int or not 0 <= k <= 15 for k in inputs):
+    if not isinstance(inputs, list) or len(inputs) > 1800 or any(type(k) is not int or not 0 <= k <= input_limit(s) for k in inputs):
         raise ValueError('게임 입력을 확인해 주세요.')
     for keys in inputs: step(s, keys)
     return s
