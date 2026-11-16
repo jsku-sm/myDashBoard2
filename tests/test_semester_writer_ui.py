@@ -189,7 +189,7 @@ def test_points_are_visible_separately_and_not_offered_as_ai_evidence(ui):
     assert not ui.ai.draft.called
 
 
-def test_select_generate_and_accept_unchanged_without_typing_or_extra_approvals(ui):
+def test_selected_evidence_generates_without_retyping_but_final_requires_revision(ui):
     app=ui.app
     evidence=next(e for e in ctx(app)['buffers'][SID]['workspace']['data']['evidence'] if e['category']=='sudanotes')
     pick(app.multiselect,'활용할 자료 선택 · 수다노트/관찰/수행평가/퀴즈/게임').select(evidence['id']).run()
@@ -208,10 +208,19 @@ def test_select_generate_and_accept_unchanged_without_typing_or_extra_approvals(
     assert generated=='좌표 관계를 확인함.'
     assert pick(app.button,'완성본 저장').disabled
     pick(app.checkbox,'내용과 근거를 검토했으며, 이 문장을 완성본으로 확정합니다.').check().run()
+    final_button=pick(app.button,'완성본 저장')
+    if not final_button.disabled:
+        final_button.click().run()
+        assert app.error and not app.exception
+    pending=ui.s.load_term(SID,'공통수학2',2026,2)['data']['current']
+    assert pending['kind']=='working_draft' and pending['text']==generated
+    assert pick(app.text_area,'교과세특 작성 내용').value==generated
+    revised='대칭이동을 공부하며 틀린 y좌표를 수정했다고 수다노트에 기록함.'
+    pick(app.text_area,'교과세특 작성 내용').set_value(revised).run()
     pick(app.button,'완성본 저장').click().run()
     assert not app.exception and not app.error
     saved=ui.s.load_term(SID,'공통수학2',2026,2)['data']['current']
-    assert saved['kind']=='final' and saved['text']==generated
+    assert saved['kind']=='final' and saved['text']==revised
     assert saved['teacher_confirmed'] and saved['ai_draft']
     assert saved['review_note']==''
     app.run();assert ui.ai.draft.call_count==1

@@ -16,6 +16,7 @@ from .service import byte_count
 from .semester import SemesterRecords, RecordPending, RecordConflict, term_dates
 from .view import values, _files
 from .presentation import evidence_card, math_markdown
+from .writing_policy import GUIDELINE_SOURCES
 
 CSS = '''<style>
 .record-writer-steps{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 18px}.record-writer-steps span{padding:7px 13px;border-radius:20px;background:#f5f1e8;color:#756c57;font-size:.82rem;border:1px solid #e3dfd4}
@@ -214,8 +215,17 @@ def render():
             target = int(c1.number_input('AI 목표 글자 수', min_value=100, max_value=1000, value=400, step=50, key=root+'_target'))
             limit = int(c2.number_input('완성본 저장 분량 기준(참고 바이트)', min_value=100, max_value=6000, value=1500, step=100, key=root+'_limit'))
             guidance = st.text_area('교사 제공 작성 기준 · 기재 지침 발췌(선택)', max_chars=16000, height=130, key=root+'_guidance',
-                                    placeholder='추후 제공할 기재 지침의 관련 내용을 여기에 입력할 수 있어요.')
-            st.caption('공식 기재 지침 파일은 아직 반영되지 않았습니다. 위 분량은 앱의 조정 가능한 작업 기준이며, 공식 입력 한도를 판정하는 값이 아닙니다.')
+                                    placeholder='학교의 추가 작성 기준이나 확인할 수업 맥락을 입력하세요. 기본 기재요령과 성취기준은 자동 반영됩니다.')
+            st.caption('2026 기재요령 반영: 2026학년도 1~2학년 공통수학1·2는 합산 한글 기준 500자(1500B) 이내입니다. 위 설정은 작업용이며 다른 과목·학기의 저장본과 합산 한도를 자동 판정하지 않습니다.')
+        with st.expander('적용 중인 기재요령 · 성장 중심 작성 원칙', expanded=False):
+            st.markdown('**구체적인 수행 → 개념 이해·적용 → 관찰된 태도·변화 → 후속 학습 목표**를 근거에 맞게 연결합니다. 비교 자료가 없으면 향상을 만들지 않고, 자기성찰에 적은 학습 희망을 이미 성취한 능력으로 바꾸지 않습니다.')
+            st.caption('공통수학2는 2022 개정 교육과정의 성취기준 20개 중 선택 자료의 주제에 맞는 참고 후보를 연결합니다. 성취 여부를 자동 판정하지 않으며, 공통수학1에 공통수학2 기준을 적용하지 않습니다.')
+            for source in GUIDELINE_SOURCES:
+                pages = ' · 인쇄 ' + ', '.join(str(n) for n in source.get('printed_pages', [])) + '쪽' if source.get('printed_pages') else ''
+                st.caption(source['title'] + pages + ' · ' + source['priority'])
+            st.caption('기존 저장 문장은 자동 변경되지 않습니다. 새 기준은 새로 생성하는 초안에 적용됩니다.')
+        if year != 2026:
+            st.info('현재 반영한 기재요령은 2026년판입니다. 선택 학년도의 공식 기재요령과 학교 적용 기준을 확인해 주세요.')
         if len(period) != 2:
             st.info('자료 시작일과 종료일을 모두 선택해 주세요.'); return
         start, end = period
@@ -294,7 +304,7 @@ def _student(service, ctx, sid, config, settings, year, term, subject, start, en
                     status.update(label='생성 또는 저장 상태를 확인해 주세요.', state='error')
                     raise
                 status.update(label='AI 초안 작성과 저장을 마쳤습니다.', state='complete')
-            ctx['notice'] = 'AI 초안이 작성되었습니다. 내용을 검토한 뒤 그대로 확정하거나 수정해 저장하세요.'; st.rerun()
+            ctx['notice'] = 'AI 참고 초안이 작성되었습니다. 실제 수행·근거와 대조하여 교사가 검토·수정한 뒤 완성본으로 저장하세요.'; st.rerun()
         except Exception as exc:
             b['last_error'] = str(exc) if isinstance(exc, (ArchiveError, PermissionError, db.SetupError)) else '초안 처리 중 오류가 발생했습니다. 선택 자료와 작성 내용은 유지했습니다. AI 연결 상태를 확인해 주세요.'
             if getattr(exc, 'completed_draft', None):
@@ -304,17 +314,31 @@ def _student(service, ctx, sid, config, settings, year, term, subject, start, en
     else: st.caption(f"선택한 자료 {len(b['reviews'])}건으로 생성할 수 있습니다. 추가 메모 입력은 선택 사항입니다.")
     with st.expander('AI에 전달할 내용 확인', expanded=False):
         if ready:
-            for fact in json.loads(preview)['facts']:
+            preview_data = json.loads(preview)
+            for fact in preview_data['facts']:
                 st.caption(f"{fact['date']} · {fact['source']} · {fact['title']}")
                 st.markdown(math_markdown(fact['confirmed_fact']))
+            context = preview_data.get('writing_context', {})
+            st.markdown('**함께 적용할 성취기준 참고 후보**')
+            for standard in context.get('curriculum', {}).get('standards', []):
+                st.markdown(math_markdown(f"**[{standard['code']}] {standard['area']}** · {standard['text']}"))
+                st.caption(f"수학과 교육과정 인쇄 {standard['printed_page']}쪽 · {standard['match_note']}")
+            if not context.get('curriculum', {}).get('standards'):
+                if context.get('curriculum', {}).get('status') == 'not_supported':
+                    st.caption('현재 성취기준 자동 연결은 공통수학2에 제공됩니다. 선택 과목의 성취기준은 교사가 별도로 확인해 주세요.')
+                else:
+                    st.caption('자동 연결된 기준이 없습니다. 공통수학2 단원·개념을 자료의 반영 내용에 구체적으로 적거나 교사가 해당 기준을 확인해 주세요.')
+            st.caption('기준은 주제 연결 후보이며, 학생이 이 기준 전체를 성취했다는 뜻은 아닙니다. 위 기본 작성 원칙도 함께 적용됩니다.')
+            with st.container():
+                st.text(preview)
         else:
             st.caption(preview)
         if settings['guidance']: st.markdown(math_markdown('교사 제공 작성 기준:\n' + settings['guidance']))
     # Text editor always exists, including students with no submitted evidence.
     st.markdown('#### 3. 초안 검토·수정 후 확정')
-    st.caption('내용이 적절하면 그대로 확정할 수 있습니다. 수정이 필요한 부분만 고쳐 주세요.')
+    st.caption('2026 기재요령 19쪽에 따라 AI 원문은 참고용으로 사용하고, 실제 수행과 대조해 교사가 직접 작성·수정하세요. 동일 원문과 공백·구두점만 바꾼 문장은 완성본으로 저장되지 않습니다. 문장을 고쳤다는 사실만으로 기재 적합성이 보증되지는 않습니다.')
     b['text'] = st.text_area('교과세특 작성 내용', value=b['text'], height=240, key=p+'text')
-    st.caption(f"{len(b['text'])}자 · UTF-8/CRLF 참고 {byte_count(b['text'])}B / 설정 기준 {settings['byte_limit']}B")
+    st.caption(f"{len(b['text'])}자 · UTF-8 참고 {byte_count(b['text'])}B(줄바꿈 1B) / 설정 기준 {settings['byte_limit']}B · 공통수학1·2 합산은 별도 확인")
     b['review_note'] = st.text_input('교사 확인·수정 메모', value=b['review_note'], key=p+'review_note', placeholder='선택 사항 · 추가로 남길 검토 내용이 있을 때 입력하세요.')
     verified = st.checkbox('내용과 근거를 검토했으며, 이 문장을 완성본으로 확정합니다.', key=p+'verified')
     a, c = st.columns(2)
@@ -336,8 +360,15 @@ def _student(service, ctx, sid, config, settings, year, term, subject, start, en
                     source = sources.get(eid, {})
                     st.caption('근거: ' + ' · '.join(str(source.get(k, '')) for k in ('date', 'label', 'title')))
             for caution in b['ai_draft'].get('cautions', []): st.info(caution)
+            context = b['ai_draft'].get('writing_context') or {}
+            if context:
+                codes = ', '.join(s['code'] for s in context.get('curriculum', {}).get('standards', []))
+                st.caption('생성 당시 적용 기준: ' + str(context.get('guideline_year', '')) + ' 기재요령 · ' + (codes or '성취기준 주제 확인 필요'))
+            else:
+                st.caption('이 초안에는 이번 기재요령·성취기준 적용 이력이 없습니다. 기존 문장을 보관하며, 새 기준으로 작성하려면 새 초안을 생성하세요.')
             if st.button('AI 연결 해제 · 교사 직접 작성', key=p+'manual'):
                 b['ai_draft']=None; st.rerun()
+            st.caption('직접 작성으로 전환해도 기존 AI 원문 이력은 보존합니다. 실제 수행과 대조하여 문장을 작성해 주세요.')
     if b.get('candidate'):
         with st.expander('저장 확인이 필요한 AI 생성 결과', expanded=True):
             st.text(b['candidate']['text'])
@@ -454,6 +485,7 @@ def _whole(service, ctx, names, settings, year, term, subject, start, end):
         ctx['table_edits'][row['학번']]={'text':row['교과세특'] or '', 'review_note':row['교사 확인·수정 메모'] or '', 'final':bool(row['완성본으로 저장']),
                                      'dirty':row['교과세특']!=b['text'] or row['교사 확인·수정 메모']!=b['review_note']}
     verified=st.checkbox('완성본으로 표시한 학생의 근거·내용·분량을 모두 확인했습니다.',key=ctx['key']+'_bulk_confirm')
+    st.caption('일괄 저장도 교사 검토·수정 원칙을 동일하게 적용합니다. AI 원문과 동일한 문장은 참고 초안으로 보관하고 완성본 저장 전에 직접 작성·수정하세요.')
     if st.button('표의 수정 내용 저장',key=ctx['key']+'_bulk_save',type='primary',disabled=service.pending()):
         errors=[];saved=0
         if any(ctx['table_edits'][sid]['final'] for sid in selected) and not verified:

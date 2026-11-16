@@ -348,17 +348,21 @@ def test_save_unconfirmed_work_then_restore_and_finalize(env):
     assert any('/school_records/' in p and '/history/' in p for p in env.b.files)
 
 
-def test_final_accepts_reviewed_ai_and_does_not_accept_stale_source(env):
+def test_final_requires_revised_ai_and_does_not_accept_stale_source(env):
     w=env.load();e=next(e for e in w['data']['evidence'] if e['category']=='sudanotes');r=review(e)
     d={'text':'AI 초안 문장임.','evidence_hashes':{e['id']:e['evidence_hash']}}
-    env.s.save(w,[r],d['text'],d,final=True,confirmed=True)
+    with pytest.raises(ArchiveError):env.s.save(w,[r],d['text'],d,final=True,confirmed=True)
+    revised='대칭이동 풀이에서 y좌표의 부호 오류를 대조하고 수정한 내용을 기록함.'
+    env.s.save(w,[r],revised,d,final=True,confirmed=True)
+    assert env.b.rows['records'][0]['text']==revised
     w=env.load()
     env.b.update('sudanotes','note1',{'q1':'교사가 아직 보지 않은 새 내용'});env.b.flush()
     with pytest.raises(ArchiveError):env.s.save(w,[r],'교사의 수정 문장임.',d,final=True,confirmed=True,review_note='자료를 다시 대조함.')
 
 
 def test_byte_count_and_length_guard():
-    assert byte_count('가\n나')==8
+    assert byte_count('가\n나')==7
+    assert byte_count('가\r\n나')==7 and byte_count('가\r나')==7
     with pytest.raises(ArchiveError):check_final('가'*501,None,confirmed=True,review_note='교사 확인함.')
     with pytest.raises(ArchiveError):check_final('직접 기록함.',None,confirmed=False,review_note='교사 확인함.')
     check_final('직접 기록함.',None,confirmed=True,review_note='교사 확인함.')

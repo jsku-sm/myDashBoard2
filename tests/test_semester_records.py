@@ -102,12 +102,16 @@ def test_final_can_reopen_edit_and_keeps_previous_final(term):
     assert term.s.export_csv([term.load()],final_only=True).decode('utf-8-sig').count('\n')==1
 
 
-def test_final_accepts_reviewed_unchanged_ai_but_rejects_unverified_and_stale_evidence(term):
+def test_final_requires_teacher_revision_and_rejects_unverified_or_stale_evidence(term):
     w=term.load();r=reviews(w)
     with pytest.raises(ArchiveError):term.s.save_term(w,r,'완성 문장',final=True)
     a={'text':'동일한 AI 초안','evidence_hashes':{r[0]['evidence_id']:r[0]['evidence_hash']}}
-    saved=term.s.save_term(w,r,'동일한 AI 초안',a,final=True,confirmed=True)
-    assert saved['kind']=='final' and saved['ai_draft']==a
+    with pytest.raises(ArchiveError):term.s.save_term(w,r,a['text'],a,final=True,confirmed=True)
+    assert term.load()['data']['current'] is None
+    revised='대칭이동에서 y좌표의 부호를 대조하여 자신의 풀이를 수정한 내용을 기록함.'
+    saved=term.s.save_term(w,r,revised,a,final=True,confirmed=True)
+    assert saved['kind']=='final' and saved['ai_draft']==a and saved['text']==revised
+    assert saved['review_note']==''  # A separate memo remains optional.
     w=term.load()
     term.b.rows['sudanotes'][0]['q1']='원본이 나중에 바뀜';term.s.sync_sources(SID)
     with pytest.raises(ArchiveError):term.s.save_term(w,r,'교사가 고친 문장',final=True,confirmed=True,review_note='교사 확인 기록')

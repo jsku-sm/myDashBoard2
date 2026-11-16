@@ -216,7 +216,7 @@ def _workspace(service,workspace,prefix,config):
                 st.session_state[prefix+"draft"]=draft
                 st.session_state[prefix+"text"]=draft["text"]
                 service.save(workspace,reviews,draft["text"],draft,st.session_state.get(prefix+"analyses",[]))
-            st.success("참고 초안을 저장했습니다. 근거와 대조해 검토한 뒤 그대로 확정하거나 필요한 부분을 수정하세요.")
+            st.success("참고 초안을 저장했습니다. 2026 기재요령에 따라 근거와 대조하여 교사가 검토·수정한 뒤 확정하세요.")
         except Exception as error: _error(error)
     draft=st.session_state.get(prefix+"draft")
     if draft:
@@ -225,10 +225,10 @@ def _workspace(service,workspace,prefix,config):
             for sentence in draft.get("sentences",[]): st.write({"문장":sentence["text"],"근거":sentence["evidence_ids"]})
             for caution in draft.get("cautions",[]): st.warning(caution)
         if st.button("AI 초안과 연결 해제 · 교사 직접 작성으로 전환",key=prefix+"manual"):
-            st.session_state[prefix+"draft"]=None; st.rerun()
+            st.session_state[prefix+"draft"]={**draft, "detached":True}; st.rerun()
     text=st.text_area("교사 작성·수정란",key=prefix+"text",height=230)
     count=byte_count(text)
-    st.caption(f"{len(text)}자 · UTF-8/CRLF 참고값 {count}B · 학교의 실제 입력 기준과 대조하세요.")
+    st.caption(f"{len(text)}자 · UTF-8 참고값 {count}B(줄바꿈 1B) · 공통수학1·2 합산 분량과 학교의 실제 입력 기준을 확인하세요.")
     if st.button("작성 중 내용 저장",key=prefix+"save_draft"):
         try:
             # Unconfirmed observations remain drafts and cannot generate/finalize.

@@ -1,0 +1,105 @@
+{
+  "base_archive": "myDashBoard2-main (1116).zip",
+  "base_sha256": "7090d1e5b59e7739c6ea0ad0f432f601857fa17015b9b247c4ef50afca3a4a37",
+  "generated_date": "2026-11-16",
+  "policy_version": "school-record-2026-grounded-growth-v1",
+  "tests": {
+    "passed": 190,
+    "failed": 0,
+    "skipped": 0,
+    "live_ai_called": false
+  },
+  "files": [
+    {
+      "path": "record_core/ai.py",
+      "status": "modified",
+      "sha256": "6ef6020060d7f6f0758c641d886e105fc49176e0354f43404db2bb1800c58ec5",
+      "original_sha256": "8dc6094538e5892755fa3effaca849cce9c2f7492542d297beabac8ca6223223",
+      "bytes": 23816
+    },
+    {
+      "path": "record_core/curriculum_common2.json",
+      "status": "added",
+      "sha256": "19a731f996784ce53802d70b1bf0a166b6e88a415272f7747d21b5b06243d156",
+      "original_sha256": null,
+      "bytes": 28355
+    },
+    {
+      "path": "record_core/semester.py",
+      "status": "modified",
+      "sha256": "8d031d9d9043d08d7ab232f0796584e6c500772bf7c82e9f0fd0cfd7c630559e",
+      "original_sha256": "48e853c131160d0a4a8eb72da19546c84d084c4670b951d96e44a9bf9c93689c",
+      "bytes": 21533
+    },
+    {
+      "path": "record_core/service.py",
+      "status": "modified",
+      "sha256": "8c3447d325297248cf0d320304692658f3571033288adc938bbe1c7db24a3cc2",
+      "original_sha256": "0f8d30bb12fdf1058cfe7a4a901f49459e05af711eb57a7e59d4aed9afbc2f9f",
+      "bytes": 16078
+    },
+    {
+      "path": "record_core/view.py",
+      "status": "modified",
+      "sha256": "6a7a9e38bd74c5d51d68035a2b653b95b3581d15e94c549ee9b571e6293aa029",
+      "original_sha256": "4af47ece53bc07d8bd06634ac7c9b8745b2f11a1917ba4dc55a05dbf057b1380",
+      "bytes": 23126
+    },
+    {
+      "path": "record_core/writer_view.py",
+      "status": "modified",
+      "sha256": "fb682dd59f7a15ee5d380c11ad5deec318681c8fcaf839aa248ac44f68d4c0be",
+      "original_sha256": "850aa9c9c253c7692a8c8f211648226a4cf5dd17e0a85cdd56499168d350bfcf",
+      "bytes": 43866
+    },
+    {
+      "path": "record_core/writing_policy.py",
+      "status": "added",
+      "sha256": "ade04f32b1eb90b34d2cb2be0ca12b12e9e9e829642923c65f14f92659e685f9",
+      "original_sha256": null,
+      "bytes": 14607
+    },
+    {
+      "path": "tests/test_record_writing_policy.py",
+      "status": "added",
+      "sha256": "983b3144fed4cb92e7e13d37b82fadfc654a1d91568dbbaa3e300d3f63c09a75",
+      "original_sha256": null,
+      "bytes": 14342
+    },
+    {
+      "path": "tests/test_semester_records.py",
+      "status": "modified",
+      "sha256": "5b449168e978b2cdd1c725fee48310c7378f318dcd14405af815ea09771cbc26",
+      "original_sha256": "00a19afb3c661bdda8473489d97c9a4c0c077297470eb44649dd123b5095904d",
+      "bytes": 11811
+    },
+    {
+      "path": "tests/test_semester_writer_ui.py",
+      "status": "modified",
+      "sha256": "36e4d4505003adf2f9de2ae339dbdb7cd0352c0297598bcfc72790cb6ded3b54",
+      "original_sha256": "5f194aa75127e860c9f5ac988a23d4c799de51409ca99f038a949ef2c68d993d",
+      "bytes": 15446
+    },
+    {
+      "path": "tests/test_student_record_vault.py",
+      "status": "modified",
+      "sha256": "102c2c11c9ca2a2cb4ba397200d90bb93938b7e4eafa585cd8d42e49a30988b7",
+      "original_sha256": "06b0532769d82affbb9b32ca702b699d2d45240aa5ae7b0b65481ecc2e729808",
+      "bytes": 34029
+    },
+    {
+      "path": "docs/student_record_growth_2026.md",
+      "status": "added",
+      "sha256": "2dd3347492a1b008b4b50a276cb5130eaeffdac877d1176e63f27813e05f930e",
+      "original_sha256": null,
+      "bytes": 12128
+    },
+    {
+      "path": "docs/record_writing_policy_verification.json",
+      "status": "added",
+      "sha256": "b9f417da5191d0f162551b408f836f3db5513f056ebf1b8021e1ff4fbc11eaba",
+      "original_sha256": null,
+      "bytes": 88076
+    }
+  ]
+}

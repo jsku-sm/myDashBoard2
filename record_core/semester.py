@@ -196,10 +196,13 @@ class SemesterRecords(RecordService):
         reviews = self._reviews(d, reviews)
         if self.pending():
             raise RecordPending()
+        prior = d.get('current') or {}
+        ai_origin_text = ((ai_draft or {}).get('text') or prior.get('ai_origin_text')
+                          or (prior.get('ai_draft') or {}).get('text', ''))
         facts = []
         if final:
             facts = validate_reviews(d['evidence'], reviews, d['subject'])
-            check_final(text, (ai_draft or {}).get('text', ''), confirmed=confirmed, review_note=review_note, byte_limit=byte_limit)
+            check_final(text, ai_origin_text, confirmed=confirmed, review_note=review_note, byte_limit=byte_limit)
             if ai_draft and ai_draft.get('evidence_hashes') != {r['evidence_id']: r['evidence_hash'] for r in reviews}:
                 raise ArchiveError('초안 작성 후 근거가 바뀌었어요. 재생성하거나 교사 직접 작성으로 전환하세요.')
             self._flush(d['scope_id'], d['teacher_id'])
@@ -213,6 +216,7 @@ class SemesterRecords(RecordService):
             payload = {k: d[k] for k in ('scope_id', 'teacher_id', 'student_id', 'subject', 'academic_year', 'semester', 'start', 'end')}
             payload.update(format='semester-record-v1', kind='final' if final else 'working_draft',
                            revision=d['revision'] + 1, text=text, reviews=copy.deepcopy(reviews), ai_draft=copy.deepcopy(ai_draft),
+                           ai_origin_text=ai_origin_text,
                            analyses=copy.deepcopy(analyses or []), sources=facts, review_note=review_note,
                            teacher_confirmed=bool(final and confirmed), saved_at=utcnow(), settings=settings,
                            generation_id=generation_id,
@@ -292,7 +296,8 @@ class SemesterRecords(RecordService):
             self._flush(d['scope_id'], d['teacher_id'])  # Do not charge before the request receipt is durable.
             report('AI가 선택한 자료로 초안을 작성하고 있어요.')
             try:
-                result = ai.draft(d['subject'], facts, self.identities(), target_chars, consent=True, guidance=guidance)
+                result = ai.draft(d['subject'], facts, self.identities(), target_chars, consent=True, guidance=guidance,
+                                  academic_year=d['academic_year'])
                 self.actor()
             except Exception as error:
                 job.update(state='failed', finished_at=utcnow())

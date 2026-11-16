@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import re
+import unicodedata
 import uuid
 from .archive import ArchiveError, canonical, fingerprint, utcnow
 from .evidence import project, validate_reviews
@@ -17,12 +18,13 @@ def scope_id(actor_id, sid, subject, start, end):
 
 
 def byte_count(text):
-    # UTF-8 with CRLF newlines. A display aid, not a guarantee of NEIS rules.
-    return len(str(text).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n").encode("utf-8"))
+    # 2026 guide p.208: Korean 3B, ASCII 1B, newline 1B. Still a display aid.
+    return len(str(text).replace("\r\n", "\n").replace("\r", "\n").encode("utf-8"))
 
 
 def normalized_text(text):
-    return re.sub(r"\s+", "", str(text))
+    # A review aid, not a semantic detector or a legal minimum revision rule.
+    return "".join(c for c in unicodedata.normalize("NFKC", str(text)) if c.isalnum())
 
 
 def check_final(text, ai_draft, *, confirmed, review_note, byte_limit=1500):
@@ -30,6 +32,8 @@ def check_final(text, ai_draft, *, confirmed, review_note, byte_limit=1500):
         raise ArchiveError("교사가 작성한 최종 문장을 입력하세요.")
     if not confirmed:
         raise ArchiveError("내용과 근거를 검토한 뒤 완성본 확정 항목을 체크하세요.")
+    if ai_draft and normalized_text(text) == normalized_text(ai_draft):
+        raise ArchiveError("AI 원문은 참고 초안으로 보관할 수 있습니다. 2026 기재요령 19쪽에 따라 실제 수행과 대조하여 교사가 직접 작성·수정한 뒤 완성본으로 저장하세요. 공백·구두점 변경만으로는 검토·수정으로 처리하지 않습니다.")
     if byte_count(text) > byte_limit:
         raise ArchiveError(f"설정한 분량 기준({byte_limit}B)을 넘었습니다. 학교의 입력 기준을 확인하고 분량을 조정하세요.")
 
@@ -179,7 +183,8 @@ class RecordService:
     def draft(self, workspace, reviews, ai, *, consent, target_chars=400):
         data = self.validate(workspace)
         facts = validate_reviews(data["evidence"], reviews, data["subject"])
-        result = ai.draft(data["subject"], facts, self.identities(), target_chars, consent=consent)
+        result = ai.draft(data["subject"], facts, self.identities(), target_chars, consent=consent,
+                          academic_year=data.get("academic_year"))
         self.actor()
         result["evidence_hashes"] = {r["evidence_id"]:r["evidence_hash"] for r in reviews}
         return result
@@ -187,10 +192,15 @@ class RecordService:
     def input_preview(self, workspace, reviews, target_chars=400):
         data = self.validate(workspace)
         facts = validate_reviews(data["evidence"], reviews, data["subject"])
-        return draft_input(data["subject"], facts, self.identities(), target_chars)
+        return draft_input(data["subject"], facts, self.identities(), target_chars, academic_year=data.get("academic_year"))
 
     def save(self, workspace, reviews, text, ai_draft=None, analyses=None, *, final=False, confirmed=False, review_note="", byte_limit=1500):
         data = self.validate(workspace)
+        previous = sorted((p for p in data.get("saved", []) if p.get("kind") in ("working_draft", "final")),
+                          key=lambda p:p.get("saved_at", ""), reverse=True)
+        prior = previous[0] if previous else {}
+        ai_origin_text = ((ai_draft or {}).get("text") or prior.get("ai_origin_text")
+                          or (prior.get("ai_draft") or {}).get("text", ""))
         if final:
             facts = validate_reviews(data["evidence"], reviews, data["subject"]) if reviews else []
         else:
@@ -204,16 +214,21 @@ class RecordService:
         if final:
             if not facts:
                 raise ArchiveError("최종 문장에는 교사가 확인한 근거가 필요합니다.")
-            check_final(text, (ai_draft or {}).get("text", ""), confirmed=confirmed, review_note=review_note, byte_limit=byte_limit)
-            if ai_draft and ai_draft.get("evidence_hashes") != {r["evidence_id"]:r["evidence_hash"] for r in reviews}:
+            if ai_draft and not ai_draft.get("detached") and ai_draft.get("evidence_hashes") != {r["evidence_id"]:r["evidence_hash"] for r in reviews}:
                 raise ArchiveError("초안 작성 후 근거 선택이 바뀌었습니다. 새 근거로 초안을 다시 작성하거나 직접 작성 모드로 전환하세요.")
             # A new submission/grading between review and finalization requires review again.
             self.backend.flush()
             fresh = self.load(data["student_id"], data["subject"], data["start"], data["end"])
             validate_reviews(fresh["data"]["evidence"], reviews, data["subject"])
+            saved_ai = sorted((p for p in fresh["data"]["saved"] if p.get("kind") in ("working_draft", "final")),
+                              key=lambda p:p.get("saved_at", ""), reverse=True)
+            if not ai_origin_text and saved_ai:
+                ai_origin_text = (saved_ai[0].get("ai_origin_text") or (saved_ai[0].get("ai_draft") or {}).get("text", ""))
+            check_final(text, ai_origin_text, confirmed=confirmed, review_note=review_note, byte_limit=byte_limit)
         payload = {k:data[k] for k in ("scope_id", "teacher_id", "student_id", "subject", "start", "end")}
         payload.update(kind="final" if final else "working_draft", text=str(text), reviews=copy.deepcopy(reviews),
                        ai_draft=copy.deepcopy(ai_draft), analyses=copy.deepcopy(analyses or []), sources=copy.deepcopy(facts),
+                       ai_origin_text=ai_origin_text,
                        source_manifest=[{"evidence_id":r["evidence_id"], "hash":r["evidence_hash"]} for r in reviews],
                        review_note=str(review_note), teacher_confirmed=bool(confirmed), saved_at=utcnow())
         self.backend.queue_archive(data["student_id"], "drafts", data["scope_id"], payload)
