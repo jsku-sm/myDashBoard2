@@ -294,10 +294,10 @@ def page(user):
     with st.container(key="pastel_sudanote"):
         ui.page_title("수다노트", "오늘 수업을 나의 언어로 정리하는 시간")
         st.markdown(CSS, unsafe_allow_html=True)
-        with st.container(border=True, key="sn_guide"):
-            st.markdown('<p class="sn-eyebrow">나의 배움 기록</p>', unsafe_allow_html=True)
-            st.markdown(SUDANOTE_GUIDE)
         if user["role"] == "teacher":
             _teacher()
         else:
+            with st.container(border=True, key="sn_guide"):
+                st.markdown('<p class="sn-eyebrow">나의 배움 기록</p>', unsafe_allow_html=True)
+                st.markdown(SUDANOTE_GUIDE)
             _student(user)
